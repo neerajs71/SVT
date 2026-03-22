@@ -1,9 +1,17 @@
-# Hello World
+# SVTC - SvelteKit Hello World
 
-A simple Hello World repository.
+A simple SvelteKit Hello World app deployed on Railway.
 
-## Usage
+## Development
 
 ```bash
-python hello.py
+npm install
+npm run dev
 ```
+
+## Deploy on Railway
+
+This project is configured for Railway with `railway.toml`.
+Railway will automatically build and start the app using:
+- Build: `npm install && npm run build`
+- Start: `node build`
