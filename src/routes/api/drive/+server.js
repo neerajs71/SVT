@@ -66,7 +66,12 @@ async function getAccessToken() {
 
   const jwtToken = `${header}.${payload}.${sig}`;
 
-  const tokenRes = await fetch(creds.token_uri, {
+  const tokenUri = creds.token_uri || 'https://oauth2.googleapis.com/token';
+  if (!tokenUri || !tokenUri.startsWith('http')) {
+    throw new Error(`Invalid token_uri in service account credentials: "${tokenUri}"`);
+  }
+
+  const tokenRes = await fetch(tokenUri, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
