@@ -36,7 +36,7 @@
     return root;
   }
 
-  function flatten(node, depth = 0, parentPath = '') {
+  function flatten(node, exp, depth = 0, parentPath = '') {
     const items = [];
     const entries = Object.values(node.children).sort((a, b) => {
       if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
@@ -44,9 +44,9 @@
     });
     for (const child of entries) {
       const path = parentPath ? `${parentPath}/${child.name}` : child.name;
-      items.push({ name: child.name, type: child.type, depth, path, hasChildren: child.type === 'dir' && Object.keys(child.children).length > 0, node: child });
-      if (child.type === 'dir' && expanded.has(path)) {
-        items.push(...flatten(child, depth + 1, path));
+      items.push({ name: child.name, type: child.type, depth, path, hasChildren: child.type === 'dir' && Object.keys(child.children).length > 0 });
+      if (child.type === 'dir' && exp.has(path)) {
+        items.push(...flatten(child, exp, depth + 1, path));
       }
     }
     return items;
@@ -58,7 +58,7 @@
     expanded = new Set(expanded);
   }
 
-  $: visibleItems = tree ? flatten(tree) : [];
+  $: visibleItems = tree ? flatten(tree, expanded) : [];
 </script>
 
 {#if open}
