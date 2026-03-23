@@ -83,13 +83,19 @@ node build           # run production server on port 3000
 ```
 /
 ├── CLAUDE.md                        # ← you are here
+├── README.md                        # project readme
 ├── Dockerfile                       # multi-stage bun build
 ├── .dockerignore                    # excludes node_modules, .svelte-kit, build, package-lock.json
+├── .env                             # environment variables (not committed)
+├── .gitignore
 ├── railway.toml                     # Railway: builder=DOCKERFILE
 ├── package.json                     # type=module, bun scripts
 ├── bun.lock                         # bun lockfile
+├── google-service-account.json      # Google service account credentials
 ├── svelte.config.js                 # adapter-node
 ├── vite.config.js                   # tailwindcss() + sveltekit() plugins
+├── static/
+│   └── virtual-mouse.js             # virtual mouse helper script
 └── src/
     ├── CLAUDE.md                    # src-level guide
     ├── app.css                      # Tailwind + Flowbite CSS entry
@@ -97,13 +103,27 @@ node build           # run production server on port 3000
     ├── routes/
     │   ├── CLAUDE.md                # routes guide
     │   ├── +layout.svelte           # imports app.css globally
-    │   └── +page.svelte             # Hello World page with Sidebar
+    │   ├── +page.svelte             # Hello World page with Sidebar
+    │   ├── about/
+    │   │   └── +page.svelte         # About page
+    │   └── api/
+    │       └── drive/
+    │           └── +server.js       # Google Drive API endpoint
     └── lib/
-        └── components/
-            └── Sidebar/
-                ├── CLAUDE.md        # Sidebar component guide
-                ├── Sidebar.svelte   # Flowbite Drawer-based sidebar
-                └── index.js         # barrel export
+        ├── components/
+        │   ├── NavMenu/
+        │   │   ├── CLAUDE.md        # NavMenu component guide
+        │   │   ├── NavMenu.svelte   # Navigation menu component
+        │   │   └── index.js         # barrel export
+        │   └── Sidebar/
+        │       ├── CLAUDE.md        # Sidebar component guide
+        │       ├── Sidebar.svelte   # Flowbite Drawer-based sidebar
+        │       └── index.js         # barrel export
+        └── datasource/
+            ├── LocalDataSource.js   # local data source implementation
+            ├── RemoteDataSource.js  # remote (Google Drive) data source
+            ├── index.js             # barrel export
+            └── store.js             # Svelte store for data state
 ```
 
 ---
