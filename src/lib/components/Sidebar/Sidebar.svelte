@@ -1,66 +1,18 @@
 <script>
   import { Tooltip } from 'flowbite-svelte';
   import { FolderOpenSolid, FolderSolid, FileLinesOutline, CloudArrowUpOutline, DesktopPcOutline } from 'flowbite-svelte-icons';
+  import { datasourceStore } from '$lib/datasource';
 
   export let open = false;
 
   let fileInput;
-  let tree = null;
-  let expanded = new Set();
-  let mode = 'local'; // 'local' | 'remote'
 
   function handleFiles(e) {
-    const files = Array.from(e.target.files);
-    if (!files.length) return;
-    tree = buildTree(files);
-    // auto-expand the root folder
-    const rootName = files[0].webkitRelativePath.split('/')[0];
-    expanded = new Set([rootName]);
+    datasourceStore.loadLocalFiles(Array.from(e.target.files));
   }
 
-  function buildTree(files) {
-    const root = { name: '', children: {}, type: 'dir' };
-    for (const file of files) {
-      const parts = file.webkitRelativePath.split('/');
-      let node = root;
-      for (let i = 0; i < parts.length; i++) {
-        const part = parts[i];
-        if (i === parts.length - 1) {
-          node.children[part] = { name: part, type: 'file' };
-        } else {
-          if (!node.children[part]) {
-            node.children[part] = { name: part, children: {}, type: 'dir' };
-          }
-          node = node.children[part];
-        }
-      }
-    }
-    return root;
-  }
-
-  function flatten(node, exp, depth = 0, parentPath = '') {
-    const items = [];
-    const entries = Object.values(node.children).sort((a, b) => {
-      if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-    for (const child of entries) {
-      const path = parentPath ? `${parentPath}/${child.name}` : child.name;
-      items.push({ name: child.name, type: child.type, depth, path, hasChildren: child.type === 'dir' && Object.keys(child.children).length > 0 });
-      if (child.type === 'dir' && exp.has(path)) {
-        items.push(...flatten(child, exp, depth + 1, path));
-      }
-    }
-    return items;
-  }
-
-  function toggleDir(path) {
-    if (expanded.has(path)) expanded.delete(path);
-    else expanded.add(path);
-    expanded = new Set(expanded);
-  }
-
-  $: visibleItems = tree ? flatten(tree, expanded) : [];
+  $: ds = $datasourceStore;
+  $: visibleItems = datasourceStore.flatten(ds.tree, ds.expanded);
 </script>
 
 {#if open}
@@ -76,7 +28,7 @@
       >✕</button>
     </div>
 
-    <!-- Hidden directory picker -->
+    <!-- Hidden directory picker (local mode only) -->
     <input
       bind:this={fileInput}
       type="file"
@@ -85,28 +37,34 @@
       on:change={handleFiles}
     />
 
-    <!-- Tree or empty state -->
+    <!-- Tree or status -->
     <div class="flex-1 overflow-y-auto overflow-x-hidden text-xs">
-      {#if visibleItems.length === 0}
+      {#if ds.loading}
+        <p class="px-3 py-4 text-gray-400 text-center leading-snug">Loading remote…</p>
+      {:else if ds.error}
+        <p class="px-3 py-4 text-red-400 text-center leading-snug text-xs">{ds.error}</p>
+      {:else if visibleItems.length === 0}
         <p class="px-3 py-4 text-gray-400 text-center leading-snug">
-          Click <FolderOpenSolid class="inline w-3 h-3" /> to open a local folder
+          {#if ds.mode === 'local'}
+            Click <FolderOpenSolid class="inline w-3 h-3" /> to open a local folder
+          {:else}
+            No files found in remote folder
+          {/if}
         </p>
       {:else}
         {#each visibleItems as item (item.path)}
           <button
             class="w-full text-left flex items-center py-0.5 pr-2 hover:bg-green-50 select-none"
             style="padding-left: {0.25 + item.depth * 0.75}rem"
-            on:click={() => item.type === 'dir' && toggleDir(item.path)}
+            on:click={() => item.type === 'dir' && datasourceStore.toggleExpanded(item.path)}
           >
-            <!-- chevron column: always same width so icons line up -->
             <span class="w-3 flex-shrink-0 text-gray-400 text-center" style="font-size:0.55rem; line-height:1">
               {#if item.type === 'dir' && item.hasChildren}
-                {expanded.has(item.path) ? '▼' : '▶'}
+                {ds.expanded.has(item.path) ? '▼' : '▶'}
               {/if}
             </span>
-            <!-- folder / file icon -->
             {#if item.type === 'dir'}
-              {#if expanded.has(item.path)}
+              {#if ds.expanded.has(item.path)}
                 <FolderOpenSolid class="w-3.5 h-3.5 text-yellow-500 flex-shrink-0 mr-1" />
               {:else}
                 <FolderSolid class="w-3.5 h-3.5 text-yellow-400 flex-shrink-0 mr-1" />
@@ -124,14 +82,14 @@
     <div class="border-t border-gray-200 px-2 py-1.5 flex justify-center">
       <button
         id="btn-toggle-mode"
-        on:click={() => (mode = mode === 'local' ? 'remote' : 'local')}
+        on:click={() => datasourceStore.toggleMode()}
         class="flex items-center gap-1.5 w-full justify-center px-2 py-1 rounded text-xs font-medium
-               {mode === 'local'
+               {ds.mode === 'local'
                  ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
                  : 'bg-orange-50 text-orange-700 hover:bg-orange-100'}"
-        aria-label="{mode === 'local' ? 'Switch to Remote' : 'Switch to Local'}"
+        aria-label="{ds.mode === 'local' ? 'Switch to Remote' : 'Switch to Local'}"
       >
-        {#if mode === 'local'}
+        {#if ds.mode === 'local'}
           <DesktopPcOutline class="w-3.5 h-3.5 flex-shrink-0" />
           <span>Local</span>
         {:else}
@@ -140,24 +98,26 @@
         {/if}
       </button>
       <Tooltip triggeredBy="#btn-toggle-mode" placement="top">
-        {mode === 'local' ? 'Switch to Remote mode' : 'Switch to Local mode'}
+        {ds.mode === 'local' ? 'Switch to Remote mode' : 'Switch to Local mode'}
       </Tooltip>
     </div>
 
-    <!-- Bottom row 2: Open directory -->
-    <div class="border-t border-gray-200 px-2 py-1.5 flex justify-center">
-      <button
-        id="btn-open-dir"
-        on:click={() => fileInput.click()}
-        class="flex items-center gap-1.5 w-full justify-center px-2 py-1 rounded text-xs
-               text-gray-600 hover:bg-green-50 hover:text-green-800"
-        aria-label="Open local directory"
-      >
-        <FolderOpenSolid class="w-3.5 h-3.5 flex-shrink-0" />
-        <span>Open Folder</span>
-      </button>
-      <Tooltip triggeredBy="#btn-open-dir" placement="top">Open a local directory</Tooltip>
-    </div>
+    <!-- Bottom row 2: Open directory (local only) -->
+    {#if ds.mode === 'local'}
+      <div class="border-t border-gray-200 px-2 py-1.5 flex justify-center">
+        <button
+          id="btn-open-dir"
+          on:click={() => fileInput.click()}
+          class="flex items-center gap-1.5 w-full justify-center px-2 py-1 rounded text-xs
+                 text-gray-600 hover:bg-green-50 hover:text-green-800"
+          aria-label="Open local directory"
+        >
+          <FolderOpenSolid class="w-3.5 h-3.5 flex-shrink-0" />
+          <span>Open Folder</span>
+        </button>
+        <Tooltip triggeredBy="#btn-open-dir" placement="top">Open a local directory</Tooltip>
+      </div>
+    {/if}
   </aside>
 {:else}
   <div class="flex-shrink-0 p-2">
