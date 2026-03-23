@@ -49,6 +49,7 @@ export function flatten(node, expanded, depth = 0, parentPath = '') {
       type: child.type,
       depth,
       path,
+      id: child.id ?? null,
       hasChildren: child.type === 'dir' && Object.keys(child.children || {}).length > 0
     });
     if (child.type === 'dir' && child.children && expanded.has(path)) {

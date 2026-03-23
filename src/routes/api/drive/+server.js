@@ -138,7 +138,7 @@ async function listFolder(folderId, accessToken) {
   return all;
 }
 
-async function buildNode(folderId, name, accessToken, depth = 0, maxDepth = 4) {
+async function buildNode(folderId, name, accessToken, depth = 0, maxDepth = 1) {
   const node = { name, type: 'dir', id: folderId, children: {} };
   if (depth >= maxDepth) return node;
 

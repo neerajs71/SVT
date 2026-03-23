@@ -56,10 +56,10 @@
           <button
             class="w-full text-left flex items-center py-0.5 pr-2 hover:bg-green-50 select-none"
             style="padding-left: {0.25 + item.depth * 0.75}rem"
-            on:click={() => item.type === 'dir' && datasourceStore.toggleExpanded(item.path)}
+            on:click={() => item.type === 'dir' && datasourceStore.toggleExpanded(item.path, item.id)}
           >
             <span class="w-3 flex-shrink-0 text-gray-400 text-center" style="font-size:0.55rem; line-height:1">
-              {#if item.type === 'dir' && item.hasChildren}
+              {#if item.type === 'dir' && (item.hasChildren || item.id)}
                 {ds.expanded.has(item.path) ? '▼' : '▶'}
               {/if}
             </span>

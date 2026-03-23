@@ -19,6 +19,16 @@ import { RemoteDataSource } from './RemoteDataSource.js';
 const local = new LocalDataSource();
 const remote = new RemoteDataSource();
 
+function getNodeByPath(tree, path) {
+  const parts = path.split('/');
+  let node = tree;
+  for (const part of parts) {
+    if (!node.children || !node.children[part]) return null;
+    node = node.children[part];
+  }
+  return node;
+}
+
 function createDatasourceStore() {
   const { subscribe, update } = writable({
     mode: 'local',
@@ -58,12 +68,30 @@ function createDatasourceStore() {
       update(s => ({ ...s, tree, expanded: new Set([rootName]), error: null }));
     },
 
-    /** Toggle a folder open/closed in the tree. */
-    toggleExpanded(path) {
+    /** Toggle a folder open/closed in the tree. Lazy-loads remote children on first expand. */
+    toggleExpanded(path, id) {
       update(s => {
         const next = new Set(s.expanded);
-        if (next.has(path)) next.delete(path);
-        else next.add(path);
+        if (next.has(path)) {
+          next.delete(path);
+          return { ...s, expanded: next };
+        }
+        next.add(path);
+        // Lazy-load remote folder children if not yet fetched
+        if (s.mode === 'remote' && id) {
+          const node = getNodeByPath(s.tree, path);
+          if (node && Object.keys(node.children).length === 0) {
+            remote.fetchFolder(id)
+              .then(data => {
+                update(s2 => {
+                  const n = getNodeByPath(s2.tree, path);
+                  if (n) n.children = data.children;
+                  return { ...s2, tree: { ...s2.tree } };
+                });
+              })
+              .catch(err => console.error('[store] lazy-load failed:', err));
+          }
+        }
         return { ...s, expanded: next };
       });
     },
