@@ -6,14 +6,14 @@
 </script>
 
 <button
-  on:click={() => (open = true)}
+  on:click={() => (open = !open)}
   class="fixed top-4 left-4 z-50 p-2 rounded-lg bg-green-800 text-white hover:bg-green-700"
   aria-label="Open sidebar"
 >
   <BarsOutline class="w-6 h-6" />
 </button>
 
-<Drawer open={open} placement="left" width="w-64" id="sidebar" on:clickOutside={() => (open = false)}>
+<Drawer bind:open placement="left" width="w-64" id="sidebar" on:clickOutside={() => (open = false)}>
   <div class="flex items-center justify-between p-4 bg-green-800 text-white">
     <span class="font-bold tracking-widest text-sm">ACTIVE SIDEBAR</span>
     <CloseButton on:click={() => (open = false)} class="text-white focus:ring-0" />
