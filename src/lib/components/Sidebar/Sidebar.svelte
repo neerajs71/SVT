@@ -13,15 +13,18 @@
   <BarsOutline class="w-5 h-5" />
 </button>
 
-<Drawer bind:open placement="left" width="w-64" id="sidebar" dismissable={false} outsideclose={true}>
-  <div class="flex items-center justify-between p-4 bg-green-800 text-white">
-    <span class="font-bold tracking-widest text-sm">ACTIVE SIDEBAR</span>
-    <CloseButton on:click={() => (open = false)} class="text-white focus:ring-0" />
+<Drawer bind:open placement="left" width="w-52" id="sidebar" dismissable={false} outsideclose={true}>
+  <div class="flex items-center justify-between px-3 py-1 bg-green-50 border-b border-green-200">
+    <span class="text-xs font-bold text-green-800 uppercase tracking-wider">Navigation</span>
+    <CloseButton on:click={() => (open = false)} class="text-green-800 focus:ring-0 p-0.5" />
   </div>
-  <nav class="flex flex-col py-4 bg-gray-900 h-full">
-    <a href="/" class="px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white font-sans">Home</a>
-    <a href="/" class="px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white font-sans">About</a>
-    <a href="/" class="px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white font-sans">Services</a>
-    <a href="/" class="px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white font-sans">Contact</a>
+  <nav class="flex flex-col bg-white h-full">
+    <a href="/" class="px-3 py-1.5 text-sm text-gray-800 hover:bg-green-50 hover:text-green-800">Home</a>
+    <hr class="border-gray-200" />
+    <a href="/about" class="px-3 py-1.5 text-sm text-gray-800 hover:bg-green-50 hover:text-green-800">About</a>
+    <hr class="border-gray-200" />
+    <a href="/" class="px-3 py-1.5 text-sm text-gray-800 hover:bg-green-50 hover:text-green-800">Services</a>
+    <hr class="border-gray-200" />
+    <a href="/" class="px-3 py-1.5 text-sm text-gray-800 hover:bg-green-50 hover:text-green-800">Contact</a>
   </nav>
 </Drawer>
