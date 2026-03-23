@@ -43,11 +43,30 @@ function loadCredentials() {
 let _cachedToken = null;
 let _tokenExpiry = 0;
 
+function validateCredentials(creds) {
+  const required = ['client_email', 'private_key', 'token_uri'];
+  const missing  = required.filter(k => !creds[k]);
+  if (missing.length) {
+    throw new Error(
+      `Service account JSON is missing required fields: ${missing.join(', ')}. ` +
+      `Present fields: ${Object.keys(creds).join(', ')}`
+    );
+  }
+  if (!creds.token_uri.startsWith('http')) {
+    throw new Error(`token_uri is not a valid URL: "${creds.token_uri}"`);
+  }
+  if (!creds.private_key.includes('BEGIN')) {
+    throw new Error('private_key does not look like a PEM key — check for missing newlines or quote escaping in the env var');
+  }
+}
+
 async function getAccessToken() {
   const now = Date.now();
   if (_cachedToken && _tokenExpiry > now + 5 * 60_000) return _cachedToken;
 
   const creds = loadCredentials();
+  validateCredentials(creds);
+
   const iat = Math.floor(now / 1000);
   const exp = iat + 3600;
 
@@ -66,12 +85,7 @@ async function getAccessToken() {
 
   const jwtToken = `${header}.${payload}.${sig}`;
 
-  const tokenUri = creds.token_uri || 'https://oauth2.googleapis.com/token';
-  if (!tokenUri || !tokenUri.startsWith('http')) {
-    throw new Error(`Invalid token_uri in service account credentials: "${tokenUri}"`);
-  }
-
-  const tokenRes = await fetch(tokenUri, {
+  const tokenRes = await fetch(creds.token_uri, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
