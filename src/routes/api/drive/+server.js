@@ -109,7 +109,7 @@ async function listFolder(folderId, accessToken) {
     url.searchParams.set('pageSize', '1000');
     if (pageToken) url.searchParams.set('pageToken', pageToken);
 
-    const res = await fetch(url, {
+    const res = await fetch(url.toString(), {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
     if (!res.ok) {
