@@ -11,4 +11,6 @@
 </script>
 
 <NavMenu />
-<slot />
+<div class="h-full overflow-hidden">
+  <slot />
+</div>
