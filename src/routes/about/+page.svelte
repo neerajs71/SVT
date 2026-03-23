@@ -1,11 +1,4 @@
-<script>
-  import { Sidebar } from '$lib/components/Sidebar';
-  let sidebarOpen = false;
-</script>
-
-<Sidebar bind:open={sidebarOpen} />
-
-<main class="p-8 pl-16 max-w-2xl">
+<main class="p-8 max-w-2xl">
   <a href="/" class="text-sm text-green-800 hover:underline mb-6 inline-block">← Back to Home</a>
 
   <h1 class="text-3xl font-bold text-green-800 mb-4">About This App</h1>
