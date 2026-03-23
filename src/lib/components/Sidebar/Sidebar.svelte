@@ -69,7 +69,7 @@
       <span class="text-xs font-bold text-green-800 uppercase tracking-wider flex-1 truncate">Explorer</span>
       <button
         on:click={() => fileInput.click()}
-        title="Add directory"
+        title="Open directory"
         class="text-green-700 hover:text-green-900 p-0.5 flex-shrink-0"
         aria-label="Open local folder"
       >
