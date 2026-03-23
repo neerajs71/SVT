@@ -1,5 +1,5 @@
 <script>
-  import { Drawer, CloseButton, Sidebar, SidebarWrapper, SidebarItem, SidebarGroup } from 'flowbite-svelte';
+  import { Drawer, CloseButton } from 'flowbite-svelte';
   import { BarsOutline } from 'flowbite-svelte-icons';
 
   export let open = false;
@@ -13,19 +13,15 @@
   <BarsOutline class="w-6 h-6" />
 </button>
 
-<Drawer bind:hidden={open} placement="left" transitionType="fly" width="w-64" id="sidebar">
+<Drawer hidden={!open} placement="left" width="w-64" id="sidebar" on:clickOutside={() => (open = false)}>
   <div class="flex items-center justify-between p-4 bg-green-800 text-white">
     <span class="font-bold tracking-widest text-sm">ACTIVE SIDEBAR</span>
-    <CloseButton on:click={() => (open = false)} class="text-white" />
+    <CloseButton on:click={() => (open = false)} class="text-white focus:ring-0" />
   </div>
-  <Sidebar>
-    <SidebarWrapper divClass="overflow-y-auto py-4 px-3 bg-gray-900 h-full">
-      <SidebarGroup>
-        <SidebarItem label="Home" href="/" />
-        <SidebarItem label="About" href="/" />
-        <SidebarItem label="Services" href="/" />
-        <SidebarItem label="Contact" href="/" />
-      </SidebarGroup>
-    </SidebarWrapper>
-  </Sidebar>
+  <nav class="flex flex-col py-4 bg-gray-900 h-full">
+    <a href="/" class="px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white font-sans">Home</a>
+    <a href="/" class="px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white font-sans">About</a>
+    <a href="/" class="px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white font-sans">Services</a>
+    <a href="/" class="px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white font-sans">Contact</a>
+  </nav>
 </Drawer>
