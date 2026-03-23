@@ -1,6 +1,6 @@
 <script>
   import { Tooltip } from 'flowbite-svelte';
-  import { FolderOpenSolid, FolderSolid, FileLinesOutline, CloudOutline, DesktopPcOutline } from 'flowbite-svelte-icons';
+  import { FolderOpenSolid, FolderSolid, FileLinesOutline, CloudArrowUpOutline, DesktopPcOutline } from 'flowbite-svelte-icons';
 
   export let open = false;
 
@@ -135,7 +135,7 @@
           <DesktopPcOutline class="w-3.5 h-3.5 flex-shrink-0" />
           <span>Local</span>
         {:else}
-          <CloudOutline class="w-3.5 h-3.5 flex-shrink-0" />
+          <CloudArrowUpOutline class="w-3.5 h-3.5 flex-shrink-0" />
           <span>Remote</span>
         {/if}
       </button>
