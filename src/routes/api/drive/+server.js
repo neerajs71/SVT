@@ -8,8 +8,6 @@
  *
  *   { name, type: 'dir'|'file', id, children: { ... } }
  *
- * The client never sees credentials or raw Drive IDs beyond the root.
- *
  * Environment variables (set in .env):
  *   GOOGLE_DRIVE_FOLDER_ID           - root folder ID or Google Drive URL
  *   GOOGLE_DRIVE_SERVICE_ACCOUNT     - JSON string of service account key
@@ -17,6 +15,7 @@
  */
 
 import { json, error } from '@sveltejs/kit';
+import { env } from '$env/dynamic/private';
 import { createSign } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -24,15 +23,15 @@ import { resolve } from 'node:path';
 // ─── Service Account ─────────────────────────────────────────────────────────
 
 function loadCredentials() {
-  if (process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT) {
+  if (env.GOOGLE_DRIVE_SERVICE_ACCOUNT) {
     try {
-      return JSON.parse(process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT);
+      return JSON.parse(env.GOOGLE_DRIVE_SERVICE_ACCOUNT);
     } catch {
       throw new Error('GOOGLE_DRIVE_SERVICE_ACCOUNT is not valid JSON');
     }
   }
-  if (process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_PATH) {
-    const p = resolve(process.cwd(), process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_PATH);
+  if (env.GOOGLE_DRIVE_SERVICE_ACCOUNT_PATH) {
+    const p = resolve(process.cwd(), env.GOOGLE_DRIVE_SERVICE_ACCOUNT_PATH);
     if (!existsSync(p)) throw new Error(`Service account file not found: ${p}`);
     return JSON.parse(readFileSync(p, 'utf-8'));
   }
@@ -67,7 +66,7 @@ async function getAccessToken() {
 
   const jwtToken = `${header}.${payload}.${sig}`;
 
-  const res = await fetch(creds.token_uri, {
+  const tokenRes = await fetch(creds.token_uri, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -76,12 +75,12 @@ async function getAccessToken() {
     })
   });
 
-  if (!res.ok) {
-    const msg = await res.text();
-    throw new Error(`Token exchange failed (${res.status}): ${msg}`);
+  if (!tokenRes.ok) {
+    const msg = await tokenRes.text();
+    throw new Error(`Token exchange failed (${tokenRes.status}): ${msg}`);
   }
 
-  const data = await res.json();
+  const data = await tokenRes.json();
   _cachedToken = data.access_token;
   _tokenExpiry = now + 3600_000;
   return _cachedToken;
@@ -91,12 +90,6 @@ async function getAccessToken() {
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
-/**
- * List immediate children of a Drive folder.
- * @param {string} folderId
- * @param {string} accessToken
- * @returns {Promise<Array<{id, name, mimeType}>>}
- */
 async function listFolder(folderId, accessToken) {
   const all = [];
   let pageToken;
@@ -124,14 +117,6 @@ async function listFolder(folderId, accessToken) {
   return all;
 }
 
-/**
- * Recursively build a tree node (up to maxDepth levels).
- * @param {string} folderId
- * @param {string} name
- * @param {string} accessToken
- * @param {number} depth
- * @param {number} maxDepth
- */
 async function buildNode(folderId, name, accessToken, depth = 0, maxDepth = 4) {
   const node = { name, type: 'dir', id: folderId, children: {} };
   if (depth >= maxDepth) return node;
@@ -149,8 +134,6 @@ async function buildNode(folderId, name, accessToken, depth = 0, maxDepth = 4) {
   return node;
 }
 
-// ─── Extract folder ID from URL ───────────────────────────────────────────────
-
 function extractFolderId(input) {
   const trimmed = input.trim();
   if (!trimmed.includes('/') && !trimmed.includes('?')) return trimmed;
@@ -161,13 +144,12 @@ function extractFolderId(input) {
 // ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function GET({ url }) {
-  const rootEnv = process.env.GOOGLE_DRIVE_FOLDER_ID;
+  const rootEnv = env.GOOGLE_DRIVE_FOLDER_ID;
   if (!rootEnv) {
     throw error(500, 'GOOGLE_DRIVE_FOLDER_ID is not configured');
   }
 
-  const rootId = extractFolderId(rootEnv);
-  // Allow optional ?folderId=... for lazy sub-folder loading
+  const rootId   = extractFolderId(rootEnv);
   const folderId = url.searchParams.get('folderId') || rootId;
   const isRoot   = folderId === rootId;
 
