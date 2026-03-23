@@ -100,18 +100,25 @@
       {:else}
         {#each visibleItems as item (item.path)}
           <button
-            class="w-full text-left flex items-center gap-1 py-0.5 pr-2 hover:bg-green-50 truncate"
-            style="padding-left: {0.5 + item.depth * 0.75}rem"
+            class="w-full text-left flex items-center py-0.5 pr-2 hover:bg-green-50 select-none"
+            style="padding-left: {0.25 + item.depth * 0.75}rem"
             on:click={() => item.type === 'dir' && toggleDir(item.path)}
           >
+            <!-- chevron column: always same width so icons line up -->
+            <span class="w-3 flex-shrink-0 text-gray-400 text-center" style="font-size:0.55rem; line-height:1">
+              {#if item.type === 'dir' && item.hasChildren}
+                {expanded.has(item.path) ? '▼' : '▶'}
+              {/if}
+            </span>
+            <!-- folder / file icon -->
             {#if item.type === 'dir'}
               {#if expanded.has(item.path)}
-                <FolderOpenSolid class="w-3.5 h-3.5 text-yellow-500 flex-shrink-0" />
+                <FolderOpenSolid class="w-3.5 h-3.5 text-yellow-500 flex-shrink-0 mr-1" />
               {:else}
-                <FolderSolid class="w-3.5 h-3.5 text-yellow-400 flex-shrink-0" />
+                <FolderSolid class="w-3.5 h-3.5 text-yellow-400 flex-shrink-0 mr-1" />
               {/if}
             {:else}
-              <FileLinesOutline class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+              <FileLinesOutline class="w-3.5 h-3.5 text-gray-400 flex-shrink-0 mr-1" />
             {/if}
             <span class="truncate text-gray-800">{item.name}</span>
           </button>
