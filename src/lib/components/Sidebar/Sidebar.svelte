@@ -7,10 +7,10 @@
 
 <button
   on:click={() => (open = !open)}
-  class="fixed top-4 left-4 z-50 p-2 rounded-lg bg-green-800 text-white hover:bg-green-700"
+  class="fixed top-2 left-0 z-50 p-1 rounded-r-md bg-green-800 text-white hover:bg-green-700"
   aria-label="Open sidebar"
 >
-  <BarsOutline class="w-6 h-6" />
+  <BarsOutline class="w-4 h-4" />
 </button>
 
 <Drawer bind:open placement="left" width="w-64" id="sidebar" dismissable={false} outsideclose={true}>
