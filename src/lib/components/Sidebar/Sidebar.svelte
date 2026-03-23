@@ -64,7 +64,7 @@
 </script>
 
 {#if open}
-  <aside style="width:10.4rem" class="flex-shrink-0 h-screen bg-white border-r border-gray-200 flex flex-col overflow-hidden">
+  <aside style="width:10.4rem" class="flex-shrink-0 h-full bg-white border-r border-gray-200 flex flex-col overflow-hidden">
     <!-- Header band -->
     <div class="flex items-center gap-1 px-2 py-1 bg-green-50 border-b border-green-200">
       <FolderOpenSolid class="w-4 h-4 text-green-800 flex-shrink-0" />
