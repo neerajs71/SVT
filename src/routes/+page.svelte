@@ -4,7 +4,7 @@
 <style>
   h1 {
     font-family: sans-serif;
-    color: #ff3e00;
+    color: #006400;
   }
   p {
     font-family: sans-serif;
