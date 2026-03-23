@@ -3,7 +3,7 @@
   let sidebarOpen = false;
 </script>
 
-<div class="flex min-h-screen">
+<div class="flex h-screen overflow-hidden">
   <Sidebar bind:open={sidebarOpen} />
   <main class="flex-1 p-8">
     <h1 class="text-3xl font-bold text-green-800">Hello, World!</h1>
