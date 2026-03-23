@@ -52,6 +52,8 @@ function validateCredentials(creds) {
       `Present fields: ${Object.keys(creds).join(', ')}`
     );
   }
+  // Strip Markdown angle-bracket links: <https://...> → https://...
+  creds.token_uri = creds.token_uri.replace(/^<(.+)>$/, '$1').trim();
   if (!creds.token_uri.startsWith('http')) {
     throw new Error(`token_uri is not a valid URL: "${creds.token_uri}"`);
   }
