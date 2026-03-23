@@ -13,7 +13,7 @@
   <BarsOutline class="w-6 h-6" />
 </button>
 
-<Drawer bind:open placement="left" width="w-64" id="sidebar" on:clickOutside={() => (open = false)}>
+<Drawer bind:open placement="left" width="w-64" id="sidebar" dismissable={false} outsideclose={true}>
   <div class="flex items-center justify-between p-4 bg-green-800 text-white">
     <span class="font-bold tracking-widest text-sm">ACTIVE SIDEBAR</span>
     <CloseButton on:click={() => (open = false)} class="text-white focus:ring-0" />
