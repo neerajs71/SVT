@@ -11,6 +11,7 @@
 import GenericApp from './generic/GenericApp.svelte';
 import DlisApp from './dlis/DlisApp.svelte';
 import LasApp from './las/LasApp.svelte';
+import WsonApp from './wson/WsonApp.svelte';
 
 export const appRegistry = {
   // DLIS well-log files
@@ -19,6 +20,8 @@ export const appRegistry = {
   // LAS well-log files
   '.las':   LasApp,
   '.las2':  LasApp,
+  // Well schematic files
+  '.wson':  WsonApp,
   // text / markup
   '.txt':  GenericApp,
   '.md':   GenericApp,
