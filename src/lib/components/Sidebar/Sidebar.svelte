@@ -6,9 +6,23 @@
   export let open = false;
 
   let fileInput;
+  let tooltipItem = null;
+  let tooltipX = 0;
+  let tooltipY = 0;
 
   function handleFiles(e) {
     datasourceStore.loadLocalFiles(Array.from(e.target.files));
+  }
+
+  function showTooltip(e, item) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    tooltipItem = item;
+    tooltipX = rect.right + 6;
+    tooltipY = rect.top + rect.height / 2;
+  }
+
+  function hideTooltip() {
+    tooltipItem = null;
   }
 
   $: ds = $datasourceStore;
@@ -57,6 +71,8 @@
             class="w-full text-left flex items-center py-0.5 pr-2 hover:bg-green-50 select-none"
             style="padding-left: {0.25 + item.depth * 0.75}rem"
             on:click={() => item.type === 'dir' && datasourceStore.toggleExpanded(item.path, item.id)}
+            on:mouseenter={(e) => showTooltip(e, item)}
+            on:mouseleave={hideTooltip}
           >
             <span class="w-3 flex-shrink-0 text-gray-400 text-center" style="font-size:0.55rem; line-height:1">
               {#if item.type === 'dir' && (item.hasChildren || item.id)}
@@ -119,6 +135,15 @@
       </div>
     {/if}
   </aside>
+
+  {#if tooltipItem}
+    <div
+      style="position:fixed; left:{tooltipX}px; top:{tooltipY}px; transform:translateY(-50%); z-index:9999;"
+      class="px-2 py-1 text-xs bg-gray-900 text-white rounded whitespace-nowrap pointer-events-none shadow-lg"
+    >
+      {tooltipItem.name}
+    </div>
+  {/if}
 {:else}
   <div class="flex-shrink-0 p-2">
     <button
