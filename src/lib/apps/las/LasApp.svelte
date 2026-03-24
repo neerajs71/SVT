@@ -61,28 +61,32 @@
       return;
     }
 
-    const { xs, ys, indexName, units } = raw;
-    const xMin = Math.min(...xs), xMax = Math.max(...xs);
-    const yMin = Math.min(...ys), yMax = Math.max(...ys);
-    const xRange = xMax - xMin || 1;
-    const yRange = yMax - yMin || 1;
+    // xs = depth (index), ys = curve value
+    const { xs: depths, ys: values, indexName, units } = raw;
+    const dMin = Math.min(...depths), dMax = Math.max(...depths);
+    const vMin = Math.min(...values), vMax = Math.max(...values);
+    const dRange = dMax - dMin || 1;
+    const vRange = vMax - vMin || 1;
 
-    const W  = 320, H  = 220;
+    // Taller layout — log-track style
+    const W  = 260, H  = 320;
     const PL = 52,  PR = 14, PT = 14, PB = 36;
     const IW = W - PL - PR, IH = H - PT - PB;
 
-    const sx = x => PL + ((x - xMin) / xRange) * IW;
-    const sy = y => PT + (1 - (y - yMin) / yRange) * IH;
+    // Depth on Y (min at top → max at bottom), curve value on X
+    const sx = v => PL + ((v - vMin) / vRange) * IW;
+    const sy = d => PT + ((d - dMin) / dRange) * IH;
 
-    const points = xs.map((x, i) => `${sx(x).toFixed(1)},${sy(ys[i]).toFixed(1)}`).join(' ');
+    const points = depths.map((d, i) => `${sx(values[i]).toFixed(1)},${sy(d).toFixed(1)}`).join(' ');
 
+    // Y ticks = depth, X ticks = value
     const yTicks = [0, 0.25, 0.5, 0.75, 1].map(t => ({
-      v: yMin + t * yRange,
-      py: sy(yMin + t * yRange),
+      v: dMin + t * dRange,
+      py: sy(dMin + t * dRange),
     }));
     const xTicks = [0, 0.5, 1].map(t => ({
-      v: xMin + t * xRange,
-      px: sx(xMin + t * xRange),
+      v: vMin + t * vRange,
+      px: sx(vMin + t * vRange),
     }));
 
     chart = {
@@ -90,7 +94,7 @@
       name: curve.name,
       units,
       indexName,
-      count: xs.length,
+      count: depths.length,
       W, H, PL, PR, PT, PB, IW, IH,
       points, yTicks, xTicks,
     };
@@ -340,18 +344,18 @@
               >{fmt(t.v)}</text>
             {/each}
 
-            <!-- Y axis label -->
+            <!-- Y axis label = depth -->
             <text
               x={chart.PL - 36} y={chart.PT + chart.IH / 2}
               transform="rotate(-90, {chart.PL - 36}, {chart.PT + chart.IH / 2})"
               text-anchor="middle" font-size="8" fill="#9ca3af"
-            >{chart.name}{chart.units ? ` (${chart.units})` : ''}</text>
+            >{chart.indexName}</text>
 
-            <!-- X axis label -->
+            <!-- X axis label = curve value -->
             <text
               x={chart.PL + chart.IW / 2} y={chart.PT + chart.IH + 28}
               text-anchor="middle" font-size="8" fill="#9ca3af"
-            >{chart.indexName}</text>
+            >{chart.name}{chart.units ? ` (${chart.units})` : ''}</text>
 
             <!-- Curve -->
             <polyline

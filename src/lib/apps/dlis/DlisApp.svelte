@@ -63,32 +63,33 @@
     const raw = extractCurveData(parseResult, ch.name);
     if (!raw) { chart = { empty: true, channelName: ch.name, units: ch.units }; return; }
 
-    // Filter pairs where both values are finite numbers
+    // pairs: [depth, value]
     const pairs = raw.xs
       .map((x, i) => [x, raw.ys[i]])
-      .filter(([x, y]) => isFinite(x) && isFinite(y));
+      .filter(([d, v]) => isFinite(d) && isFinite(v));
 
     if (!pairs.length) { chart = { empty: true, channelName: ch.name, units: ch.units }; return; }
 
-    const xs = pairs.map(p => p[0]);
-    const ys = pairs.map(p => p[1]);
-    const xMin = Math.min(...xs), xMax = Math.max(...xs);
-    const yMin = Math.min(...ys), yMax = Math.max(...ys);
-    const xRange = xMax - xMin || 1;
-    const yRange = yMax - yMin || 1;
+    const depths = pairs.map(p => p[0]);
+    const values = pairs.map(p => p[1]);
+    const dMin = Math.min(...depths), dMax = Math.max(...depths);
+    const vMin = Math.min(...values), vMax = Math.max(...values);
+    const dRange = dMax - dMin || 1;
+    const vRange = vMax - vMin || 1;
 
-    // SVG layout constants
-    const W = 320, H = 220, PL = 52, PR = 14, PT = 14, PB = 36;
+    // Taller layout — log-track style
+    const W = 260, H = 320, PL = 52, PR = 14, PT = 14, PB = 36;
     const IW = W - PL - PR, IH = H - PT - PB;
 
-    const sx = x => PL + ((x - xMin) / xRange) * IW;
-    const sy = y => PT + (1 - (y - yMin) / yRange) * IH;
+    // Depth on Y (min at top → max at bottom), curve value on X
+    const sx = v => PL + ((v - vMin) / vRange) * IW;
+    const sy = d => PT + ((d - dMin) / dRange) * IH;
 
-    const points = pairs.map(([x, y]) => `${sx(x).toFixed(1)},${sy(y).toFixed(1)}`).join(' ');
+    const points = pairs.map(([d, v]) => `${sx(v).toFixed(1)},${sy(d).toFixed(1)}`).join(' ');
 
-    // 5 evenly spaced Y ticks, 3 X ticks
-    const yTicks = [0, 0.25, 0.5, 0.75, 1].map(t => ({ v: yMin + t * yRange, py: sy(yMin + t * yRange) }));
-    const xTicks = [0, 0.5, 1].map(t => ({ v: xMin + t * xRange, px: sx(xMin + t * xRange) }));
+    // Y ticks = depth, X ticks = value
+    const yTicks = [0, 0.25, 0.5, 0.75, 1].map(t => ({ v: dMin + t * dRange, py: sy(dMin + t * dRange) }));
+    const xTicks = [0, 0.5, 1].map(t => ({ v: vMin + t * vRange, px: sx(vMin + t * vRange) }));
 
     chart = {
       empty: false,
@@ -333,18 +334,18 @@
               >{fmt(t.v)}</text>
             {/each}
 
-            <!-- Y axis label -->
+            <!-- Y axis label = depth -->
             <text
               x={chart.PL - 36} y={chart.PT + chart.IH / 2}
               transform="rotate(-90, {chart.PL - 36}, {chart.PT + chart.IH / 2})"
               text-anchor="middle" font-size="8" fill="#9ca3af"
-            >{chart.channelName}{chart.units ? ` (${chart.units})` : ''}</text>
+            >{chart.indexName}</text>
 
-            <!-- X axis label -->
+            <!-- X axis label = curve value -->
             <text
               x={chart.PL + chart.IW / 2} y={chart.PT + chart.IH + 28}
               text-anchor="middle" font-size="8" fill="#9ca3af"
-            >{chart.indexName}</text>
+            >{chart.channelName}{chart.units ? ` (${chart.units})` : ''}</text>
 
             <!-- The curve -->
             <polyline
