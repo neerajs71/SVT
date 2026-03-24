@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
-  import { parseLASFile, processCurves, extractLasCurve } from './utils.js';
+  import { parseLASFile, processCurves, extractLasCurve, buildLasTracks } from './utils.js';
+  import WellTrackView from '$lib/apps/shared/WellTrackView.svelte';
 
   let { tab } = $props();
 
@@ -9,6 +10,7 @@
   let diagnostic  = $state(null);
   let las         = $state(null);   // raw parse result
   let summary     = $state(null);   // processCurves() output
+  let logView     = $state(null);   // buildLasTracks() output
 
   let activeSection = $state('overview');
   let chart         = $state(null);  // null = closed
@@ -28,6 +30,7 @@
 
       las     = parseLASFile(buffer);
       summary = processCurves(las);
+      logView = buildLasTracks(las);
     } catch (e) {
       error      = e.message;
       diagnostic = e.diagnostic ?? null;
@@ -135,7 +138,7 @@
 
     <!-- Section tabs -->
     <div class="flex-shrink-0 flex border-b border-gray-200">
-      {#each [['overview','Overview'],['curves','Curves'],['params','Parameters']] as [id, label]}
+      {#each [['overview','Overview'],['curves','Curves'],['log','Log'],['params','Parameters']] as [id, label]}
         <button
           class="px-4 py-1.5 text-xs font-medium border-b-2 transition-colors
                  {activeSection === id
@@ -239,6 +242,18 @@
             {/each}
           </tbody>
         </table>
+
+      {:else if activeSection === 'log'}
+        {#if !logView || !logView.tracks.length}
+          <p class="text-gray-400 text-xs">No curve data available for log view.</p>
+        {:else}
+          <WellTrackView
+            tracks={logView.tracks}
+            indexName={logView.indexName}
+            dMin={logView.dMin}
+            dMax={logView.dMax}
+          />
+        {/if}
 
       {:else if activeSection === 'params'}
         {#if !las.params.length}

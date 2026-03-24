@@ -143,6 +143,90 @@ export function processChannelsAndFrames(parseResult) {
   return { channels, frames, totalEFLRs };
 }
 
+/**
+ * Extract all curves in one pass for the multi-track well log view.
+ * Processes the first frame found across all logical files.
+ * @param {object} parseResult
+ * @returns {{ tracks: Array, indexName: string, dMin: number, dMax: number }}
+ */
+export function extractAllCurvesForTracks(parseResult) {
+  const MAX_PTS = 600;
+
+  for (const lf of parseResult?.logicalFiles ?? []) {
+    for (const [frameKey, simpleFrame] of lf.simpleFrames) {
+      const channels = simpleFrame.Channels;
+      if (!channels.length) continue;
+
+      const frameDatas = lf.frameDataDict.get(frameKey) ?? [];
+      if (!frameDatas.length) continue;
+
+      const numCh = channels.length;
+
+      // Collect all rows: each row is [ch0, ch1, ch2, ...]
+      const rows = [];
+      for (const fd of frameDatas) {
+        const numRows = fd.slots.length >= numCh
+          ? Math.floor(fd.slots.length / numCh)
+          : 0;
+
+        if (numRows > 0) {
+          for (let r = 0; r < numRows; r++) {
+            const base = r * numCh;
+            rows.push(
+              channels.map((_, ci) => {
+                const raw = fd.slots[base + ci];
+                return Array.isArray(raw) ? raw[0] : Number(raw);
+              })
+            );
+          }
+        } else {
+          rows.push(
+            channels.map((_, ci) => {
+              const raw = fd.slots[ci];
+              return raw !== undefined ? (Array.isArray(raw) ? raw[0] : Number(raw)) : NaN;
+            })
+          );
+        }
+      }
+
+      // Downsample
+      const step = rows.length > MAX_PTS ? Math.ceil(rows.length / MAX_PTS) : 1;
+      const sampled = step > 1 ? rows.filter((_, i) => i % step === 0) : rows;
+
+      const depths = sampled.map(r => r[0]).filter(isFinite);
+      const dMin = depths.length ? Math.min(...depths) : 0;
+      const dMax = depths.length ? Math.max(...depths) : 1;
+      const indexName = channels[0]?.ObName?.identifier ?? 'Index';
+
+      // One track per non-index channel
+      const tracks = channels.slice(1).map((ch, ci) => {
+        const colIdx = ci + 1;
+        const pairs = sampled
+          .map(r => [r[0], r[colIdx]])
+          .filter(([d, v]) => isFinite(d) && isFinite(v));
+
+        const depthArr = pairs.map(p => p[0]);
+        const values   = pairs.map(p => p[1]);
+        const vMin = values.length ? Math.min(...values) : 0;
+        const vMax = values.length ? Math.max(...values) : 1;
+
+        return {
+          name:   ch.ObName?.identifier ?? `CH${colIdx}`,
+          units:  ch.Units ?? '',
+          depths: depthArr,
+          values,
+          vMin,
+          vMax,
+        };
+      });
+
+      return { tracks, indexName, dMin, dMax };
+    }
+  }
+
+  return { tracks: [], indexName: 'Index', dMin: 0, dMax: 1 };
+}
+
 function getAttr(obj, label) {
   const list = obj.attrList ?? obj.attributes ?? [];
   const attr = list.find(a => a?.label === label);

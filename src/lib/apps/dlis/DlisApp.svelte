@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
-  import { parseDLISFile, processChannelsAndFrames, extractCurveData } from './utils.js';
+  import { parseDLISFile, processChannelsAndFrames, extractCurveData, extractAllCurvesForTracks } from './utils.js';
+  import WellTrackView from '$lib/apps/shared/WellTrackView.svelte';
 
   let { tab } = $props();
 
@@ -14,6 +15,7 @@
   let fileSize = $state(0);
 
   let activeSection = $state('overview');
+  let logView       = $state(null);  // extractAllCurvesForTracks() output
 
   // Chart modal state — null means closed
   let chart = $state(null);
@@ -36,6 +38,7 @@
 
       parseResult = await parseDLISFile(buffer);
       ({ channels, frames, totalEFLRs } = processChannelsAndFrames(parseResult));
+      logView = extractAllCurvesForTracks(parseResult);
     } catch (e) {
       error = e.message;
       diagnostic = e.diagnostic ?? null;
@@ -135,7 +138,7 @@
 
     <!-- Section tabs -->
     <div class="flex-shrink-0 flex border-b border-gray-200">
-      {#each [['overview','Overview'], ['channels','Channels'], ['frames','Frames']] as [id, label]}
+      {#each [['overview','Overview'], ['channels','Channels'], ['frames','Frames'], ['log','Log']] as [id, label]}
         <button
           class="px-4 py-1.5 text-xs font-medium border-b-2 transition-colors
                  {activeSection === id
@@ -248,6 +251,17 @@
               {/each}
             </tbody>
           </table>
+        {/if}
+      {:else if activeSection === 'log'}
+        {#if !logView || !logView.tracks.length}
+          <p class="text-gray-400 text-xs">No curve data available for log view.</p>
+        {:else}
+          <WellTrackView
+            tracks={logView.tracks}
+            indexName={logView.indexName}
+            dMin={logView.dMin}
+            dMax={logView.dMax}
+          />
         {/if}
       {/if}
 

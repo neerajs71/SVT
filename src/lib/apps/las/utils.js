@@ -1,6 +1,54 @@
 import { parseLAS } from './parser.js';
 
 /**
+ * Build track data for the multi-track well log view.
+ * Returns one track per non-index curve (max MAX_TRACKS).
+ * @param {ReturnType<typeof parseLAS>} las
+ * @param {number} [maxTracks]
+ * @returns {{ tracks: Array, indexName: string, dMin: number, dMax: number }}
+ */
+export function buildLasTracks(las, maxTracks = 12) {
+  const NULL = las.nullValue;
+  const MAX_PTS = 600; // downsample target per curve
+
+  // Depth column (index 0), filtered
+  const depthCol = las.data
+    .map(row => row[0])
+    .filter(d => d !== NULL && isFinite(d));
+
+  const dMin = depthCol.length ? Math.min(...depthCol) : 0;
+  const dMax = depthCol.length ? Math.max(...depthCol) : 1;
+  const indexName = las.curves[0]?.mnem ?? 'DEPTH';
+
+  const curvesToShow = las.curves.slice(1, maxTracks + 1);
+
+  const tracks = curvesToShow.map((curve, i) => {
+    const colIdx = i + 1;
+
+    // Build depth/value pairs, filtering nulls
+    const pairs = las.data
+      .filter(row =>
+        row[0] !== NULL && row[colIdx] !== undefined &&
+        row[colIdx] !== NULL && isFinite(row[0]) && isFinite(row[colIdx])
+      )
+      .map(row => [row[0], row[colIdx]]);
+
+    // Downsample
+    const step = pairs.length > MAX_PTS ? Math.ceil(pairs.length / MAX_PTS) : 1;
+    const sampled = step > 1 ? pairs.filter((_, i) => i % step === 0) : pairs;
+
+    const depths = sampled.map(p => p[0]);
+    const values = sampled.map(p => p[1]);
+    const vMin = values.length ? Math.min(...values) : 0;
+    const vMax = values.length ? Math.max(...values) : 1;
+
+    return { name: curve.mnem, units: curve.unit, depths, values, vMin, vMax };
+  });
+
+  return { tracks, indexName, dMin, dMax };
+}
+
+/**
  * Read an ArrayBuffer as UTF-8 text and parse as LAS.
  * Throws with a descriptive message if it doesn't look like a LAS file.
  * @param {ArrayBuffer} arrayBuffer
