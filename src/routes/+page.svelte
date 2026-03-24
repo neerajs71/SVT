@@ -1,6 +1,6 @@
 <script>
   import { Sidebar } from '$lib/components/Sidebar';
-  let sidebarOpen = false;
+  let sidebarOpen = $state(false);
 </script>
 
 <div class="flex h-full overflow-hidden">

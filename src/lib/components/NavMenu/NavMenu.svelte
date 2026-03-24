@@ -1,18 +1,18 @@
 <script>
   import { GridOutline } from 'flowbite-svelte-icons';
 
-  let open = false;
+  let open = $state(false);
 
   function close(e) {
     if (!e.target.closest('#nav-menu-wrapper')) open = false;
   }
 </script>
 
-<svelte:window on:click={close} />
+<svelte:window onclick={close} />
 
 <div id="nav-menu-wrapper" class="fixed top-3 right-3 z-50">
   <button
-    on:click|stopPropagation={() => (open = !open)}
+    onclick={(e) => { e.stopPropagation(); open = !open; }}
     class="p-1.5 rounded-md bg-green-800 text-white hover:bg-green-700"
     aria-label="Open app menu"
   >
@@ -24,12 +24,12 @@
       <div class="px-3 py-1 text-xs font-bold text-green-800 uppercase tracking-wider bg-green-50 border-b border-green-200">
         Apps
       </div>
-      <a href="/" on:click={() => (open = false)}
+      <a href="/" onclick={() => (open = false)}
         class="block px-3 py-1.5 text-sm text-gray-800 hover:bg-green-50 hover:text-green-800">
         Home
       </a>
       <hr class="border-gray-200" />
-      <a href="/about" on:click={() => (open = false)}
+      <a href="/about" onclick={() => (open = false)}
         class="block px-3 py-1.5 text-sm text-gray-800 hover:bg-green-50 hover:text-green-800">
         About
       </a>

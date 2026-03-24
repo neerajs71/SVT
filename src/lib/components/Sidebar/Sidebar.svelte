@@ -3,12 +3,12 @@
   import { FolderOpenSolid, FolderSolid, FileLinesOutline, CloudArrowUpOutline, DesktopPcOutline } from 'flowbite-svelte-icons';
   import { datasourceStore } from '$lib/datasource';
 
-  export let open = false;
+  let { open = $bindable(false) } = $props();
 
   let fileInput;
-  let tooltipItem = null;
-  let tooltipX = 0;
-  let tooltipY = 0;
+  let tooltipItem = $state(null);
+  let tooltipX = $state(0);
+  let tooltipY = $state(0);
 
   function handleFiles(e) {
     datasourceStore.loadLocalFiles(Array.from(e.target.files));
@@ -25,8 +25,9 @@
     tooltipItem = null;
   }
 
-  $: ds = $datasourceStore;
-  $: visibleItems = datasourceStore.flatten(ds.tree, ds.expanded);
+  const visibleItems = $derived(
+    datasourceStore.flatten(datasourceStore.tree, datasourceStore.expanded)
+  );
 </script>
 
 {#if open}
@@ -36,7 +37,7 @@
       <FolderOpenSolid class="w-4 h-4 text-green-800 flex-shrink-0" />
       <span class="text-xs font-bold text-green-800 uppercase tracking-wider flex-1 truncate">Explorer</span>
       <button
-        on:click={() => (open = false)}
+        onclick={() => (open = false)}
         class="text-green-800 hover:text-green-600 p-0.5 leading-none flex-shrink-0 text-xs"
         aria-label="Close sidebar"
       >✕</button>
@@ -48,18 +49,18 @@
       type="file"
       class="hidden"
       webkitdirectory
-      on:change={handleFiles}
+      onchange={handleFiles}
     />
 
     <!-- Tree or status -->
     <div class="flex-1 overflow-y-auto overflow-x-hidden text-xs">
-      {#if ds.loading}
+      {#if datasourceStore.loading}
         <p class="px-3 py-4 text-gray-400 text-center leading-snug">Loading remote…</p>
-      {:else if ds.error}
-        <p class="px-3 py-4 text-red-400 text-center leading-snug text-xs">{ds.error}</p>
+      {:else if datasourceStore.error}
+        <p class="px-3 py-4 text-red-400 text-center leading-snug text-xs">{datasourceStore.error}</p>
       {:else if visibleItems.length === 0}
         <p class="px-3 py-4 text-gray-400 text-center leading-snug">
-          {#if ds.mode === 'local'}
+          {#if datasourceStore.mode === 'local'}
             Click <FolderOpenSolid class="inline w-3 h-3" /> to open a local folder
           {:else}
             No files found in remote folder
@@ -70,17 +71,17 @@
           <button
             class="w-full text-left flex items-center py-0.5 pr-2 hover:bg-green-50 select-none"
             style="padding-left: {0.25 + item.depth * 0.75}rem"
-            on:click={() => item.type === 'dir' && datasourceStore.toggleExpanded(item.path, item.id)}
-            on:mouseenter={(e) => showTooltip(e, item)}
-            on:mouseleave={hideTooltip}
+            onclick={() => item.type === 'dir' && datasourceStore.toggleExpanded(item.path, item.id)}
+            onmouseenter={(e) => showTooltip(e, item)}
+            onmouseleave={hideTooltip}
           >
             <span class="w-3 flex-shrink-0 text-gray-400 text-center" style="font-size:0.55rem; line-height:1">
               {#if item.type === 'dir' && (item.hasChildren || item.id)}
-                {ds.expanded.has(item.path) ? '▼' : '▶'}
+                {datasourceStore.expanded.has(item.path) ? '▼' : '▶'}
               {/if}
             </span>
             {#if item.type === 'dir'}
-              {#if ds.expanded.has(item.path)}
+              {#if datasourceStore.expanded.has(item.path)}
                 <FolderOpenSolid class="w-3.5 h-3.5 text-yellow-500 flex-shrink-0 mr-1" />
               {:else}
                 <FolderSolid class="w-3.5 h-3.5 text-yellow-400 flex-shrink-0 mr-1" />
@@ -98,14 +99,14 @@
     <div class="border-t border-gray-200 px-2 py-1.5 flex justify-center">
       <button
         id="btn-toggle-mode"
-        on:click={() => datasourceStore.toggleMode()}
+        onclick={() => datasourceStore.toggleMode()}
         class="flex items-center gap-1.5 w-full justify-center px-2 py-1 rounded text-xs font-medium
-               {ds.mode === 'local'
+               {datasourceStore.mode === 'local'
                  ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
                  : 'bg-orange-50 text-orange-700 hover:bg-orange-100'}"
-        aria-label="{ds.mode === 'local' ? 'Switch to Remote' : 'Switch to Local'}"
+        aria-label="{datasourceStore.mode === 'local' ? 'Switch to Remote' : 'Switch to Local'}"
       >
-        {#if ds.mode === 'local'}
+        {#if datasourceStore.mode === 'local'}
           <DesktopPcOutline class="w-3.5 h-3.5 flex-shrink-0" />
           <span>Local</span>
         {:else}
@@ -114,16 +115,16 @@
         {/if}
       </button>
       <Tooltip triggeredBy="#btn-toggle-mode" placement="top">
-        {ds.mode === 'local' ? 'Switch to Remote mode' : 'Switch to Local mode'}
+        {datasourceStore.mode === 'local' ? 'Switch to Remote mode' : 'Switch to Local mode'}
       </Tooltip>
     </div>
 
     <!-- Bottom row 2: Open directory (local only) -->
-    {#if ds.mode === 'local'}
+    {#if datasourceStore.mode === 'local'}
       <div class="border-t border-gray-200 px-2 py-1.5 flex justify-center">
         <button
           id="btn-open-dir"
-          on:click={() => fileInput.click()}
+          onclick={() => fileInput.click()}
           class="flex items-center gap-1.5 w-full justify-center px-2 py-1 rounded text-xs
                  text-gray-600 hover:bg-green-50 hover:text-green-800"
           aria-label="Open local directory"
@@ -147,7 +148,7 @@
 {:else}
   <div class="flex-shrink-0 p-2">
     <button
-      on:click={() => (open = true)}
+      onclick={() => (open = true)}
       class="p-1.5 rounded-md bg-green-800 text-white hover:bg-green-700"
       aria-label="Open explorer"
     >

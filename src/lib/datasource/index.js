@@ -1,1 +1,1 @@
-export { datasourceStore } from './store.js';
+export { datasourceStore } from './store.svelte.js';
