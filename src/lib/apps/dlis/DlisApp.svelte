@@ -58,9 +58,10 @@
     </div>
 
   {:else if error}
-    <div class="flex-1 flex flex-col items-center justify-center gap-2 text-red-500 p-6">
-      <span class="font-medium">Failed to parse DLIS file</span>
-      <span class="text-xs text-red-400">{error}</span>
+    <div class="flex-1 flex flex-col items-center justify-center gap-2 p-6 text-center">
+      <span class="font-medium text-red-500">Failed to parse DLIS file</span>
+      <span class="text-xs text-red-400 max-w-sm">{error}</span>
+      <span class="text-xs text-gray-400 mt-2">Check the browser console for diagnostic details.</span>
     </div>
 
   {:else}

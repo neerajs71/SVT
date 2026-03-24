@@ -6,8 +6,14 @@ import * as DLIS from '$lib/ts/dlis/index';
 
 /** @param {ArrayBuffer} arrayBuffer */
 export async function parseDLISFile(arrayBuffer) {
-  if (!DLIS.Validator.isDLISFile(arrayBuffer)) {
-    throw new Error('Not a valid DLIS file.');
+  // Use getFileInfo for a more descriptive error if validation fails
+  const info = DLIS.Validator.getFileInfo(arrayBuffer);
+  if (!info.isValid) {
+    // Log the first 80 bytes as a diagnostic
+    const header = new Uint8Array(arrayBuffer, 0, Math.min(80, arrayBuffer.byteLength));
+    const headerStr = new TextDecoder('utf-8').decode(header);
+    console.warn('[DlisApp] Validation failed. Header bytes:', headerStr, info.error);
+    throw new Error(`Not a valid DLIS file: ${info.error ?? 'unknown'}`);
   }
   return DLIS.parse(arrayBuffer);
 }
