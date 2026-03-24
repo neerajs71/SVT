@@ -23,6 +23,117 @@
   let showCompletions  = $state(true);
   let showPerforations = $state(true);
 
+  // ── Component JSON rendering ──────────────────────────────────────────────
+  // Cache: jsonName → parsed JSON object
+  const compJsonCache = new Map();
+
+  // Per-completion SVG strings (index → html string | null)
+  let compSvgStrings = $state([]);
+
+  /**
+   * Converts component JSON data to SVG path content using our linear scale.
+   * Mirrors the DLIS buildComponent.ts logic without warpjs deviation.
+   */
+  function jsonToSvgContent(componentData, comp, compIndex, g) {
+    const { elements, width: jw, height: jh } = componentData;
+    if (!elements || !jw || !jh) return '';
+
+    const { centerX, yScale } = g;
+    const compOD     = comp.od ?? 2.875;
+    const compLength = comp.length ?? 1;
+    const compTop    = comp._top;
+
+    const defs  = [];
+    const paths = [];
+    let gradCounter = 0;
+
+    for (const el of elements) {
+      if (el.type !== 'freeform' || !el.points?.length) continue;
+
+      const segs = [];
+      for (const pt of el.points) {
+        const { x, y, directive } = pt;
+        // Map JSON space → physical space → SVG pixels
+        const diamIn  = (x - jw / 2) * (compOD / jw);
+        const depthM  = compTop + (y * compLength / jh);
+        const svgX    = (centerX + diamIn * DIA_SCALE).toFixed(2);
+        const svgY    = (HEADER_H + depthM * yScale).toFixed(2);
+
+        if (directive === 'moveTo')  segs.push(`M${svgX} ${svgY}`);
+        else if (directive === 'lineTo')  segs.push(`L${svgX} ${svgY}`);
+        else if (directive === 'close')   segs.push('Z');
+      }
+      if (segs.length === 0) continue;
+
+      // Fill
+      let fillAttr = 'none';
+      const fill = el.fill;
+      if (fill) {
+        if (typeof fill === 'string') {
+          fillAttr = fill;
+        } else if (fill.type === 'solid') {
+          fillAttr = fill.color ?? 'none';
+        } else if (fill.type === 'gradient') {
+          const origId  = fill.id ?? `g${gradCounter}`;
+          const uid     = `ci${compIndex}_${origId}`;
+          fillAttr = `url(#${uid})`;
+          const stops = (fill.gstops ?? []).map(s => {
+            const offset = s.offset ?? `${(s.position / 1000).toFixed(1)}%`;
+            return `<stop offset="${offset}" stop-color="${s['stop-color'] ?? '#000'}"/>`;
+          }).join('');
+          const gType = fill.gradient_type ?? 'linear';
+          if (gType === 'linear') {
+            defs.push(`<linearGradient id="${uid}" x1="0%" y1="0%" x2="100%" y2="0%">${stops}</linearGradient>`);
+          } else {
+            defs.push(`<radialGradient id="${uid}">${stops}</radialGradient>`);
+          }
+          gradCounter++;
+        }
+      }
+
+      const stroke = el.stroke ?? 'none';
+      const sw = Array.isArray(el.strokeWidth) ? el.strokeWidth[0] : (el.strokeWidth ?? 0);
+      paths.push(`<path d="${segs.join(' ')}" fill="${fillAttr}" stroke="${stroke}" stroke-width="${sw}"/>`);
+    }
+
+    const defsSection = defs.length > 0 ? `<defs>${defs.join('')}</defs>` : '';
+    return defsSection + paths.join('');
+  }
+
+  /** Fetch component JSON (with in-memory cache) */
+  async function fetchCompJson(jsonName) {
+    if (compJsonCache.has(jsonName)) return compJsonCache.get(jsonName);
+    try {
+      const res = await fetch(`/compjson/${encodeURIComponent(jsonName)}.json`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      compJsonCache.set(jsonName, data);
+      return data;
+    } catch {
+      compJsonCache.set(jsonName, null);
+      return null;
+    }
+  }
+
+  /** Load SVG strings for all completions whenever geo changes */
+  $effect(() => {
+    const g = geo;
+    if (!g || g.completions.length === 0) { compSvgStrings = []; return; }
+    const snap = g.completions;
+    (async () => {
+      const results = await Promise.all(
+        snap.map(async (comp, i) => {
+          const name = comp.tool_comp;
+          if (!name) return null;
+          const data = await fetchCompJson(name);
+          if (!data) return null;
+          return jsonToSvgContent(data, comp, i, g);
+        })
+      );
+      compSvgStrings = results;
+    })();
+  });
+
   // ── Computed geometry ────────────────────────────────────────────────────
   const geo = $derived.by(() => {
     if (!wson) return null;
@@ -428,7 +539,7 @@
 
         <!-- ── Completion strings ──────────────────────────────────── -->
         {#if showCompletions}
-          {#each completions as comp}
+          {#each completions as comp, i}
             {@const r      = (comp.od ?? 2.875) / 2}
             {@const rOuter = r * (comp.od_multiplier ?? 1.2)}
             {@const ytop   = sy(comp._top)}
@@ -440,43 +551,37 @@
             {@const ymid   = (ytop + ybot) / 2}
             {@const type   = compTypeOf(comp)}
 
-            {#if type === 'packer'}
-              <!-- Two filled triangles pointing inward (classic packer symbol) -->
+            {#if compSvgStrings[i]}
+              <!-- Rendered from actual component JSON definition -->
+              {@html compSvgStrings[i]}
+            {:else if type === 'packer'}
+              <!-- Fallback: two filled triangles pointing inward -->
               <polygon points="{xOL},{ytop} {xOR},{ytop} {centerX},{ymid}"
                        fill="#f59e0b" stroke="#b45309" stroke-width="0.8" opacity="0.9"/>
               <polygon points="{xOL},{ybot} {xOR},{ybot} {centerX},{ymid}"
                        fill="#f59e0b" stroke="#b45309" stroke-width="0.8" opacity="0.9"/>
-              <!-- Centre marker line -->
               <line x1={xOL} y1={ymid} x2={xOR} y2={ymid} stroke="#b45309" stroke-width="1"/>
-
             {:else if type === 'hanger'}
-              <!-- Trapezoid: wide shoulder narrowing to tubing OD -->
+              <!-- Fallback: trapezoid shoulder -->
               {@const rWide = r * (comp.od_multiplier ?? 1.5)}
-              {@const xWL   = sxL(rWide)}
-              {@const xWR   = sxR(rWide)}
-              <polygon points="{xWL},{ytop} {xWR},{ytop} {xR},{ybot} {xL},{ybot}"
+              <polygon points="{sxL(rWide)},{ytop} {sxR(rWide)},{ytop} {xR},{ybot} {xL},{ybot}"
                        fill="#94a3b8" stroke="#475569" stroke-width="1"/>
-
             {:else if type === 'icd'}
-              <!-- ICD / INA: perforated pipe section -->
+              <!-- Fallback: perforated pipe -->
               <rect x={xL} y={ytop} width={xR - xL} height={ybot - ytop}
                     fill="url(#icd-fill)" stroke="#2563eb" stroke-width="1"/>
-              <!-- Side markers -->
               <line x1={xL} y1={ytop} x2={xL} y2={ybot} stroke="#1d4ed8" stroke-width="1.5"/>
               <line x1={xR} y1={ytop} x2={xR} y2={ybot} stroke="#1d4ed8" stroke-width="1.5"/>
-
             {:else if type === 'liner'}
-              <!-- Liner: thin casing-like rectangle, slightly inside main casing -->
               <rect x={xL} y={ytop} width={xR - xL} height={ybot - ytop}
                     fill="#f0fdf4" stroke="#16a34a" stroke-width="1.2"/>
-
             {:else}
-              <!-- Tubing (default): two tube walls -->
+              <!-- Fallback: tubing walls -->
               <rect x={xL - 1.5} y={ytop} width="3" height={ybot - ytop} fill="#334155"/>
               <rect x={xR - 1.5} y={ytop} width="3" height={ybot - ytop} fill="#334155"/>
             {/if}
 
-            <!-- Completion label -->
+            <!-- Label always shown alongside the component -->
             {#if comp.description && (ybot - ytop) > 10}
               <text x={xOR + 6} y={ymid + 4} font-size="8" fill="#374151"
                     font-family="sans-serif">{comp.description}</text>
