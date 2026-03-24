@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { parseDLISFile, processChannelsAndFrames } from './utils.js';
+  import { parseDLISFile, processChannelsAndFrames, extractCurveData } from './utils.js';
 
   let { tab } = $props();
 
@@ -14,6 +14,9 @@
   let fileSize = $state(0);
 
   let activeSection = $state('overview');
+
+  // Chart modal state — null means closed
+  let chart = $state(null);
 
   onMount(async () => {
     try {
@@ -47,6 +50,55 @@
     let i = 0, v = bytes;
     while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
     return `${v.toFixed(1)} ${units[i]}`;
+  }
+
+  function fmt(n, digits = 3) {
+    if (!isFinite(n)) return String(n);
+    const s = n.toPrecision(digits);
+    return parseFloat(s).toString(); // strip trailing zeros
+  }
+
+  /** Build a chart descriptor for the modal, or null if no data. */
+  function openChart(ch) {
+    const raw = extractCurveData(parseResult, ch.name);
+    if (!raw) { chart = { empty: true, channelName: ch.name, units: ch.units }; return; }
+
+    // Filter pairs where both values are finite numbers
+    const pairs = raw.xs
+      .map((x, i) => [x, raw.ys[i]])
+      .filter(([x, y]) => isFinite(x) && isFinite(y));
+
+    if (!pairs.length) { chart = { empty: true, channelName: ch.name, units: ch.units }; return; }
+
+    const xs = pairs.map(p => p[0]);
+    const ys = pairs.map(p => p[1]);
+    const xMin = Math.min(...xs), xMax = Math.max(...xs);
+    const yMin = Math.min(...ys), yMax = Math.max(...ys);
+    const xRange = xMax - xMin || 1;
+    const yRange = yMax - yMin || 1;
+
+    // SVG layout constants
+    const W = 320, H = 220, PL = 52, PR = 14, PT = 14, PB = 36;
+    const IW = W - PL - PR, IH = H - PT - PB;
+
+    const sx = x => PL + ((x - xMin) / xRange) * IW;
+    const sy = y => PT + (1 - (y - yMin) / yRange) * IH;
+
+    const points = pairs.map(([x, y]) => `${sx(x).toFixed(1)},${sy(y).toFixed(1)}`).join(' ');
+
+    // 5 evenly spaced Y ticks, 3 X ticks
+    const yTicks = [0, 0.25, 0.5, 0.75, 1].map(t => ({ v: yMin + t * yRange, py: sy(yMin + t * yRange) }));
+    const xTicks = [0, 0.5, 1].map(t => ({ v: xMin + t * xRange, px: sx(xMin + t * xRange) }));
+
+    chart = {
+      empty: false,
+      channelName: ch.name,
+      units: ch.units,
+      indexName: raw.indexName,
+      count: pairs.length,
+      W, H, PL, PR, PT, PB, IW, IH,
+      points, yTicks, xTicks,
+    };
   }
 
   const logicalFiles = $derived(parseResult?.logicalFiles ?? []);
@@ -139,6 +191,7 @@
                 <th class="px-3 py-1.5 border border-gray-200 font-medium">Long name</th>
                 <th class="px-3 py-1.5 border border-gray-200 font-medium">Units</th>
                 <th class="px-3 py-1.5 border border-gray-200 font-medium">Logical file</th>
+                <th class="px-2 py-1.5 border border-gray-200 font-medium w-8 text-center">Plot</th>
               </tr>
             </thead>
             <tbody>
@@ -148,6 +201,20 @@
                   <td class="px-3 py-1 border border-gray-200 text-gray-600">{ch.longName || '—'}</td>
                   <td class="px-3 py-1 border border-gray-200 text-gray-500">{ch.units || '—'}</td>
                   <td class="px-3 py-1 border border-gray-200 text-gray-400 font-mono text-[0.65rem]">{ch.logicalFile || '—'}</td>
+                  <td class="px-2 py-1 border border-gray-200 text-center">
+                    <button
+                      onclick={() => openChart(ch)}
+                      title="Plot {ch.name}"
+                      class="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-green-100 text-gray-400 hover:text-green-700 transition-colors"
+                    >
+                      <!-- Simple bar-chart icon -->
+                      <svg viewBox="0 0 12 12" width="12" height="12" fill="currentColor">
+                        <rect x="0" y="7" width="3" height="5"/>
+                        <rect x="4.5" y="4" width="3" height="8"/>
+                        <rect x="9" y="1" width="3" height="11"/>
+                      </svg>
+                    </button>
+                  </td>
                 </tr>
               {/each}
             </tbody>
@@ -185,4 +252,114 @@
 
     </div>
   {/if}
+
 </div>
+
+<!-- Chart modal -->
+{#if chart}
+  <!-- Backdrop -->
+  <div
+    class="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center"
+    role="dialog"
+    aria-modal="true"
+    onclick={() => (chart = null)}
+  >
+    <!-- Panel — slides up on mobile, centred on larger screens -->
+    <div
+      class="bg-white w-full sm:w-auto sm:rounded-xl rounded-t-xl shadow-xl overflow-hidden"
+      onclick={e => e.stopPropagation()}
+    >
+      <!-- Modal header -->
+      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+        <div class="flex items-baseline gap-1.5">
+          <span class="font-semibold text-sm text-gray-800">{chart.channelName}</span>
+          {#if chart.units}
+            <span class="text-xs text-gray-400">({chart.units})</span>
+          {/if}
+        </div>
+        <button
+          onclick={() => (chart = null)}
+          class="text-gray-400 hover:text-gray-600 text-lg leading-none px-1"
+          aria-label="Close"
+        >×</button>
+      </div>
+
+      <!-- Chart body -->
+      <div class="p-4">
+        {#if chart.empty}
+          <p class="text-gray-400 text-xs text-center py-8 px-12">
+            No numeric curve data found for <strong>{chart.channelName}</strong>.
+          </p>
+        {:else}
+          <!-- Pure SVG line chart -->
+          <svg
+            viewBox="0 0 {chart.W} {chart.H}"
+            width={chart.W}
+            height={chart.H}
+            class="overflow-visible"
+            style="max-width:100%;height:auto"
+          >
+            <!-- Light grid lines -->
+            {#each chart.yTicks as t}
+              <line
+                x1={chart.PL} y1={t.py}
+                x2={chart.PL + chart.IW} y2={t.py}
+                stroke="#e5e7eb" stroke-width="1"
+              />
+            {/each}
+
+            <!-- Axes -->
+            <line x1={chart.PL} y1={chart.PT} x2={chart.PL} y2={chart.PT + chart.IH}
+                  stroke="#9ca3af" stroke-width="1"/>
+            <line x1={chart.PL} y1={chart.PT + chart.IH} x2={chart.PL + chart.IW} y2={chart.PT + chart.IH}
+                  stroke="#9ca3af" stroke-width="1"/>
+
+            <!-- Y axis tick labels -->
+            {#each chart.yTicks as t}
+              <text
+                x={chart.PL - 4} y={t.py}
+                text-anchor="end" dominant-baseline="middle"
+                font-size="8" fill="#6b7280"
+              >{fmt(t.v)}</text>
+            {/each}
+
+            <!-- X axis tick labels -->
+            {#each chart.xTicks as t, i}
+              <text
+                x={t.px} y={chart.PT + chart.IH + 14}
+                text-anchor={i === 0 ? 'start' : i === chart.xTicks.length - 1 ? 'end' : 'middle'}
+                dominant-baseline="auto"
+                font-size="8" fill="#6b7280"
+              >{fmt(t.v)}</text>
+            {/each}
+
+            <!-- Y axis label -->
+            <text
+              x={chart.PL - 36} y={chart.PT + chart.IH / 2}
+              transform="rotate(-90, {chart.PL - 36}, {chart.PT + chart.IH / 2})"
+              text-anchor="middle" font-size="8" fill="#9ca3af"
+            >{chart.channelName}{chart.units ? ` (${chart.units})` : ''}</text>
+
+            <!-- X axis label -->
+            <text
+              x={chart.PL + chart.IW / 2} y={chart.PT + chart.IH + 28}
+              text-anchor="middle" font-size="8" fill="#9ca3af"
+            >{chart.indexName}</text>
+
+            <!-- The curve -->
+            <polyline
+              points={chart.points}
+              fill="none"
+              stroke="#15803d"
+              stroke-width="1.5"
+              stroke-linejoin="round"
+              stroke-linecap="round"
+            />
+          </svg>
+
+          <p class="text-[0.65rem] text-gray-400 text-right mt-1">{chart.count} samples</p>
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}
