@@ -6,6 +6,7 @@
 
   let loading = $state(true);
   let error = $state(null);
+  let diagnostic = $state(null);
   let parseResult = $state(null);
   let channels = $state([]);
   let frames = $state([]);
@@ -34,6 +35,7 @@
       ({ channels, frames, totalEFLRs } = processChannelsAndFrames(parseResult));
     } catch (e) {
       error = e.message;
+      diagnostic = e.diagnostic ?? null;
     } finally {
       loading = false;
     }
@@ -58,10 +60,15 @@
     </div>
 
   {:else if error}
-    <div class="flex-1 flex flex-col items-center justify-center gap-2 p-6 text-center">
+    <div class="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center">
       <span class="font-medium text-red-500">Failed to parse DLIS file</span>
-      <span class="text-xs text-red-400 max-w-sm">{error}</span>
-      <span class="text-xs text-gray-400 mt-2">Check the browser console for diagnostic details.</span>
+      <span class="text-xs text-red-400 max-w-xs">{error}</span>
+      {#if diagnostic}
+        <div class="mt-1 max-w-xs w-full">
+          <div class="text-[0.6rem] text-gray-400 mb-1 text-left">First 80 bytes (printable):</div>
+          <pre class="text-[0.6rem] text-gray-600 bg-gray-100 rounded p-2 text-left overflow-x-auto whitespace-pre-wrap break-all">{diagnostic}</pre>
+        </div>
+      {/if}
     </div>
 
   {:else}
