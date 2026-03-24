@@ -9,8 +9,12 @@
  */
 
 import GenericApp from './generic/GenericApp.svelte';
+import DlisApp from './dlis/DlisApp.svelte';
 
 export const appRegistry = {
+  // DLIS well-log files
+  '.dlis': DlisApp,
+  '.dlis1': DlisApp,
   // text / markup
   '.txt':  GenericApp,
   '.md':   GenericApp,
