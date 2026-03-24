@@ -2,6 +2,7 @@
   import { Tooltip } from 'flowbite-svelte';
   import { FolderOpenSolid, FolderSolid, FileLinesOutline, CloudArrowUpOutline, DesktopPcOutline } from 'flowbite-svelte-icons';
   import { datasourceStore } from '$lib/datasource';
+  import { tabStore } from '$lib/tabs/tabs.svelte.js';
 
   let { open = $bindable(false) } = $props();
 
@@ -71,7 +72,9 @@
           <button
             class="w-full text-left flex items-center py-0.5 pr-2 hover:bg-green-50 select-none"
             style="padding-left: {0.25 + item.depth * 0.75}rem"
-            onclick={() => item.type === 'dir' && datasourceStore.toggleExpanded(item.path, item.id)}
+            onclick={() => item.type === 'dir'
+              ? datasourceStore.toggleExpanded(item.path, item.id)
+              : tabStore.openFile(item)}
             onmouseenter={(e) => showTooltip(e, item)}
             onmouseleave={hideTooltip}
           >

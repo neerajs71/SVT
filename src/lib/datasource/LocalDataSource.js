@@ -13,7 +13,7 @@ export class LocalDataSource {
       for (let i = 0; i < parts.length; i++) {
         const part = parts[i];
         if (i === parts.length - 1) {
-          node.children[part] = { name: part, type: 'file' };
+          node.children[part] = { name: part, type: 'file', file };
         } else {
           if (!node.children[part]) {
             node.children[part] = { name: part, type: 'dir', children: {} };
@@ -50,6 +50,7 @@ export function flatten(node, expanded, depth = 0, parentPath = '') {
       depth,
       path,
       id: child.id ?? null,
+      file: child.file ?? null,
       hasChildren: child.type === 'dir' && Object.keys(child.children || {}).length > 0
     });
     if (child.type === 'dir' && child.children && expanded.has(path)) {
