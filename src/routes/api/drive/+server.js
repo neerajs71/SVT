@@ -170,6 +170,32 @@ export async function GET({ url }) {
     throw error(500, 'GOOGLE_DRIVE_FOLDER_ID is not configured');
   }
 
+  // ── File download ──────────────────────────────────────────────────────────
+  const fileId = url.searchParams.get('fileId');
+  if (fileId) {
+    try {
+      const accessToken = await getAccessToken();
+      const driveUrl = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`;
+      const res = await fetch(driveUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      if (!res.ok) {
+        const msg = await res.text();
+        throw new Error(`Drive download failed (${res.status}): ${msg}`);
+      }
+      return new Response(res.body, {
+        headers: {
+          'Content-Type': res.headers.get('Content-Type') ?? 'application/octet-stream',
+          'Cache-Control': 'private, max-age=300'
+        }
+      });
+    } catch (err) {
+      console.error('[/api/drive] file download', err.message);
+      throw error(500, err.message);
+    }
+  }
+
+  // ── Folder listing ─────────────────────────────────────────────────────────
   const rootId   = extractFolderId(rootEnv);
   const folderId = url.searchParams.get('folderId') || rootId;
   const isRoot   = folderId === rootId;
