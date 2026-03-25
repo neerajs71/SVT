@@ -263,7 +263,7 @@
 
     return { oh, ch, cem, str, perf, completions, maxDepth, yScale, diaScale, centerX,
              totalW, totalH, sy, syD, sxR, sxL, wellName, rulerTicks, maxR, strataW,
-             hasDir, dirPath, dirSide, dirAxis, hasProfileData };
+             hasDir, dirPath, dirSide, dirAxis, hasProfileData, wellDir, dtx };
   });
 
   async function loadFile() {
@@ -510,17 +510,20 @@
     return (0.299 * r + 0.587 * g + 0.114 * b) > 140 ? '#111' : '#eee';
   }
 
-  function perfArrows(perf, sy, sxL, sxR) {
+  function perfArrows(perf, wellDir, dtx, yS, dS, cX, autoS) {
     let paths = '';
     const intervals = Math.max(1, Math.round((perf.bot - perf.top) / PERF_DIST));
     const tip = (perf.perfID ?? 7) / 2;
     const ext = tip + 5;
+    const pt = (x, y) => txPoint(x, y, wellDir, dtx, yS, dS, cX, autoS);
     for (let i = 0; i < intervals; i++) {
       const t   = perf.top + PERF_DIST * i;
       const mid = t + PERF_DIST / 2;
-      const b   = t + PERF_DIST;
-      paths += `M${sxL(tip)},${sy(t)} L${sxL(ext)},${sy(mid)} L${sxL(tip)},${sy(b)} Z `;
-      paths += `M${sxR(tip)},${sy(t)} L${sxR(ext)},${sy(mid)} L${sxR(tip)},${sy(b)} Z `;
+      const b   = Math.min(t + PERF_DIST, perf.bot);
+      const [lx1,ly1] = pt(-tip, t);   const [lx2,ly2] = pt(-ext, mid); const [lx3,ly3] = pt(-tip, b);
+      const [rx1,ry1] = pt( tip, t);   const [rx2,ry2] = pt( ext, mid); const [rx3,ry3] = pt( tip, b);
+      paths += `M${lx1.toFixed(1)},${ly1.toFixed(1)} L${lx2.toFixed(1)},${ly2.toFixed(1)} L${lx3.toFixed(1)},${ly3.toFixed(1)} Z `;
+      paths += `M${rx1.toFixed(1)},${ry1.toFixed(1)} L${rx2.toFixed(1)},${ry2.toFixed(1)} L${rx3.toFixed(1)},${ry3.toFixed(1)} Z `;
     }
     return paths;
   }
@@ -667,7 +670,7 @@
     <p class="mt-1">{error}</p>
   </div>
 {:else if geo}
-  {@const { oh, ch, cem, str, perf, completions, sy, syD, sxL, sxR, wellName, rulerTicks, totalW, totalH, centerX, strataW, hasDir, dirPath, dirSide, dirAxis, hasProfileData } = geo}
+  {@const { oh, ch, cem, str, perf, completions, sy, syD, sxL, sxR, wellName, rulerTicks, totalW, totalH, centerX, strataW, hasDir, dirPath, dirSide, dirAxis, hasProfileData, wellDir, dtx, yScale, diaScale } = geo}
 
   <!-- Info bar -->
   {#if showInfoBar}
@@ -908,7 +911,7 @@
 
         {#if showPerforations}
           {#each perf as p}
-            <path d={perfArrows(p, syD, sxL, sxR)} fill={p.color ?? '#e53e3e'} stroke="none" opacity="0.85"/>
+            <path d={perfArrows(p, hasDir ? wellDir : null, dtx, yScale, diaScale, centerX, displayOpts.autoScale)} fill={p.color ?? '#e53e3e'} stroke="none" opacity="0.85"/>
           {/each}
         {/if}
 
