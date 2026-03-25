@@ -105,13 +105,15 @@ function autoNodes(nodes, maxDepth) {
   const intervals = [];
   for (let i = 0; i < bpts.length - 1; i++) {
     const s = bpts[i], e = bpts[i+1], len = e - s;
+    if (len <= 0) continue; // skip zero-length or negative intervals
     let weight = 1;
     for (const nd of nodes) {
       if (nd.start <= s && nd.end >= e && len < 50) {
-        weight = Math.max(weight, 50 / (0.3 * len));
+        const w = 50 / (0.3 * len);
+        weight = Math.max(weight, isFinite(w) ? w : 1);
       }
     }
-    intervals.push({ s, e, len, w: weight < 0 ? 1 : weight });
+    intervals.push({ s, e, len, w: weight });
   }
 
   // Cumulative weighted → DTX

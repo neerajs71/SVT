@@ -150,7 +150,7 @@
     const strataW = displayOpts.showLeftTrack ? 110 : 0;
     const diaScale = displayOpts.xDiaScale;
 
-    const src = wson.wellData?.[0] ?? wson;
+    const src = getSrc() ?? wson;
     const oh = src.oh ?? src.openHole ?? [];
     const ch = src.ch ?? src.casedHole ?? [];
     const cem = src.cementing ?? [];
@@ -252,8 +252,12 @@
 
     let compCursor = 0;
     const completions = completionsRaw.map(c => {
+      // Support both absolute top/bot depths (dlis format) and cumulative length format
+      if (c.top != null && c.bot != null) {
+        return { ...c, _top: +c.top, _bot: +c.bot };
+      }
       const _top = compCursor;
-      compCursor += (c.length ?? 0);
+      compCursor += +(c.length ?? 0);
       return { ...c, _top, _bot: compCursor };
     });
 
@@ -307,11 +311,22 @@
       const perfs  = src.perforations ?? [];
       let cursor = 0;
       for (const c of comps) {
-        const len = c.length ?? 0;
-        if (len > 0) { nodes.push({ start: cursor, end: cursor + len }); cursor += len; }
+        // Support absolute top/bot (dlis format) or cursor+length (legacy format)
+        if (c.top != null && c.bot != null && +c.bot > +c.top) {
+          nodes.push({ start: +c.top, end: +c.bot });
+        } else {
+          const len = +(c.length ?? c.len ?? 0);
+          if (len > 0) { nodes.push({ start: cursor, end: cursor + len }); cursor += len; }
+        }
       }
       for (const p of perfs) {
-        if (p.top != null && p.bot != null) nodes.push({ start: p.top, end: p.bot });
+        if (p.top != null && p.bot != null && +p.bot > +p.top) {
+          nodes.push({ start: +p.top, end: +p.bot });
+        }
+      }
+      // Default node covering full depth if nothing found (like dlis does)
+      if (nodes.length === 0 && maxDepth > 0) {
+        nodes.push({ start: 0, end: maxDepth });
       }
 
       const allD = [
