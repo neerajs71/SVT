@@ -7,6 +7,9 @@
   let error   = $state('');
   let wson    = $state(null);
 
+  // Directional + autoscale data from /api/schematic
+  let dirData = $state(null); // { dtx, prNorm, prAuto }
+
   // ── Layout constants ─────────────────────────────────────────────────────
   const RULER_W   = 44;
   const HEADER_H  = 52;
@@ -155,17 +158,19 @@
     const perf = src.perforations ?? [];
     const completionsRaw = src.completions ?? [];
 
-    // ── Extract and normalise well survey profile ───────────────────────────
-    const rawProfile = src.wellProfile ?? src.survey ?? src.trajectory
-      ?? src.wellboreSurvey ?? src.directionalSurvey ?? src.surveyData ?? [];
-    const profile = rawProfile.map(p => ({
-      md:  +(p.md  ?? p.MD  ?? p.depth ?? p.measuredDepth ?? 0),
-      inc: +(p.inc ?? p.INC ?? p.inclination ?? p.incl ?? 0),
-      az:  +(p.az  ?? p.AZ  ?? p.azimuth ?? p.azi ?? 0)
-    })).filter(p => p.md >= 0).sort((a, b) => a.md - b.md);
+    // ── Profile detection (for UI indicator only) ───────────────────────────
+    const rawProfile = src.profile ?? src.wellProfile ?? src.survey ?? src.trajectory ?? [];
+    const hasProfileData = rawProfile.length >= 2 || (dirData?.prNorm?.length ?? 0) > 0;
 
-    const wellDir   = new WellDirection(profile.length >= 2 ? profile : []);
-    const hasDir    = wellDir.hasDeviation && displayOpts.directional;
+    // Use arc-slerp segments from /api/schematic response (dirData)
+    // prNorm = normal MD segments, prAuto = autoscale-remapped segments
+    const segments = displayOpts.autoScale
+      ? (dirData?.prAuto ?? dirData?.prNorm ?? [])
+      : (dirData?.prNorm ?? []);
+    const dtx = dirData?.dtx ?? null;
+
+    const wellDir = new WellDirection(segments);
+    const hasDir  = wellDir.hasDeviation && displayOpts.directional;
 
     const maxBitSize = oh.length ? Math.max(...oh.map(s => s.bitSize)) : 20;
     const maxOD = ch.length ? Math.max(...ch.map(c => c.od)) : maxBitSize;
@@ -187,7 +192,7 @@
     if (hasDir) {
       const steps = 100;
       for (let i = 0; i <= steps; i++) {
-        const [n, tvd] = wellDir.getPos(maxDepth * i / steps);
+        const [n, tvd] = wellDir.dirWarp([0, maxDepth * i / steps]);
         maxNorthing = Math.max(maxNorthing, n);
         minNorthing = Math.min(minNorthing, n);
         maxTVD      = Math.max(maxTVD, tvd);
@@ -205,28 +210,27 @@
     const sxR = r => centerX + r * diaScale;
     const sxL = r => centerX - r * diaScale;
 
-    // Depth → SVG-y using TVD in directional mode
-    const syD = hasDir
-      ? (md) => { const [, tvd] = wellDir.getPos(md); return HEADER_H + tvd * yScale; }
-      : sy;
+    // Unified depth→SVG-y (uses DTX autoscale when straight, arc TVD when directional)
+    const syD = (md) => {
+      const [svgX, svgY] = txPoint(0, md, hasDir ? wellDir : null, dtx, yScale, diaScale, centerX, displayOpts.autoScale);
+      return svgY;
+    };
 
-    // Build SVG polygon for a directionally-warped well section
-    const dirPath = hasDir
-      ? (top, bot, rL, rR, steps = 30) => buildDirPath(top, bot, rL, rR, wellDir, yScale, diaScale, centerX, steps)
-      : null;
+    // Build SVG polygon for a directionally-warped section (uses txPoint internally)
+    const dirPath = (top, bot, rL, rR, steps = 30) =>
+      buildDirPath(top, bot, rL, rR, hasDir ? wellDir : null, dtx, yScale, diaScale, centerX, displayOpts.autoScale, steps);
 
-    // Build directional annular region for one side (sign: +1=right, -1=left)
-    const dirSide = hasDir
-      ? (top, bot, rInner, rOuter, sign, steps = 30) => buildDirSide(top, bot, rInner, rOuter, sign, wellDir, yScale, diaScale, centerX, steps)
-      : null;
+    // One side of an annular region
+    const dirSide = (top, bot, rIn, rOut, sign, steps = 30) =>
+      buildDirSide(top, bot, rIn, rOut, sign, hasDir ? wellDir : null, dtx, yScale, diaScale, centerX, displayOpts.autoScale, steps);
 
     // Wellbore axis centerline path (directional mode)
     const dirAxis = hasDir ? (() => {
       const pts = [];
       for (let i = 0; i <= 80; i++) {
         const md = maxDepth * i / 80;
-        const [n, tvd] = wellDir.getPos(md);
-        pts.push(`${i === 0 ? 'M' : 'L'}${(centerX + n * yScale).toFixed(1)},${(HEADER_H + tvd * yScale).toFixed(1)}`);
+        const [cx, cy] = txPoint(0, md, wellDir, dtx, yScale, diaScale, centerX, displayOpts.autoScale);
+        pts.push(`${i === 0 ? 'M' : 'L'}${cx.toFixed(1)},${cy.toFixed(1)}`);
       }
       return pts.join(' ');
     })() : null;
@@ -255,7 +259,7 @@
 
     return { oh, ch, cem, str, perf, completions, maxDepth, yScale, diaScale, centerX,
              totalW, totalH, sy, syD, sxR, sxL, wellName, rulerTicks, maxR, strataW,
-             hasDir, dirPath, dirSide, dirAxis, wellDir, profile };
+             hasDir, dirPath, dirSide, dirAxis, hasProfileData };
   });
 
   async function loadFile() {
@@ -274,10 +278,58 @@
       }
       const text = new TextDecoder().decode(bytes);
       wson = JSON.parse(text);
+
+      // Fetch directional segments + autoscale DTX from server
+      await fetchDirData();
     } catch (e) {
       error = e.message ?? String(e);
     } finally {
       loading = false;
+    }
+  }
+
+  async function fetchDirData() {
+    try {
+      const src = getSrc();
+      if (!src) return;
+
+      // Extract survey — dlis uses {md, dev, az}, legacy uses {md, inc, az}
+      const rawProfile = src.profile ?? src.wellProfile ?? src.survey ?? src.trajectory ?? [];
+      const survey = rawProfile.map(p => ({
+        md:  +(p.md  ?? p.MD  ?? 0),
+        dev: +(p.dev ?? p.inc ?? p.INC ?? p.inclination ?? 0),
+        az:  +(p.az  ?? p.AZ  ?? p.azimuth ?? 0)
+      })).filter(p => p.md >= 0).sort((a, b) => a.md - b.md);
+
+      // Build nodes from completions + perforations for autoscale magnification
+      const nodes = [];
+      const comps  = src.completions ?? [];
+      const perfs  = src.perforations ?? [];
+      let cursor = 0;
+      for (const c of comps) {
+        const len = c.length ?? 0;
+        if (len > 0) { nodes.push({ start: cursor, end: cursor + len }); cursor += len; }
+      }
+      for (const p of perfs) {
+        if (p.top != null && p.bot != null) nodes.push({ start: p.top, end: p.bot });
+      }
+
+      const allD = [
+        ...(src.oh ?? src.openHole ?? []).map(s => s.bot),
+        ...(src.ch ?? src.casedHole ?? []).map(c => c.bot),
+      ];
+      const maxDepth = allD.length ? Math.max(...allD) + 50 : 3000;
+
+      const res = await fetch('/api/schematic', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'autonodes', nodes, maxDepth, survey })
+      });
+      if (res.ok) {
+        dirData = await res.json();
+      }
+    } catch (e) {
+      console.warn('[WsonApp] fetchDirData failed:', e);
     }
   }
 
@@ -303,9 +355,13 @@
     window.removeEventListener('mouseup', onDragEnd);
   }
 
-  // Helpers
+  // Helpers — normalise WSON structure (supports dlis config.* format + legacy flat format)
   function getSrc() {
-    return wson?.wellData?.[0] ?? wson;
+    if (!wson) return null;
+    // dlis format: { config: { openHole, casedHole, ... } }
+    if (wson.config && (wson.config.openHole || wson.config.casedHole)) return wson.config;
+    // legacy formats
+    return wson.wellData?.[0] ?? wson;
   }
 
   function toggleEditPanel(panel) {
@@ -476,110 +532,116 @@
     return 'tubing';
   }
 
-  // ── WellDirection: minimum-curvature directional survey calculator ────────────
-  class WellDirection {
-    constructor(profile) {
-      this.nodes = this._build(profile ?? []);
-    }
-
-    _build(profile) {
-      if (!profile.length) return [];
-      const toRad = d => d * Math.PI / 180;
-      const nodes = [{ md: +(profile[0].md ?? 0), n: 0, tvd: 0 }];
-      for (let i = 1; i < profile.length; i++) {
-        const p1 = profile[i - 1], p2 = profile[i];
-        const md1 = +p1.md, md2 = +p2.md;
-        const dmd = md2 - md1;
-        if (dmd <= 0) continue;
-        const i1 = toRad(+p1.inc), i2 = toRad(+p2.inc);
-        const a1 = toRad(+p1.az),  a2 = toRad(+p2.az);
-        const cos_b = Math.cos(i2 - i1) - Math.sin(i1) * Math.sin(i2) * (1 - Math.cos(a2 - a1));
-        const beta = Math.acos(Math.max(-1, Math.min(1, cos_b)));
-        const rf = beta < 1e-7 ? 1.0 : (2 / beta) * Math.tan(beta / 2);
-        const prev = nodes[nodes.length - 1];
-        nodes.push({
-          md: md2,
-          n:   prev.n   + dmd / 2 * (Math.sin(i1) * Math.cos(a1) + Math.sin(i2) * Math.cos(a2)) * rf,
-          tvd: prev.tvd + dmd / 2 * (Math.cos(i1) + Math.cos(i2)) * rf
-        });
-      }
-      return nodes;
-    }
-
-    // [northing, tvd] at measured depth
-    getPos(md) {
-      const ns = this.nodes;
-      if (!ns.length) return [0, md];
-      if (md <= ns[0].md) return [ns[0].n, ns[0].tvd];
-      const last = ns[ns.length - 1];
-      if (md >= last.md) {
-        if (ns.length >= 2) {
-          const prev = ns[ns.length - 2];
-          const span = last.md - prev.md;
-          if (span > 0) {
-            const t = (md - last.md) / span;
-            return [last.n + t * (last.n - prev.n), last.tvd + t * (last.tvd - prev.tvd)];
-          }
-        }
-        return [last.n, last.tvd];
-      }
-      let lo = 0, hi = ns.length - 1;
-      while (hi - lo > 1) { const m = (lo + hi) >> 1; ns[m].md <= md ? (lo = m) : (hi = m); }
-      const t = (md - ns[lo].md) / (ns[hi].md - ns[lo].md);
-      return [ns[lo].n + t * (ns[hi].n - ns[lo].n), ns[lo].tvd + t * (ns[hi].tvd - ns[lo].tvd)];
-    }
-
-    // Unit tangent [tn, tt] at md (tn=northing-component, tt=TVD-component)
-    getTangent(md) {
-      const eps = 4;
-      const [n1, tvd1] = this.getPos(Math.max(0, md - eps));
-      const [n2, tvd2] = this.getPos(md + eps);
-      const dn = n2 - n1, dt = tvd2 - tvd1;
-      const len = Math.hypot(dn, dt) || 1;
-      return [dn / len, dt / len];
-    }
-
-    // Is there meaningful deviation? (max inclination > 2°)
-    get hasDeviation() {
-      return this.nodes.length >= 2;
-    }
+  // ── 3D vector math helpers ───────────────────────────────────────────────
+  const _dot3  = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+  const _norm3 = v => { const m = Math.sqrt(_dot3(v,v)); return m > 0 ? v.map(x => x/m) : v; };
+  function _slerp3(v1, v2, t) {
+    const d  = Math.max(-1, Math.min(1, _dot3(v1, v2)));
+    const th = Math.acos(d);
+    if (th < 1e-10) return [...v1];
+    const st = Math.sin(th);
+    return v1.map((_, i) => v1[i]*Math.sin((1-t)*th)/st + v2[i]*Math.sin(t*th)/st);
   }
 
-  // Build SVG polygon path for a directionally-warped well section (symmetric or asymmetric)
-  // rLeft/rRight: radii from wellbore centre (positive = away from centre on respective side)
-  function buildDirPath(top, bot, rLeft, rRight, wellDir, yScaleVal, diaScaleVal, cX, steps = 30) {
+  // ── WellDirection: arc-slerp (mirrors dlis Direction.svelte.ts) ──────────
+  class WellDirection {
+    constructor(segments) { this.segments = segments ?? []; }
+
+    getSegment(md) {
+      for (const s of this.segments) if (md >= s.md1 && md < s.md2) return s;
+      return this.segments[this.segments.length - 1] ?? null;
+    }
+
+    // [northing, tvd] — mirrors dirWarp([x=0, y]) for centerline; x in warped-meters for offset
+    dirWarp([x, y]) {
+      const seg = this.getSegment(y);
+      if (!seg) return null;
+      const t    = Math.max(0, Math.min(1, (y - seg.md1) / (seg.md2 - seg.md1)));
+      const sv   = _slerp3(seg.q1u, seg.q2u, t);
+      const sc   = seg.radCurvature - seg.dirMult * x;
+      return [seg.ptPivot[0] + sc * sv[0], seg.ptPivot[2] + sc * sv[2]]; // [N, TVD]
+    }
+
+    // Perpendicular vectors in 2D (mirrors dlis getPerpendicular2D)
+    getPerpendicular2D(md) {
+      const seg = this.getSegment(md);
+      if (!seg) return null;
+      const t   = Math.max(0, Math.min(1, (md - seg.md1) / (seg.md2 - seg.md1)));
+      const qT  = _slerp3(seg.q1u, seg.q2u, t);
+      const nrm = qT.map(x => -x);                              // inward normal = -qT
+      const [rx, ry, rz] = seg.rotAxis, [nx, , nz] = nrm;
+      // tangent = cross(norm, rotAxis); use only x,z for 2D N-TVD plane
+      const tangent = _norm3([nrm[1]*rz - nrm[2]*ry, nrm[2]*rx - nrm[0]*rz, nrm[0]*ry - nrm[1]*rx]);
+      const [tx, , tz] = tangent;
+      const mag = Math.hypot(tx, tz) || 1;
+      return {
+        pos: [ tz/mag, -tx/mag],   // +x (right): 90° CW of tangent in N-TVD
+        neg: [-tz/mag,  tx/mag]    // -x (left):  90° CCW
+      };
+    }
+
+    get hasDeviation() { return this.segments.length > 0; }
+  }
+
+  // ── DTX linear interpolation (replaces everpolate.linear) ────────────────
+  function _lerpDTX(d, depth, depthTx) {
+    if (!depth?.length) return d;
+    if (d <= depth[0]) return depthTx[0];
+    const last = depth.length - 1;
+    if (d >= depth[last]) return depthTx[last];
+    for (let i = 1; i <= last; i++) {
+      if (d <= depth[i]) {
+        const t = (d - depth[i-1]) / (depth[i] - depth[i-1]);
+        return depthTx[i-1] + t * (depthTx[i] - depthTx[i-1]);
+      }
+    }
+    return d;
+  }
+
+  // ── txPoint: unified [svgX, svgY] transform (mirrors Canvas.txForm) ──────
+  function txPoint(xInches, yMD, wellDir, dtx, yS, dS, cX, autoS) {
+    const scR = dS / yS; // inch → meter conversion
+    if (wellDir?.hasDeviation) {
+      const yW = autoS && dtx ? _lerpDTX(yMD, dtx.depth, dtx.depthTx) : yMD;
+      const ctr = wellDir.dirWarp([0, yW]);
+      if (!ctr) return [cX + xInches * dS, HEADER_H + yMD * yS];
+      if (xInches === 0) return [cX + ctr[0] * yS, HEADER_H + ctr[1] * yS];
+      const perps = wellDir.getPerpendicular2D(yW);
+      const perp  = xInches >= 0 ? perps?.pos : perps?.neg;
+      const offM  = Math.abs(xInches * scR);
+      return [cX + (ctr[0] + (perp?.[0]??0)*offM) * yS,
+              HEADER_H + (ctr[1] + (perp?.[1]??0)*offM) * yS];
+    }
+    const yPx = autoS && dtx
+      ? _lerpDTX(yMD, dtx.depth, dtx.depthTx) * yS
+      : yMD * yS;
+    return [cX + xInches * dS, HEADER_H + yPx];
+  }
+
+  // ── buildDirPath: SVG polygon for a warped section ───────────────────────
+  function buildDirPath(top, bot, rL, rR, wellDir, dtx, yS, dS, cX, autoS, steps = 30) {
     const L = [], R = [];
     for (let i = 0; i <= steps; i++) {
       const md = top + (bot - top) * i / steps;
-      const [n, tvd] = wellDir.getPos(md);
-      const [tn, tt] = wellDir.getTangent(md);
-      const cx = cX + n * yScaleVal;
-      const cy = HEADER_H + tvd * yScaleVal;
-      // Right perp of (tn,tt) in SVG y-down space = (tt, -tn)
-      L.push([cx - rLeft  * diaScaleVal * tt, cy + rLeft  * diaScaleVal * tn]);
-      R.push([cx + rRight * diaScaleVal * tt, cy - rRight * diaScaleVal * tn]);
+      L.push(txPoint(-rL,  md, wellDir, dtx, yS, dS, cX, autoS));
+      R.push(txPoint( rR,  md, wellDir, dtx, yS, dS, cX, autoS));
     }
     const pts = [...L, ...R.reverse()];
-    return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ') + ' Z';
+    return pts.map((p, i) => `${i===0?'M':'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ') + ' Z';
   }
 
-  // Build SVG polygon for ONE side of an annular region (e.g. cement between casing and borehole)
-  // sign: +1 = right side of wellbore, -1 = left side
-  function buildDirSide(top, bot, rInner, rOuter, sign, wellDir, yScaleVal, diaScaleVal, cX, steps = 30) {
-    const inner = [], outer = [];
+  // ── buildDirSide: one side of an annular region ───────────────────────────
+  function buildDirSide(top, bot, rIn, rOut, sign, wellDir, dtx, yS, dS, cX, autoS, steps = 30) {
+    const I = [], O = [];
     for (let i = 0; i <= steps; i++) {
       const md = top + (bot - top) * i / steps;
-      const [n, tvd] = wellDir.getPos(md);
-      const [tn, tt] = wellDir.getTangent(md);
-      const cx = cX + n * yScaleVal;
-      const cy = HEADER_H + tvd * yScaleVal;
-      const px = sign * tt, py = -sign * tn;
-      inner.push([cx + rInner * diaScaleVal * px, cy + rInner * diaScaleVal * py]);
-      outer.push([cx + rOuter * diaScaleVal * px, cy + rOuter * diaScaleVal * py]);
+      I.push(txPoint(sign * rIn,  md, wellDir, dtx, yS, dS, cX, autoS));
+      O.push(txPoint(sign * rOut, md, wellDir, dtx, yS, dS, cX, autoS));
     }
-    const pts = [...inner, ...outer.reverse()];
-    return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ') + ' Z';
+    const pts = [...I, ...O.reverse()];
+    return pts.map((p, i) => `${i===0?'M':'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ') + ' Z';
   }
+
 </script>
 
 {#if loading}
@@ -590,7 +652,7 @@
     <p class="mt-1">{error}</p>
   </div>
 {:else if geo}
-  {@const { oh, ch, cem, str, perf, completions, sy, syD, sxL, sxR, wellName, rulerTicks, totalW, totalH, centerX, strataW, hasDir, dirPath, dirSide, dirAxis } = geo}
+  {@const { oh, ch, cem, str, perf, completions, sy, syD, sxL, sxR, wellName, rulerTicks, totalW, totalH, centerX, strataW, hasDir, dirPath, dirSide, dirAxis, hasProfileData } = geo}
 
   <!-- Info bar -->
   {#if showInfoBar}
@@ -865,14 +927,14 @@
             <div class="grid grid-cols-3 rounded border border-gray-800 p-1">
               <div class="text-xs self-center">
                 Directional
-                {#if geo?.profile?.length >= 2}
-                  <span class="text-green-600 ml-1" title="{geo.profile.length} survey stations">✓</span>
+                {#if geo?.hasProfileData}
+                  <span class="text-green-600 ml-1" title="Survey data available">✓</span>
                 {:else}
                   <span class="text-gray-400 ml-1" title="No survey data in file">✗</span>
                 {/if}
               </div>
               <input type="checkbox" bind:checked={displayOpts.directional} class="mx-auto accent-orange-500"
-                     disabled={!(geo?.profile?.length >= 2)}/>
+                     disabled={!geo?.hasProfileData}/>
               <div class="text-xs self-center">Straight</div>
             </div>
           </div>
