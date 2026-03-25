@@ -15,10 +15,10 @@ function getNodeByPath(tree, path) {
 }
 
 class DatasourceState {
-  mode = $state('local');
+  mode = $state('remote');
   tree = $state(null);
   expanded = $state(new Set());
-  loading = $state(false);
+  loading = $state(true);
   error = $state(null);
 
   toggleMode() {
@@ -74,3 +74,8 @@ class DatasourceState {
 }
 
 export const datasourceStore = new DatasourceState();
+
+// Auto-fetch remote tree on load
+remote.fetchTree()
+  .then(tree => { datasourceStore.tree = tree; datasourceStore.loading = false; })
+  .catch(err => { datasourceStore.loading = false; datasourceStore.error = err.message; });
