@@ -54,8 +54,9 @@
       showCompletions, showPerforations, showStrata
     });
   });
-  // ── Edit panel state ──────────────────────────────────────────────────────
-  let editPanel = $state(null);
+  // ── Schematic Editor state ────────────────────────────────────────────────
+  let showSchematicEditor = $state(false);
+  let schematicTab = $state('oh'); // 'oh' | 'ch' | 'cem' | 'strata'
   let editIdx = $state(-1);
   let editData = $state({});
 
@@ -381,7 +382,12 @@
   }
 
   function toggleEditPanel(panel) {
-    editPanel = editPanel === panel ? null : panel;
+    if (showSchematicEditor && schematicTab === panel) {
+      showSchematicEditor = false;
+    } else {
+      schematicTab = panel;
+      showSchematicEditor = true;
+    }
     editIdx = -1;
     editData = {};
   }
@@ -686,7 +692,7 @@
       </button>
       {#if editKey}
         <button
-          class="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-blue-50 hover:text-blue-600 text-xs flex-shrink-0 {editPanel === editKey ? 'bg-blue-100 text-blue-600' : ''}"
+          class="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-blue-50 hover:text-blue-600 text-xs flex-shrink-0 {showSchematicEditor && schematicTab === editKey ? 'bg-blue-100 text-blue-600' : ''}"
           onclick={() => toggleEditPanel(editKey)}
           aria-label="Edit {label}"
         >✎</button>
@@ -727,6 +733,13 @@
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3.5"/><ellipse cx="8" cy="8" rx="7" ry="3.5"/><line x1="1" y1="8" x2="15" y2="8"/></svg>
         </button>
         <span class="tb-tip">Layers</span>
+      </div>
+
+      <div class="tb-item group">
+        <button class="tb-btn" class:tb-active={showSchematicEditor} onclick={() => { showSchematicEditor = !showSchematicEditor; editIdx = -1; editData = {}; }} aria-label="Edit Schematic">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 2l3 3-8 8H3v-3L11 2z"/><line x1="9" y1="4" x2="12" y2="7"/></svg>
+        </button>
+        <span class="tb-tip">Edit</span>
       </div>
 
       <div class="flex-1"></div>
@@ -971,147 +984,197 @@
       {/snippet}
     </FloatingPanel>
 
-    <!-- Edit Panel -->
+    <!-- Schematic Editor (tabbed: OH | CH | Cement | Strata) -->
     <FloatingPanel
-      title={editPanel === 'oh' ? 'Open Hole' : editPanel === 'ch' ? 'Cased Hole' : editPanel === 'cem' ? 'Cementing' : 'Formation Strata'}
-      visible={!!editPanel}
-      onClose={() => { editPanel = null; editIdx = -1; }}
-      width={440}
+      title="Schematic Editor"
+      visible={showSchematicEditor}
+      onClose={() => { showSchematicEditor = false; editIdx = -1; editData = {}; }}
+      width={480}
       x={60}
-      y={100}
+      y={90}
     >
       {#snippet children()}
-        <div class="p-2">
-          {#if editPanel === 'oh'}
+        <!-- Tab bar -->
+        <div class="flex items-stretch border-b border-slate-200 bg-slate-50/60">
+          {#each [['oh','Open Hole','⬜'],['ch','Casing','▭'],['cem','Cement','⬛'],['strata','Strata','≡']] as [key, label, icon]}
+            <button
+              class="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold transition-all border-r border-slate-200/70
+                {schematicTab === key
+                  ? 'text-blue-700 bg-white border-b-2 border-b-blue-600'
+                  : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'}"
+              onclick={() => { schematicTab = key; editIdx = -1; editData = {}; }}
+            >{icon} {label}</button>
+          {/each}
+        </div>
+
+        <div class="p-2 overflow-y-auto" style="max-height: 55vh">
+          {#if schematicTab === 'oh'}
             <table class="w-full text-xs">
-              <thead class="bg-gray-50 sticky top-0">
+              <thead class="bg-gray-50 sticky top-0 z-10">
                 <tr>
-                  <th class="px-2 py-1 text-center">Bit Size (in)</th>
-                  <th class="px-2 py-1 text-center">Top (m)</th>
-                  <th class="px-2 py-1 text-center">Bot (m)</th>
-                  <th class="px-2 py-1 text-center w-16">Actions</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Bit Size (in)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Top (m)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Bot (m)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700 w-16">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
                 {#each (getSrc()?.oh ?? []) as row, i}
                   {#if editIdx === i}
                     <tr class="bg-blue-50">
-                      <td class="px-1 py-1"><input type="number" bind:value={editData.bitSize} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><input type="number" bind:value={editData.top} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><input type="number" bind:value={editData.bot} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><div class="flex gap-1 justify-center"><button onclick={saveOHRow} class="px-1 py-0.5 bg-green-500 text-white rounded text-xs">✓</button><button onclick={cancelEdit} class="px-1 py-0.5 bg-gray-400 text-white rounded text-xs">✕</button></div></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.bitSize} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveOHRow()}/></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.top} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveOHRow()}/></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.bot} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveOHRow()}/></td>
+                      <td class="px-1 py-1"><div class="flex gap-1 justify-center">
+                        <button onclick={saveOHRow} class="p-1 bg-green-500 text-white rounded hover:bg-green-600 text-xs leading-none" title="Save">✓</button>
+                        <button onclick={cancelEdit} class="p-1 bg-gray-400 text-white rounded hover:bg-gray-500 text-xs leading-none" title="Cancel">✕</button>
+                      </div></td>
                     </tr>
                   {:else}
-                    <tr class="hover:bg-gray-50 cursor-pointer" onclick={() => startEditRow(i, row)}>
-                      <td class="px-2 py-1.5 text-center">{row.bitSize}</td>
+                    <tr class="hover:bg-slate-50 cursor-pointer" onclick={() => startEditRow(i, row)}>
+                      <td class="px-2 py-1.5 text-center">{row.bitSize}"</td>
                       <td class="px-2 py-1.5 text-center">{row.top}</td>
                       <td class="px-2 py-1.5 text-center">{row.bot}</td>
-                      <td class="px-2 py-1.5"><div class="flex gap-1 justify-center"><button onclick={(e) => { e.stopPropagation(); startEditRow(i, row); }} class="text-blue-600">✎</button><button onclick={(e) => { e.stopPropagation(); deleteOHRow(i); }} class="text-red-600">✕</button></div></td>
+                      <td class="px-2 py-1.5"><div class="flex gap-1 justify-center">
+                        <button onclick={e => { e.stopPropagation(); startEditRow(i, row); }} class="p-1 text-blue-600 hover:bg-blue-50 rounded text-xs leading-none" title="Edit">✎</button>
+                        <button onclick={e => { e.stopPropagation(); deleteOHRow(i); }} class="p-1 text-red-500 hover:bg-red-50 rounded text-xs leading-none" title="Delete">✕</button>
+                      </div></td>
                     </tr>
                   {/if}
                 {/each}
               </tbody>
             </table>
-            <div class="flex justify-end pt-2"><button onclick={addOHRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-300 text-xs">+ Add</button></div>
+            <div class="flex justify-end pt-2">
+              <button onclick={addOHRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-xs font-medium">+ Add Row</button>
+            </div>
 
-          {:else if editPanel === 'ch'}
+          {:else if schematicTab === 'ch'}
             <table class="w-full text-xs">
-              <thead class="bg-gray-50 sticky top-0">
+              <thead class="bg-gray-50 sticky top-0 z-10">
                 <tr>
-                  <th class="px-2 py-1 text-center">OD (in)</th>
-                  <th class="px-2 py-1 text-center">Grade</th>
-                  <th class="px-2 py-1 text-center">Top</th>
-                  <th class="px-2 py-1 text-center">Bot</th>
-                  <th class="px-2 py-1 text-center w-12">Actions</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">OD (in)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Grade</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Wt (lb/ft)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Top</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Bot</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700 w-12">Act</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
                 {#each (getSrc()?.ch ?? getSrc()?.casedHole ?? []) as row, i}
                   {#if editIdx === i}
                     <tr class="bg-blue-50">
-                      <td class="px-1 py-1"><input type="number" bind:value={editData.od} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><input type="text" bind:value={editData.grade} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><input type="number" bind:value={editData.top} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><input type="number" bind:value={editData.bot} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><div class="flex gap-1 justify-center"><button onclick={saveCHRow} class="px-1 py-0.5 bg-green-500 text-white rounded text-xs">✓</button><button onclick={cancelEdit} class="px-1 py-0.5 bg-gray-400 text-white rounded text-xs">✕</button></div></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.od} class="w-full border border-slate-300 rounded px-1 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveCHRow()}/></td>
+                      <td class="px-1 py-1"><input type="text" bind:value={editData.grade} class="w-full border border-slate-300 rounded px-1 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveCHRow()}/></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.weight} class="w-full border border-slate-300 rounded px-1 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveCHRow()}/></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.top} class="w-full border border-slate-300 rounded px-1 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveCHRow()}/></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.bot} class="w-full border border-slate-300 rounded px-1 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveCHRow()}/></td>
+                      <td class="px-1 py-1"><div class="flex gap-1 justify-center">
+                        <button onclick={saveCHRow} class="p-1 bg-green-500 text-white rounded hover:bg-green-600 text-xs leading-none">✓</button>
+                        <button onclick={cancelEdit} class="p-1 bg-gray-400 text-white rounded hover:bg-gray-500 text-xs leading-none">✕</button>
+                      </div></td>
                     </tr>
                   {:else}
-                    <tr class="hover:bg-gray-50 cursor-pointer" onclick={() => startEditRow(i, row)}>
-                      <td class="px-2 py-1.5 text-center">{row.od}</td>
+                    <tr class="hover:bg-slate-50 cursor-pointer" onclick={() => startEditRow(i, row)}>
+                      <td class="px-2 py-1.5 text-center">{row.od}"</td>
                       <td class="px-2 py-1.5 text-center">{row.grade ?? '-'}</td>
+                      <td class="px-2 py-1.5 text-center">{row.weight ?? '-'}</td>
                       <td class="px-2 py-1.5 text-center">{row.top}</td>
                       <td class="px-2 py-1.5 text-center">{row.bot}</td>
-                      <td class="px-2 py-1.5"><div class="flex gap-1 justify-center"><button onclick={(e) => { e.stopPropagation(); startEditRow(i, row); }} class="text-blue-600">✎</button><button onclick={(e) => { e.stopPropagation(); deleteCHRow(i); }} class="text-red-600">✕</button></div></td>
+                      <td class="px-2 py-1.5"><div class="flex gap-1 justify-center">
+                        <button onclick={e => { e.stopPropagation(); startEditRow(i, row); }} class="p-1 text-blue-600 hover:bg-blue-50 rounded text-xs leading-none">✎</button>
+                        <button onclick={e => { e.stopPropagation(); deleteCHRow(i); }} class="p-1 text-red-500 hover:bg-red-50 rounded text-xs leading-none">✕</button>
+                      </div></td>
                     </tr>
                   {/if}
                 {/each}
               </tbody>
             </table>
-            <div class="flex justify-end pt-2"><button onclick={addCHRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-300 text-xs">+ Add</button></div>
+            <div class="flex justify-end pt-2">
+              <button onclick={addCHRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-xs font-medium">+ Add Row</button>
+            </div>
 
-          {:else if editPanel === 'cem'}
+          {:else if schematicTab === 'cem'}
             <table class="w-full text-xs">
-              <thead class="bg-gray-50 sticky top-0">
+              <thead class="bg-gray-50 sticky top-0 z-10">
                 <tr>
-                  <th class="px-2 py-1 text-center">OD (in)</th>
-                  <th class="px-2 py-1 text-center">Top (m)</th>
-                  <th class="px-2 py-1 text-center">Bot (m)</th>
-                  <th class="px-2 py-1 text-center w-12">Actions</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">OD (in)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Top (m)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Bot (m)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700 w-12">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
                 {#each (getSrc()?.cementing ?? []) as row, i}
                   {#if editIdx === i}
                     <tr class="bg-blue-50">
-                      <td class="px-1 py-1"><input type="number" bind:value={editData.od} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><input type="number" bind:value={editData.top} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><input type="number" bind:value={editData.bot} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><div class="flex gap-1 justify-center"><button onclick={saveCemRow} class="px-1 py-0.5 bg-green-500 text-white rounded text-xs">✓</button><button onclick={cancelEdit} class="px-1 py-0.5 bg-gray-400 text-white rounded text-xs">✕</button></div></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.od} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveCemRow()}/></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.top} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveCemRow()}/></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.bot} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveCemRow()}/></td>
+                      <td class="px-1 py-1"><div class="flex gap-1 justify-center">
+                        <button onclick={saveCemRow} class="p-1 bg-green-500 text-white rounded hover:bg-green-600 text-xs leading-none">✓</button>
+                        <button onclick={cancelEdit} class="p-1 bg-gray-400 text-white rounded hover:bg-gray-500 text-xs leading-none">✕</button>
+                      </div></td>
                     </tr>
                   {:else}
-                    <tr class="hover:bg-gray-50 cursor-pointer" onclick={() => startEditRow(i, row)}>
-                      <td class="px-2 py-1.5 text-center">{row.od}</td>
+                    <tr class="hover:bg-slate-50 cursor-pointer" onclick={() => startEditRow(i, row)}>
+                      <td class="px-2 py-1.5 text-center">{row.od}"</td>
                       <td class="px-2 py-1.5 text-center">{row.top}</td>
                       <td class="px-2 py-1.5 text-center">{row.bot}</td>
-                      <td class="px-2 py-1.5"><div class="flex gap-1 justify-center"><button onclick={(e) => { e.stopPropagation(); startEditRow(i, row); }} class="text-blue-600">✎</button><button onclick={(e) => { e.stopPropagation(); deleteCemRow(i); }} class="text-red-600">✕</button></div></td>
+                      <td class="px-2 py-1.5"><div class="flex gap-1 justify-center">
+                        <button onclick={e => { e.stopPropagation(); startEditRow(i, row); }} class="p-1 text-blue-600 hover:bg-blue-50 rounded text-xs leading-none">✎</button>
+                        <button onclick={e => { e.stopPropagation(); deleteCemRow(i); }} class="p-1 text-red-500 hover:bg-red-50 rounded text-xs leading-none">✕</button>
+                      </div></td>
                     </tr>
                   {/if}
                 {/each}
               </tbody>
             </table>
-            <div class="flex justify-end pt-2"><button onclick={addCemRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-300 text-xs">+ Add</button></div>
+            <div class="flex justify-end pt-2">
+              <button onclick={addCemRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-xs font-medium">+ Add Row</button>
+            </div>
 
-          {:else if editPanel === 'strata'}
+          {:else if schematicTab === 'strata'}
             <table class="w-full text-xs">
-              <thead class="bg-gray-50 sticky top-0">
+              <thead class="bg-gray-50 sticky top-0 z-10">
                 <tr>
-                  <th class="px-2 py-1 text-center">Strata Name</th>
-                  <th class="px-2 py-1 text-center">Top (m)</th>
-                  <th class="px-2 py-1 text-center">Color</th>
-                  <th class="px-2 py-1 text-center w-12">Actions</th>
+                  <th class="px-2 py-1.5 text-left font-semibold text-gray-700">Strata Name</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Top (m)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Color</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700 w-12">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
                 {#each (getSrc()?.strata ?? []) as row, i}
                   {#if editIdx === i}
                     <tr class="bg-blue-50">
-                      <td class="px-1 py-1"><input type="text" bind:value={editData.strata} class="w-full border rounded px-1 py-0.5 text-xs"/></td>
-                      <td class="px-1 py-1"><input type="number" bind:value={editData.top} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><input type="color" bind:value={editData.color} class="w-full border rounded px-0.5 py-0.5 text-xs"/></td>
-                      <td class="px-1 py-1"><div class="flex gap-1 justify-center"><button onclick={saveStrataRow} class="px-1 py-0.5 bg-green-500 text-white rounded text-xs">✓</button><button onclick={cancelEdit} class="px-1 py-0.5 bg-gray-400 text-white rounded text-xs">✕</button></div></td>
+                      <td class="px-1 py-1"><input type="text" bind:value={editData.strata} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveStrataRow()}/></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.top} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveStrataRow()}/></td>
+                      <td class="px-1 py-1"><input type="color" bind:value={editData.color} class="w-full h-7 border border-slate-300 rounded px-0.5 py-0.5 cursor-pointer"/></td>
+                      <td class="px-1 py-1"><div class="flex gap-1 justify-center">
+                        <button onclick={saveStrataRow} class="p-1 bg-green-500 text-white rounded hover:bg-green-600 text-xs leading-none">✓</button>
+                        <button onclick={cancelEdit} class="p-1 bg-gray-400 text-white rounded hover:bg-gray-500 text-xs leading-none">✕</button>
+                      </div></td>
                     </tr>
                   {:else}
-                    <tr class="hover:bg-gray-50 cursor-pointer" onclick={() => startEditRow(i, row)}>
+                    <tr class="hover:bg-slate-50 cursor-pointer" onclick={() => startEditRow(i, row)}>
                       <td class="px-2 py-1.5">{row.strata}</td>
                       <td class="px-2 py-1.5 text-center">{row.top}</td>
-                      <td class="px-2 py-1.5"><div class="w-6 h-5 rounded border border-gray-300" style="background-color: {row.color}"></div></td>
-                      <td class="px-2 py-1.5"><div class="flex gap-1 justify-center"><button onclick={(e) => { e.stopPropagation(); startEditRow(i, row); }} class="text-blue-600">✎</button><button onclick={(e) => { e.stopPropagation(); deleteStrataRow(i); }} class="text-red-600">✕</button></div></td>
+                      <td class="px-2 py-1.5">
+                        <div class="w-8 h-5 rounded border border-gray-300 mx-auto" style="background-color: {row.color ?? '#aaa'}"></div>
+                      </td>
+                      <td class="px-2 py-1.5"><div class="flex gap-1 justify-center">
+                        <button onclick={e => { e.stopPropagation(); startEditRow(i, row); }} class="p-1 text-blue-600 hover:bg-blue-50 rounded text-xs leading-none">✎</button>
+                        <button onclick={e => { e.stopPropagation(); deleteStrataRow(i); }} class="p-1 text-red-500 hover:bg-red-50 rounded text-xs leading-none">✕</button>
+                      </div></td>
                     </tr>
                   {/if}
                 {/each}
               </tbody>
             </table>
-            <div class="flex justify-end pt-2"><button onclick={addStrataRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-300 text-xs">+ Add</button></div>
+            <div class="flex justify-end pt-2">
+              <button onclick={addStrataRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-xs font-medium">+ Add Row</button>
+            </div>
           {/if}
         </div>
       {/snippet}
