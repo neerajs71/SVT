@@ -52,7 +52,7 @@
     const { elements, width: jw, height: jh } = componentData;
     if (!elements || !jw || !jh) return '';
 
-    const { centerX, yScale, diaScale } = g;
+    const { centerX, yScale, diaScale, wellDir, dtx, hasDir, autoScale } = g;
     const compOD     = comp.od ?? 2.875;
     const compLength = comp.length ?? 1;
     const compTop    = comp._top;
@@ -67,13 +67,14 @@
       const segs = [];
       for (const pt of el.points) {
         const { x, y, directive } = pt;
-        const diamIn  = (x - jw / 2) * (compOD / jw);
-        const depthM  = compTop + (y * compLength / jh);
-        const svgX    = (centerX + diamIn * diaScale).toFixed(2);
-        const svgY    = (HEADER_H + depthM * yScale).toFixed(2);
+        // Raw coordinates: diameter inches, depth meters (matches dlis buildComponent.ts)
+        const diamIn = jw > 0 ? (x - jw / 2) * (compOD / jw) : 0;
+        const depthM = jh > 0 ? compTop + (y * compLength / jh) : compTop;
+        // Apply unified transform — handles directional arc-slerp + autoscale DTX
+        const [svgX, svgY] = txPoint(diamIn, depthM, hasDir ? wellDir : null, dtx, yScale, diaScale, centerX, autoScale);
 
-        if (directive === 'moveTo')  segs.push(`M${svgX} ${svgY}`);
-        else if (directive === 'lineTo')  segs.push(`L${svgX} ${svgY}`);
+        if (directive === 'moveTo')       segs.push(`M${svgX.toFixed(2)} ${svgY.toFixed(2)}`);
+        else if (directive === 'lineTo')  segs.push(`L${svgX.toFixed(2)} ${svgY.toFixed(2)}`);
         else if (directive === 'close')   segs.push('Z');
       }
       if (segs.length === 0) continue;
@@ -263,7 +264,8 @@
 
     return { oh, ch, cem, str, perf, completions, maxDepth, yScale, diaScale, centerX,
              totalW, totalH, sy, syD, sxR, sxL, wellName, rulerTicks, maxR, strataW,
-             hasDir, dirPath, dirSide, dirAxis, hasProfileData, wellDir, dtx };
+             hasDir, dirPath, dirSide, dirAxis, hasProfileData, wellDir, dtx,
+             autoScale: displayOpts.autoScale };
   });
 
   async function loadFile() {
