@@ -1,15 +1,14 @@
 /**
  * GET /api/dev-tabs
- * Dev convenience: returns the first .wson, .dlis, and .las file found
- * in the remote Drive using a single search query (fast).
+ * Reads static/activeTabs.json for a list of filenames,
+ * searches Google Drive for each, and returns { name, id, path }
+ * for auto-opening on page load.
  */
 import { json } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { createSign } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-
-const TARGET_EXTS = ['.wson', '.dlis', '.las'];
 
 function loadCredentials() {
   if (env.GOOGLE_DRIVE_SERVICE_ACCOUNT) return JSON.parse(env.GOOGLE_DRIVE_SERVICE_ACCOUNT);
@@ -49,41 +48,37 @@ async function getAccessToken() {
   return _cachedToken;
 }
 
-function extractFolderId(input) {
-  const trimmed = input.trim();
-  if (!trimmed.includes('/') && !trimmed.includes('?')) return trimmed;
-  const m = trimmed.match(/\/folders\/([a-zA-Z0-9_-]+)/);
-  return m ? m[1] : trimmed;
+async function searchByName(filename, token) {
+  const url = new URL('https://www.googleapis.com/drive/v3/files');
+  url.searchParams.set('q', `name = '${filename.replace(/'/g, "\\'")}' and trashed=false`);
+  url.searchParams.set('fields', 'files(id,name)');
+  url.searchParams.set('pageSize', '1');
+  const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const file = data.files?.[0];
+  return file ? { name: file.name, id: file.id, path: file.name } : null;
+}
+
+function loadActiveTabsConfig() {
+  try {
+    const p = resolve(process.cwd(), 'static/activeTabs.json');
+    return JSON.parse(readFileSync(p, 'utf-8'));
+  } catch {
+    return [];
+  }
 }
 
 export async function GET() {
-  const rootEnv = env.GOOGLE_DRIVE_FOLDER_ID;
-  if (!rootEnv) return json([]);
+  if (!env.GOOGLE_DRIVE_FOLDER_ID) return json([]);
 
   try {
+    const filenames = loadActiveTabsConfig();
+    if (!filenames.length) return json([]);
+
     const token = await getAccessToken();
-    const rootId = extractFolderId(rootEnv);
-
-    // Single Drive search for all target extensions at once
-    const extConditions = TARGET_EXTS.map(ext => `name contains '${ext}'`).join(' or ');
-    const q = `'${rootId}' in parents or (${extConditions}) and trashed=false`;
-
-    // Search for each extension separately to get one of each
-    const results = [];
-    for (const ext of TARGET_EXTS) {
-      const url = new URL('https://www.googleapis.com/drive/v3/files');
-      url.searchParams.set('q', `name contains '${ext}' and trashed=false`);
-      url.searchParams.set('fields', 'files(id,name)');
-      url.searchParams.set('orderBy', 'name');
-      url.searchParams.set('pageSize', '1');
-      const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) continue;
-      const data = await res.json();
-      const file = data.files?.[0];
-      if (file) results.push({ name: file.name, id: file.id, path: file.name });
-    }
-
-    return json(results);
+    const results = await Promise.all(filenames.map(name => searchByName(name, token)));
+    return json(results.filter(Boolean));
   } catch (err) {
     console.error('[/api/dev-tabs]', err.message);
     return json([]);
