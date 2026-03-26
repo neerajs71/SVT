@@ -976,6 +976,8 @@
             {@const rOuter = r * (comp.od_multiplier ?? 1.2)}
             {@const type = compTypeOf(comp)}
 
+            <g ondblclick={() => { showCompletionsEditor = true; startEditCompByIdx(i); }} style="cursor:pointer">
+
             {#if hasDir && dirPath}
               <!-- Directional completions -->
               {#if compSvgStrings[i]}
@@ -1023,6 +1025,7 @@
                 <text x={xOR + 6} y={(ytop + ybot) / 2 + 4} font-size="8" fill="#374151" font-family="sans-serif">{comp.description}</text>
               {/if}
             {/if}
+            </g>
           {/each}
         {/if}
 
