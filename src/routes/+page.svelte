@@ -3,17 +3,14 @@
   import SimpleTabs from '$lib/components/SimpleTabs/SimpleTabs.svelte';
   import { tabStore } from '$lib/tabs/tabs.svelte.js';
   import { onMount } from 'svelte';
+
+  const { data } = $props();
   let sidebarOpen = $state(false);
 
-  onMount(async () => {
-    try {
-      const res = await fetch('/api/dev-tabs');
-      if (!res.ok) return;
-      const files = await res.json();
-      for (const f of files) {
-        tabStore.openFile(f);
-      }
-    } catch { /* ignore in local mode */ }
+  onMount(() => {
+    for (const f of data.devTabs ?? []) {
+      tabStore.openFile(f);
+    }
   });
 </script>
 
