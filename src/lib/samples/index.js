@@ -6,4 +6,5 @@
 export const SAMPLE_TABS = [
   'SAMPLE_1/fields/FIELD_FICTION/wells/W1/schematics/Fat_Design.wson',
   'SAMPLE_1/fields/FIELD_FICTION/wells/W1/schematics/W1_old.wson',
+  'SAMPLE_1/fields/FIELD_FICTION/wells/W1/schematics/W1_new2.wson',
 ];
