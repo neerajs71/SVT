@@ -9,7 +9,9 @@ let compData  = []; // raw rows from Excel
 
 function loadCompList() {
   const paths = [
-    join(process.cwd(), 'static', 'comp_list.xlsx'),
+    join(process.cwd(), 'static', 'comp_list.xlsx'),              // dev
+    join(process.cwd(), 'build', 'client', 'comp_list.xlsx'),     // production (node build from project root)
+    join(process.cwd(), 'client', 'comp_list.xlsx'),              // production (cwd inside build/)
     join(process.cwd(), 'src', 'lib', 'apps', 'wson', 'comp_list.xlsx'),
     join(process.cwd(), 'comp_list.xlsx'),
   ];
