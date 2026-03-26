@@ -1,3 +1,8 @@
+<script module>
+  // Persists across navigations — tabs only opened once per session
+  let samplesOpened = false;
+</script>
+
 <script>
   import { Sidebar } from '$lib/components/Sidebar';
   import SimpleTabs from '$lib/components/SimpleTabs/SimpleTabs.svelte';
@@ -6,7 +11,6 @@
   import { SAMPLE_TABS } from '$lib/samples/index.js';
 
   let sidebarOpen = $state(false);
-  let samplesOpened = false;
 
   // Traverse the Drive tree, lazy-loading folders as needed, then open the file
   async function openByPath(fullPath) {
@@ -39,7 +43,7 @@
     }
   }
 
-  // When tree first loads, open sample tabs once
+  // When tree first loads, open sample tabs once per session
   $effect(() => {
     if (!samplesOpened && datasourceStore.tree && !datasourceStore.loading) {
       samplesOpened = true;
