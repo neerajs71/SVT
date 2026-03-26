@@ -1434,7 +1434,7 @@
           <!-- Full list -->
           <div class="space-y-1">
             {#each filteredComps() as { c, i }}
-              <div class="flex items-start justify-between px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 {editingComp?._editIdx === i ? 'border-blue-400 bg-blue-50' : ''}">
+              <div ondblclick={() => startEditCompByIdx(i)} class="flex items-start justify-between px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer {editingComp?._editIdx === i ? 'border-blue-400 bg-blue-50' : ''}">
                 <div class="flex-1 min-w-0">
                   <div class="text-xs font-medium text-slate-800 truncate">{c.description || '—'}</div>
                   <div class="text-xs text-slate-500">
