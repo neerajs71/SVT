@@ -25,7 +25,9 @@
         node.children = data.children ?? {};
       }
 
-      const child = node.children[part];
+      // Case-insensitive lookup
+      const child = node.children[part]
+        ?? Object.values(node.children).find(c => c.name.toLowerCase() === part.toLowerCase());
       if (!child) return; // path not found
 
       if (i === parts.length - 1) {

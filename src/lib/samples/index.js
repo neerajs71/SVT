@@ -4,5 +4,6 @@
  * Edit this list to change which tabs open automatically.
  */
 export const SAMPLE_TABS = [
-  'SAMPLE_1/fields/FIELD_FICTION/wells/W1/schematics/fat_design.wson',
+  'SAMPLE_1/fields/FIELD_FICTION/wells/W1/schematics/Fat_Design.wson',
+  'SAMPLE_1/fields/FIELD_FICTION/wells/W1/schematics/W1_old.wson',
 ];
