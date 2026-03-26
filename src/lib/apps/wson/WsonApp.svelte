@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { FloatingPanel } from '$lib/components/FloatingPanel';
 
   const { tab } = $props();
 
@@ -25,10 +26,8 @@
     preserveAspectRatio: true,
     showLeftTrack: true
   });
-  let showDisplayOpts = $state(false);
-  let dispPos = $state({ x: 0, y: 50 });
-  let isDragging = false;
-  let dragOffX = 0, dragOffY = 0;
+  let showDisplayOpts  = $state(false);
+  let showLayersPanel  = $state(false);
 
   // ── Toolbar visibility states ─────────────────────────────────────────────
   let showInfoBar      = $state(true);
@@ -352,24 +351,8 @@
 
   onMount(loadFile);
 
-  // Drag for Display Options popup
-  function onDragStart(e) {
-    isDragging = true;
-    dragOffX = e.clientX - dispPos.x;
-    dragOffY = e.clientY - dispPos.y;
-    window.addEventListener('mousemove', onDragMove);
-    window.addEventListener('mouseup', onDragEnd);
-  }
-
-  function onDragMove(e) {
-    if (!isDragging) return;
-    dispPos = { x: e.clientX - dragOffX, y: e.clientY - dragOffY };
-  }
-
+  // (drag handled by FloatingPanel)
   function onDragEnd() {
-    isDragging = false;
-    window.removeEventListener('mousemove', onDragMove);
-    window.removeEventListener('mouseup', onDragEnd);
   }
 
   // Helpers — normalise WSON structure (supports dlis config.* format + legacy flat format)
@@ -674,6 +657,29 @@
 {:else if geo}
   {@const { oh, ch, cem, str, perf, completions, sy, syD, sxL, sxR, wellName, rulerTicks, totalW, totalH, centerX, strataW, hasDir, dirPath, dirSide, dirAxis, hasProfileData, wellDir, dtx, yScale, diaScale } = geo}
 
+  {#snippet layerRow(label, active, toggle, editKey, iconHtml)}
+    <div class="flex items-center gap-2 px-3 py-2 hover:bg-gray-50">
+      <span class="text-gray-500 flex-shrink-0">{@html iconHtml}</span>
+      <span class="text-xs font-medium text-gray-700 flex-1">{label}</span>
+      <button
+        class="w-8 h-4 rounded-full transition-colors flex-shrink-0 relative {active ? 'bg-blue-500' : 'bg-gray-300'}"
+        onclick={toggle}
+        aria-label="Toggle {label}"
+      >
+        <span class="absolute top-0.5 {active ? 'left-4' : 'left-0.5'} w-3 h-3 bg-white rounded-full shadow transition-all"></span>
+      </button>
+      {#if editKey}
+        <button
+          class="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-blue-50 hover:text-blue-600 text-xs flex-shrink-0 {editPanel === editKey ? 'bg-blue-100 text-blue-600' : ''}"
+          onclick={() => toggleEditPanel(editKey)}
+          aria-label="Edit {label}"
+        >✎</button>
+      {:else}
+        <span class="w-6 flex-shrink-0"></span>
+      {/if}
+    </div>
+  {/snippet}
+
   <!-- Info bar -->
   {#if showInfoBar}
     <div class="flex items-center gap-4 px-3 py-1.5 text-xs text-gray-500 border-b border-gray-200 flex-wrap">
@@ -701,68 +707,17 @@
       </div>
 
       <div class="tb-item group">
-        <button class="tb-btn" class:tb-active={showOpenHole} onclick={() => (showOpenHole = !showOpenHole)} aria-label="Open Hole">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="2" width="8" height="12" stroke-dasharray="3,2"/></svg>
+        <button class="tb-btn" class:tb-active={showLayersPanel} onclick={() => (showLayersPanel = !showLayersPanel)} aria-label="Layers">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3.5"/><ellipse cx="8" cy="8" rx="7" ry="3.5"/><line x1="1" y1="8" x2="15" y2="8"/></svg>
         </button>
-        <span class="tb-tip">Open Hole</span>
-      </div>
-      <div class="tb-item group">
-        <button class="tb-btn tb-edit" class:tb-active={editPanel === 'oh'} onclick={() => toggleEditPanel('oh')} aria-label="Edit OH">✎</button>
-        <span class="tb-tip">Edit OH</span>
-      </div>
-
-      <div class="tb-item group">
-        <button class="tb-btn" class:tb-active={showCasing} onclick={() => (showCasing = !showCasing)} aria-label="Casing">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="2" width="8" height="12"/></svg>
-        </button>
-        <span class="tb-tip">Casing</span>
-      </div>
-      <div class="tb-item group">
-        <button class="tb-btn tb-edit" class:tb-active={editPanel === 'ch'} onclick={() => toggleEditPanel('ch')} aria-label="Edit CH">✎</button>
-        <span class="tb-tip">Edit CH</span>
-      </div>
-
-      <div class="tb-item group">
-        <button class="tb-btn" class:tb-active={showCement} onclick={() => (showCement = !showCement)} aria-label="Cement">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="5" r="1.2" fill="currentColor"/><circle cx="12" cy="5" r="1.2" fill="currentColor"/><circle cx="4" cy="11" r="1.2" fill="currentColor"/><circle cx="12" cy="11" r="1.2" fill="currentColor"/><circle cx="8" cy="8" r="1.2" fill="currentColor"/></svg>
-        </button>
-        <span class="tb-tip">Cement</span>
-      </div>
-      <div class="tb-item group">
-        <button class="tb-btn tb-edit" class:tb-active={editPanel === 'cem'} onclick={() => toggleEditPanel('cem')} aria-label="Edit Cem">✎</button>
-        <span class="tb-tip">Edit Cem</span>
-      </div>
-
-      <div class="tb-item group">
-        <button class="tb-btn" class:tb-active={showCompletions} onclick={() => (showCompletions = !showCompletions)} aria-label="Completions">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="6" y1="2" x2="6" y2="14"/><line x1="10" y1="2" x2="10" y2="14"/><line x1="6" y1="5" x2="10" y2="5"/><line x1="6" y1="9" x2="10" y2="9"/></svg>
-        </button>
-        <span class="tb-tip">Completions</span>
-      </div>
-
-      <div class="tb-item group">
-        <button class="tb-btn" class:tb-active={showPerforations} onclick={() => (showPerforations = !showPerforations)} aria-label="Perforations">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="5" x2="9" y2="5"/><polyline points="7,3 10,5 7,7"/><line x1="2" y1="11" x2="9" y2="11"/><polyline points="7,9 10,11 7,13"/></svg>
-        </button>
-        <span class="tb-tip">Perforations</span>
-      </div>
-
-      <div class="tb-item group">
-        <button class="tb-btn" class:tb-active={showStrata} onclick={() => (showStrata = !showStrata)} aria-label="Strata">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="4" x2="14" y2="4"/><line x1="2" y1="8" x2="14" y2="8"/><line x1="2" y1="12" x2="14" y2="12"/></svg>
-        </button>
-        <span class="tb-tip">Strata</span>
-      </div>
-      <div class="tb-item group">
-        <button class="tb-btn tb-edit" class:tb-active={editPanel === 'strata'} onclick={() => toggleEditPanel('strata')} aria-label="Edit Strata">✎</button>
-        <span class="tb-tip">Edit Strata</span>
+        <span class="tb-tip">Layers</span>
       </div>
 
       <div class="flex-1"></div>
 
       <div class="tb-item group">
         <button class="tb-btn" class:tb-active={showDisplayOpts} onclick={() => (showDisplayOpts = !showDisplayOpts)} aria-label="Display">⚙</button>
-        <span class="tb-tip">Display Options</span>
+        <span class="tb-tip">Display</span>
       </div>
     </div>
 
@@ -927,13 +882,8 @@
     </div>
 
     <!-- Display Options Popup -->
-    {#if showDisplayOpts}
-      <div class="absolute rounded-2xl bg-white/98 shadow-2xl border border-gray-200/90 flex flex-col p-1 select-none" style="width: 240px; right: 10px; top: {dispPos.y}px; z-index: 50;">
-        <div class="flex items-center justify-between px-2 py-1 bg-gradient-to-r from-blue-100/50 to-slate-100/40 border-b border-gray-300/70 rounded-t-lg cursor-grab" onmousedown={onDragStart}>
-          <h3 class="m-0 text-sm font-extrabold text-slate-900">Display Options</h3>
-          <button class="border border-slate-300/60 bg-white/90 text-slate-600 rounded-lg w-6 h-6 flex items-center justify-center cursor-pointer hover:bg-slate-100 text-xs" onclick={(e) => { e.stopPropagation(); showDisplayOpts = false; }} onmousedown={(e) => e.stopPropagation()}>✕</button>
-        </div>
-
+    <FloatingPanel title="Display Options" visible={showDisplayOpts} onClose={() => (showDisplayOpts = false)} width={240} x={60} y={60}>
+      {#snippet children()}
         <div class="px-1 py-1 flex flex-col space-y-1 overflow-y-auto">
           <div class="px-1 pt-1 pb-0">
             <div class="grid grid-cols-3 rounded border border-gray-800 p-1">
@@ -1002,20 +952,20 @@
             <div class="text-xs self-center">Show Plot</div>
           </div>
         </div>
-      </div>
-    {/if}
+      {/snippet}
+    </FloatingPanel>
 
     <!-- Edit Panel -->
-    {#if editPanel}
-      <div class="absolute left-16 top-14 z-40 bg-white rounded-lg shadow-2xl border border-gray-200 flex flex-col" style="width: 420px; max-height: 60vh;">
-        <div class="flex items-center justify-between px-3 py-1.5 bg-gradient-to-r from-green-100 to-slate-100 border-b border-gray-200 rounded-t-lg">
-          <h3 class="text-sm font-bold text-slate-900">
-            {editPanel === 'oh' ? 'Open Hole' : editPanel === 'ch' ? 'Cased Hole' : editPanel === 'cem' ? 'Cementing' : 'Formation Strata'}
-          </h3>
-          <button onclick={() => { editPanel = null; editIdx = -1; }} class="text-gray-500 hover:text-gray-900 text-xs">✕</button>
-        </div>
-
-        <div class="flex-1 overflow-y-auto p-2">
+    <FloatingPanel
+      title={editPanel === 'oh' ? 'Open Hole' : editPanel === 'ch' ? 'Cased Hole' : editPanel === 'cem' ? 'Cementing' : 'Formation Strata'}
+      visible={!!editPanel}
+      onClose={() => { editPanel = null; editIdx = -1; }}
+      width={440}
+      x={60}
+      y={100}
+    >
+      {#snippet children()}
+        <div class="p-2">
           {#if editPanel === 'oh'}
             <table class="w-full text-xs">
               <thead class="bg-gray-50 sticky top-0">
@@ -1148,8 +1098,28 @@
             <div class="flex justify-end pt-2"><button onclick={addStrataRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-300 text-xs">+ Add</button></div>
           {/if}
         </div>
-      </div>
-    {/if}
+      {/snippet}
+    </FloatingPanel>
+
+    <!-- Layers Panel -->
+    <FloatingPanel title="Layers" visible={showLayersPanel} onClose={() => (showLayersPanel = false)} width={260} x={40} y={40}>
+      {#snippet children()}
+        <div class="flex flex-col divide-y divide-gray-100">
+          {@render layerRow('Open Hole', showOpenHole, () => (showOpenHole = !showOpenHole), 'oh',
+            `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="2" width="8" height="12" stroke-dasharray="3,2"/></svg>`)}
+          {@render layerRow('Casing', showCasing, () => (showCasing = !showCasing), 'ch',
+            `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="2" width="8" height="12"/></svg>`)}
+          {@render layerRow('Cement', showCement, () => (showCement = !showCement), 'cem',
+            `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="5" r="1.2" fill="currentColor"/><circle cx="12" cy="5" r="1.2" fill="currentColor"/><circle cx="8" cy="8" r="1.2" fill="currentColor"/></svg>`)}
+          {@render layerRow('Completions', showCompletions, () => (showCompletions = !showCompletions), null,
+            `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="6" y1="2" x2="6" y2="14"/><line x1="10" y1="2" x2="10" y2="14"/><line x1="6" y1="5" x2="10" y2="5"/></svg>`)}
+          {@render layerRow('Perforations', showPerforations, () => (showPerforations = !showPerforations), null,
+            `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="5" x2="9" y2="5"/><polyline points="7,3 10,5 7,7"/></svg>`)}
+          {@render layerRow('Strata', showStrata, () => (showStrata = !showStrata), 'strata',
+            `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="4" x2="14" y2="4"/><line x1="2" y1="8" x2="14" y2="8"/><line x1="2" y1="12" x2="14" y2="12"/></svg>`)}
+        </div>
+      {/snippet}
+    </FloatingPanel>
 
   </div>
 {:else}
