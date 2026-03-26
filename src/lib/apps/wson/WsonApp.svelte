@@ -1333,7 +1333,7 @@
       title="Completions Editor"
       visible={showCompletionsEditor}
       onClose={() => { showCompletionsEditor = false; editingComp = null; compSearch = ''; }}
-      width={400}
+      width={280}
       x={80}
       y={60}
     >
