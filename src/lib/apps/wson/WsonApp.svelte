@@ -60,7 +60,10 @@
   let editIdx = $state(-1);
   let editData = $state({});
 
-  // ── Component JSON cache ──────────────────────────────────────────────────
+  // ── Completions editor state ─────────────────────────────────────────────
+  let compSearch = $state('');
+  let editingComp = $state(null);
+  let isNewComp = $state(false);
   const compJsonCache = new Map();
   let compSvgStrings = $state([]);
 
@@ -400,6 +403,80 @@
   function cancelEdit() {
     editIdx = -1;
     editData = {};
+  }
+
+  // Completions functions
+  function startAddComp() {
+    editingComp = { description: '', tool_comp: '', od: 2.875, od_multiplier: 1.2, length: 10, weight: 0, noJoints: 1, avgJointLength: 10 };
+    isNewComp = true;
+    schematicTab = 'comp';
+    showSchematicEditor = true;
+  }
+
+  function startEditComp(i) {
+    const src = getSrc();
+    if (!src) return;
+    editingComp = { ...src.completions[i] };
+    isNewComp = false;
+  }
+
+  function saveComp() {
+    const src = getSrc();
+    if (!src || !editingComp) return;
+    if (isNewComp) {
+      src.completions = [...(src.completions ?? []), { ...editingComp }];
+    } else {
+      const idx = (src.completions ?? []).findIndex((_, i) =>
+        src.completions[i] === (src.completions ?? []).find(c =>
+          c.description === editingComp._origDesc && c.tool_comp === editingComp._origTool
+        )
+      );
+      // simpler: match by _editIdx stored on editingComp
+      if (editingComp._editIdx != null) {
+        src.completions = src.completions.map((c, i) => i === editingComp._editIdx ? { ...editingComp, _editIdx: undefined } : c);
+      }
+    }
+    editingComp = null;
+    isNewComp = false;
+  }
+
+  function startEditCompByIdx(i) {
+    const src = getSrc();
+    if (!src) return;
+    editingComp = { ...src.completions[i], _editIdx: i };
+    isNewComp = false;
+  }
+
+  function cancelComp() {
+    editingComp = null;
+    isNewComp = false;
+  }
+
+  function deleteComp(i) {
+    const src = getSrc();
+    if (!src || !confirm('Delete this completion?')) return;
+    src.completions = src.completions.filter((_, j) => j !== i);
+  }
+
+  function moveComp(i, dir) {
+    const src = getSrc();
+    if (!src) return;
+    const arr = [...(src.completions ?? [])];
+    const j = i + dir;
+    if (j < 0 || j >= arr.length) return;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+    src.completions = arr;
+  }
+
+  function filteredComps() {
+    const src = getSrc();
+    const all = src?.completions ?? [];
+    const q = compSearch.trim().toLowerCase();
+    if (!q) return all.map((c, i) => ({ c, i }));
+    return all.map((c, i) => ({ c, i })).filter(({ c }) =>
+      (c.description ?? '').toLowerCase().includes(q) ||
+      (c.tool_comp ?? '').toLowerCase().includes(q)
+    );
   }
 
   // OH functions
@@ -996,7 +1073,7 @@
       {#snippet children()}
         <!-- Tab bar -->
         <div class="flex items-stretch border-b border-slate-200 bg-slate-50/60">
-          {#each [['oh','Open Hole','⬜'],['ch','Casing','▭'],['cem','Cement','⬛'],['strata','Strata','≡']] as [key, label, icon]}
+          {#each [['oh','Open Hole','⬜'],['ch','Casing','▭'],['cem','Cement','⬛'],['strata','Strata','≡'],['comp','Completions','⚙']] as [key, label, icon]}
             <button
               class="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold transition-all border-r border-slate-200/70
                 {schematicTab === key
@@ -1175,6 +1252,85 @@
             <div class="flex justify-end pt-2">
               <button onclick={addStrataRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-xs font-medium">+ Add Row</button>
             </div>
+
+          {:else if schematicTab === 'comp'}
+            <!-- Search bar -->
+            <div class="mb-2">
+              <input
+                type="text"
+                placeholder="Search by description or tool_comp…"
+                bind:value={compSearch}
+                class="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <div class="text-xs text-slate-400 mt-1">
+                {filteredComps().length} of {getSrc()?.completions?.length ?? 0} completions
+              </div>
+            </div>
+
+            <!-- Inline edit/add form -->
+            {#if editingComp}
+              <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
+                <div class="text-xs font-semibold text-slate-700 mb-2">{isNewComp ? 'Add Completion' : 'Edit Completion'}</div>
+                <div class="grid grid-cols-2 gap-2">
+                  {#each [
+                    ['description','Description','text'],
+                    ['tool_comp','Tool Comp','text'],
+                    ['od','OD (in)','number'],
+                    ['od_multiplier','OD Multiplier','number'],
+                    ['length','Length (m)','number'],
+                    ['weight','Weight','number'],
+                    ['noJoints','No. Joints','number'],
+                    ['avgJointLength','Avg Joint Length','number'],
+                  ] as [field, label, type]}
+                    <div>
+                      <label class="block text-xs font-medium text-gray-600 mb-0.5">{label}</label>
+                      <input
+                        {type}
+                        step={type === 'number' ? '0.001' : undefined}
+                        bind:value={editingComp[field]}
+                        class="w-full px-2 py-1 border border-slate-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        onkeydown={e => e.key === 'Enter' && saveComp()}
+                      />
+                    </div>
+                  {/each}
+                </div>
+                <div class="flex gap-2 mt-3">
+                  <button onclick={saveComp} class="px-3 py-1 bg-green-500 text-white rounded text-xs hover:bg-green-600">{isNewComp ? 'Add' : 'Save'}</button>
+                  <button onclick={cancelComp} class="px-3 py-1 bg-gray-400 text-white rounded text-xs hover:bg-gray-500">Cancel</button>
+                </div>
+              </div>
+            {:else}
+              <div class="flex justify-end mb-2">
+                <button onclick={startAddComp} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-xs font-medium">+ Add Completion</button>
+              </div>
+            {/if}
+
+            <!-- Completions list -->
+            <div class="space-y-1.5">
+              {#each filteredComps() as { c, i }}
+                <div class="flex items-start justify-between px-2.5 py-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50">
+                  <div class="flex-1 min-w-0">
+                    <div class="text-xs font-medium text-slate-800 truncate">{c.description || '—'}</div>
+                    <div class="text-xs text-slate-500 mt-0.5">
+                      {#if c.tool_comp}<span class="mr-2">🔧 {c.tool_comp}</span>{/if}
+                      OD: {c.od}" | L: {c.length}m | Wt: {c.weight}
+                    </div>
+                    {#if c.noJoints || c.avgJointLength}
+                      <div class="text-xs text-slate-400">Joints: {c.noJoints ?? '—'} | Avg: {c.avgJointLength ?? '—'}m</div>
+                    {/if}
+                  </div>
+                  <div class="flex items-center gap-1 ml-2 flex-shrink-0">
+                    <button onclick={() => moveComp(i, -1)} class="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded text-xs leading-none" title="Move up">↑</button>
+                    <button onclick={() => moveComp(i,  1)} class="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded text-xs leading-none" title="Move down">↓</button>
+                    <button onclick={() => startEditCompByIdx(i)} class="p-1 text-blue-600 hover:bg-blue-50 rounded text-xs leading-none" title="Edit">✎</button>
+                    <button onclick={() => deleteComp(i)} class="p-1 text-red-500 hover:bg-red-50 rounded text-xs leading-none" title="Delete">✕</button>
+                  </div>
+                </div>
+              {/each}
+              {#if filteredComps().length === 0}
+                <div class="text-center py-6 text-slate-400 text-xs">{compSearch ? 'No matches' : 'No completions'}</div>
+              {/if}
+            </div>
           {/if}
         </div>
       {/snippet}
@@ -1190,7 +1346,7 @@
             `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="2" width="8" height="12"/></svg>`)}
           {@render layerRow('Cement', showCement, () => (showCement = !showCement), 'cem',
             `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="5" r="1.2" fill="currentColor"/><circle cx="12" cy="5" r="1.2" fill="currentColor"/><circle cx="8" cy="8" r="1.2" fill="currentColor"/></svg>`)}
-          {@render layerRow('Completions', showCompletions, () => (showCompletions = !showCompletions), null,
+          {@render layerRow('Completions', showCompletions, () => (showCompletions = !showCompletions), 'comp',
             `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="6" y1="2" x2="6" y2="14"/><line x1="10" y1="2" x2="10" y2="14"/><line x1="6" y1="5" x2="10" y2="5"/></svg>`)}
           {@render layerRow('Perforations', showPerforations, () => (showPerforations = !showPerforations), null,
             `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="5" x2="9" y2="5"/><polyline points="7,3 10,5 7,7"/></svg>`)}
