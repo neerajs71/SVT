@@ -50,7 +50,7 @@
   >
     <!-- Draggable header -->
     <div
-      class="flex items-center justify-between px-3 py-2 bg-gradient-to-r from-blue-100/70 to-slate-100/60 border-b border-gray-300/70 rounded-t-2xl {dragging ? 'cursor-grabbing' : 'cursor-grab'} flex-shrink-0"
+      class="flex items-center justify-between px-2.5 py-1.5 bg-gradient-to-r from-blue-100/70 to-slate-100/60 border-b border-gray-300/70 rounded-t-2xl {dragging ? 'cursor-grabbing' : 'cursor-grab'} flex-shrink-0"
       role="presentation"
       onmousedown={startDrag}
     >

@@ -989,7 +989,7 @@
       title="Schematic Editor"
       visible={showSchematicEditor}
       onClose={() => { showSchematicEditor = false; editIdx = -1; editData = {}; }}
-      width={480}
+      width={360}
       x={60}
       y={90}
     >
