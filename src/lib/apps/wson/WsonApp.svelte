@@ -64,8 +64,50 @@
   let showCompletionsEditor = $state(false);
   let compSearch = $state('');
   let compSearchFocused = $state(false);
+  let catalogResults = $state([]);   // results from /api/schematic filtercomps
+  let catalogLoading = $state(false);
   let editingComp = $state(null);
   let isNewComp = $state(false);
+
+  let _compSearchTimer = null;
+  function onCompSearchInput() {
+    clearTimeout(_compSearchTimer);
+    const q = compSearch.trim();
+    if (!q) { catalogResults = []; return; }
+    catalogLoading = true;
+    _compSearchTimer = setTimeout(async () => {
+      try {
+        const res = await fetch('/api/schematic', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'filtercomps', q, s: 30 })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          catalogResults = data.items ?? [];
+        }
+      } catch { catalogResults = []; }
+      finally { catalogLoading = false; }
+    }, 200);
+  }
+
+  function selectCatalogItem(item) {
+    // Pre-fill the edit form from the catalog entry
+    editingComp = {
+      description:    item.description   ?? item.Description   ?? '',
+      tool_comp:      item.tool_comp      ?? item.Tool_Comp     ?? item.ToolComp ?? '',
+      od:             +(item.od           ?? item.OD            ?? 2.875),
+      od_multiplier:  +(item.od_multiplier ?? item.OD_Multiplier ?? 1.2),
+      length:         +(item.length       ?? item.Length        ?? 10),
+      weight:         +(item.weight       ?? item.Weight        ?? 0),
+      noJoints:       +(item.noJoints     ?? item.NoJoints      ?? 1),
+      avgJointLength: +(item.avgJointLength ?? item.AvgJointLength ?? 10),
+    };
+    isNewComp = true;
+    compSearch = '';
+    catalogResults = [];
+  }
+
   const compJsonCache = new Map();
   let compSvgStrings = $state([]);
 
@@ -1298,34 +1340,51 @@
       {#snippet children()}
         <div class="p-2">
 
-          <!-- Search with typeahead dropdown -->
+          <!-- Catalog search (queries /api/schematic filtercomps from comp_list.xlsx) -->
           <div class="relative mb-3">
-            <input
-              type="text"
-              placeholder="Search completions…"
-              bind:value={compSearch}
-              onfocus={() => (compSearchFocused = true)}
-              onblur={() => setTimeout(() => (compSearchFocused = false), 150)}
-              class="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-            <div class="text-xs text-slate-400 mt-0.5">
-              {filteredComps().length} of {getSrc()?.completions?.length ?? 0}
+            <div class="flex items-center gap-1.5 px-2.5 py-1.5 border border-slate-300 rounded bg-white focus-within:ring-1 focus-within:ring-blue-500">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-400 flex-shrink-0"><circle cx="6" cy="6" r="5"/><line x1="10" y1="10" x2="14" y2="14"/></svg>
+              <input
+                type="text"
+                placeholder="Search catalog (e.g. packer 7 inch)…"
+                bind:value={compSearch}
+                oninput={onCompSearchInput}
+                onfocus={() => (compSearchFocused = true)}
+                onblur={() => setTimeout(() => (compSearchFocused = false), 200)}
+                class="flex-1 text-xs bg-transparent outline-none"
+              />
+              {#if catalogLoading}
+                <span class="text-xs text-slate-400 animate-pulse">…</span>
+              {/if}
+            </div>
+            <div class="text-xs text-slate-400 mt-0.5 px-0.5">
+              {getSrc()?.completions?.length ?? 0} in schematic
+              {#if catalogResults.length > 0} · {catalogResults.length} catalog matches{/if}
             </div>
 
-            <!-- Typeahead dropdown -->
-            {#if compSearch.trim() && compSearchFocused && filteredComps().length > 0}
-              <div class="absolute left-0 right-0 top-full mt-0.5 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
-                {#each filteredComps() as { c, i }}
+            <!-- Catalog dropdown results -->
+            {#if compSearch.trim() && compSearchFocused && catalogResults.length > 0}
+              <div class="absolute left-0 right-0 top-full mt-0.5 bg-white border border-slate-200 rounded-lg shadow-xl z-50 max-h-56 overflow-y-auto">
+                <div class="px-2.5 py-1 bg-slate-50 border-b border-slate-100 text-xs text-slate-500 font-medium sticky top-0">
+                  Catalog — click to pre-fill form
+                </div>
+                {#each catalogResults as item}
                   <button
-                    class="w-full text-left px-2.5 py-2 hover:bg-blue-50 border-b border-slate-100 last:border-0"
-                    onmousedown={() => { startEditCompByIdx(i); compSearch = ''; }}
+                    class="w-full text-left px-2.5 py-1.5 hover:bg-blue-50 border-b border-slate-100 last:border-0"
+                    onmousedown={() => selectCatalogItem(item)}
                   >
-                    <div class="text-xs font-medium text-slate-800 truncate">{c.description || '—'}</div>
+                    <div class="text-xs font-medium text-slate-800 truncate">{item.description ?? item.Description ?? '—'}</div>
                     <div class="text-xs text-slate-400 truncate">
-                      {#if c.tool_comp}{c.tool_comp} · {/if}OD {c.od}" · {c.length}m
+                      {item.tool_comp ?? item.Tool_Comp ?? ''}
+                      {#if item.od ?? item.OD} · OD {item.od ?? item.OD}"{/if}
+                      {#if item.length ?? item.Length} · {item.length ?? item.Length}m{/if}
                     </div>
                   </button>
                 {/each}
+              </div>
+            {:else if compSearch.trim() && compSearchFocused && !catalogLoading}
+              <div class="absolute left-0 right-0 top-full mt-0.5 bg-white border border-slate-200 rounded-lg shadow-lg z-50 px-3 py-2 text-xs text-slate-400">
+                No catalog matches — you can still add manually below
               </div>
             {/if}
           </div>

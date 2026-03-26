@@ -1,4 +1,32 @@
 import { json } from '@sveltejs/kit';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import * as XLSX from 'xlsx';
+
+// ── Component catalog (loaded from comp_list.xlsx) ────────────────────────
+let dfSearch = [];  // lowercase search_string per row
+let compData  = []; // raw rows from Excel
+
+function loadCompList() {
+  const paths = [
+    join(process.cwd(), 'static', 'comp_list.xlsx'),
+    join(process.cwd(), 'src', 'lib', 'apps', 'wson', 'comp_list.xlsx'),
+    join(process.cwd(), 'comp_list.xlsx'),
+  ];
+  for (const p of paths) {
+    try {
+      const wb = XLSX.read(readFileSync(p), { type: 'buffer' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      compData  = XLSX.utils.sheet_to_json(ws);
+      dfSearch  = compData.map(r => (r.search_string || '').toLowerCase());
+      console.log(`[filtercomps] loaded ${compData.length} rows from ${p}`);
+      return;
+    } catch { /* try next */ }
+  }
+  console.warn('[filtercomps] comp_list.xlsx not found — component search disabled');
+}
+
+loadCompList();
 
 // ── Pure-JS math helpers ───────────────────────────────────────────────────
 const dot3  = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
@@ -133,6 +161,18 @@ function autoNodes(nodes, maxDepth) {
 export const POST = async ({ request }) => {
   try {
     const body = await request.json();
+
+    if (body.action === 'filtercomps') {
+      const q = (body.q || '').toLowerCase().trim();
+      if (!q) return json({ items: [], cols: compData.length ? Object.keys(compData[0]) : [] });
+      const words = q.split(/\s+/).filter(Boolean);
+      const items = [];
+      for (let i = 0; i < dfSearch.length; i++) {
+        if (words.every(w => dfSearch[i].includes(w))) items.push(compData[i]);
+        if (items.length >= (body.s ?? 30)) break;
+      }
+      return json({ items, cols: compData.length ? Object.keys(compData[0]) : [] });
+    }
 
     if (body.action === 'autonodes') {
       const { nodes = [], maxDepth = 3000, survey = [] } = body;
