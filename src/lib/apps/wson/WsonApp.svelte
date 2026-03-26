@@ -469,18 +469,13 @@
     if (isNewComp) {
       src.completions = [...(src.completions ?? []), { ...editingComp }];
     } else {
-      const idx = (src.completions ?? []).findIndex((_, i) =>
-        src.completions[i] === (src.completions ?? []).find(c =>
-          c.description === editingComp._origDesc && c.tool_comp === editingComp._origTool
-        )
-      );
-      // simpler: match by _editIdx stored on editingComp
       if (editingComp._editIdx != null) {
         src.completions = src.completions.map((c, i) => i === editingComp._editIdx ? { ...editingComp, _editIdx: undefined } : c);
       }
     }
     editingComp = null;
     isNewComp = false;
+    fetchDirData();
   }
 
   function startEditCompByIdx(i) {
@@ -499,6 +494,7 @@
     const src = getSrc();
     if (!src || !confirm('Delete this completion?')) return;
     src.completions = src.completions.filter((_, j) => j !== i);
+    fetchDirData();
   }
 
   function moveComp(i, dir) {
@@ -509,6 +505,7 @@
     if (j < 0 || j >= arr.length) return;
     [arr[i], arr[j]] = [arr[j], arr[i]];
     src.completions = arr;
+    fetchDirData();
   }
 
   function filteredComps() {
@@ -533,14 +530,15 @@
     const src = getSrc();
     if (!src || editIdx < 0) return;
     src.oh = src.oh.map((s, i) => i === editIdx ? { ...s, ...editData } : s);
-    editIdx = -1;
-    editData = {};
+    editIdx = -1; editData = {};
+    fetchDirData();
   }
 
   function deleteOHRow(idx) {
     const src = getSrc();
     if (!src || !confirm('Delete this row?')) return;
     src.oh = src.oh.filter((_, i) => i !== idx);
+    fetchDirData();
   }
 
   // CH functions
@@ -548,20 +546,22 @@
     const src = getSrc();
     if (!src) return;
     src.ch = [...(src.ch ?? []), { od: 9.625, grade: 'L80', weight: 40, top: 0, bot: 2500 }];
+    fetchDirData();
   }
 
   function saveCHRow() {
     const src = getSrc();
     if (!src || editIdx < 0) return;
     src.ch = src.ch.map((s, i) => i === editIdx ? { ...s, ...editData } : s);
-    editIdx = -1;
-    editData = {};
+    editIdx = -1; editData = {};
+    fetchDirData();
   }
 
   function deleteCHRow(idx) {
     const src = getSrc();
     if (!src || !confirm('Delete this row?')) return;
     src.ch = src.ch.filter((_, i) => i !== idx);
+    fetchDirData();
   }
 
   // Cementing functions
@@ -569,20 +569,22 @@
     const src = getSrc();
     if (!src) return;
     src.cementing = [...(src.cementing ?? []), { od: 9.625, top: 0, bot: 2500 }];
+    fetchDirData();
   }
 
   function saveCemRow() {
     const src = getSrc();
     if (!src || editIdx < 0) return;
     src.cementing = src.cementing.map((s, i) => i === editIdx ? { ...s, ...editData } : s);
-    editIdx = -1;
-    editData = {};
+    editIdx = -1; editData = {};
+    fetchDirData();
   }
 
   function deleteCemRow(idx) {
     const src = getSrc();
     if (!src || !confirm('Delete this row?')) return;
     src.cementing = src.cementing.filter((_, i) => i !== idx);
+    fetchDirData();
   }
 
   // Strata functions
@@ -590,20 +592,22 @@
     const src = getSrc();
     if (!src) return;
     src.strata = [...(src.strata ?? []), { strata: 'New Layer', top: 0, color: '#aaaaaa' }];
+    fetchDirData();
   }
 
   function saveStrataRow() {
     const src = getSrc();
     if (!src || editIdx < 0) return;
     src.strata = src.strata.map((s, i) => i === editIdx ? { ...s, ...editData } : s);
-    editIdx = -1;
-    editData = {};
+    editIdx = -1; editData = {};
+    fetchDirData();
   }
 
   function deleteStrataRow(idx) {
     const src = getSrc();
     if (!src || !confirm('Delete this row?')) return;
     src.strata = src.strata.filter((_, i) => i !== idx);
+    fetchDirData();
   }
 
   // Download
