@@ -1,8 +1,21 @@
 /**
  * GET /api/dev-tabs
- * Reads static/activeTabs.json for a list of filenames,
- * searches Google Drive for each, and returns { name, id, path }
- * for auto-opening on page load.
+ *
+ * Reads activeTabs.json from Google Drive (stored in the workspace folder,
+ * matching the dlis format) and returns { name, id, path } for each tab
+ * so the client can auto-open them on load.
+ *
+ * activeTabs.json format (dlis-compatible):
+ * {
+ *   "tabs": {
+ *     "<tabId>": {
+ *       "fileExtension": ".wson",
+ *       "label": "fat_design.wson",
+ *       "relativePath": "fields/FIELD_FICTION/wells/W1/schematic/fat_design.wson"
+ *     }
+ *   },
+ *   "activeTabId": "<tabId>"
+ * }
  */
 import { json } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
@@ -48,36 +61,55 @@ async function getAccessToken() {
   return _cachedToken;
 }
 
-async function searchByName(filename, token) {
+async function driveSearch(q, token, pageSize = 1) {
   const url = new URL('https://www.googleapis.com/drive/v3/files');
-  url.searchParams.set('q', `name = '${filename.replace(/'/g, "\\'")}' and trashed=false`);
+  url.searchParams.set('q', `${q} and trashed=false`);
   url.searchParams.set('fields', 'files(id,name)');
-  url.searchParams.set('pageSize', '1');
+  url.searchParams.set('pageSize', String(pageSize));
   const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) return null;
+  if (!res.ok) return [];
   const data = await res.json();
-  const file = data.files?.[0];
-  return file ? { name: file.name, id: file.id, path: file.name } : null;
+  return data.files || [];
 }
 
-function loadActiveTabsConfig() {
-  try {
-    const p = resolve(process.cwd(), 'static/activeTabs.json');
-    return JSON.parse(readFileSync(p, 'utf-8'));
-  } catch {
-    return [];
-  }
+async function driveDownloadJson(fileId, token) {
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) return null;
+  try { return await res.json(); } catch { return null; }
 }
 
 export async function GET() {
   if (!env.GOOGLE_DRIVE_FOLDER_ID) return json([]);
 
   try {
-    const filenames = loadActiveTabsConfig();
-    if (!filenames.length) return json([]);
-
     const token = await getAccessToken();
-    const results = await Promise.all(filenames.map(name => searchByName(name, token)));
+
+    // Find activeTabs.json in Drive (may be one per workspace, take first found)
+    const activeTabsFiles = await driveSearch(`name = 'activeTabs.json'`, token, 5);
+    if (!activeTabsFiles.length) return json([]);
+
+    // Try each activeTabs.json until we get one with tabs
+    let tabs = [];
+    for (const atFile of activeTabsFiles) {
+      const data = await driveDownloadJson(atFile.id, token);
+      if (!data?.tabs) continue;
+      const entries = Object.values(data.tabs);
+      if (entries.length) { tabs = entries; break; }
+    }
+    if (!tabs.length) return json([]);
+
+    // Resolve each tab's file ID by searching Drive by filename
+    const results = await Promise.all(tabs.map(async tab => {
+      const filename = tab.label ?? tab.entityId ?? tab.relativePath?.split('/').pop();
+      if (!filename) return null;
+      const files = await driveSearch(`name = '${filename.replace(/'/g, "\\'")}'`, token, 1);
+      const file = files[0];
+      return file ? { name: file.name, id: file.id, path: tab.relativePath ?? file.name } : null;
+    }));
+
     return json(results.filter(Boolean));
   } catch (err) {
     console.error('[/api/dev-tabs]', err.message);
