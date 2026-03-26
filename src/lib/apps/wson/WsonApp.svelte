@@ -1,3 +1,16 @@
+<script module>
+  // Per-tab display state cache — survives component remounts (tab switching)
+  const _cache = new Map(); // tabId → { displayOpts, showInfoBar, showOpenHole, showCasing, showCement, showCompletions, showPerforations, showStrata }
+
+  function getCache(id) {
+    return _cache.get(id) ?? {
+      displayOpts: { autoScale: true, directional: false, xScale: 0.17, yScale: 0.17, xDiaScale: 6.0, preserveAspectRatio: true, showLeftTrack: true },
+      showInfoBar: true, showOpenHole: true, showCasing: true, showCement: true,
+      showCompletions: true, showPerforations: true, showStrata: true
+    };
+  }
+</script>
+
 <script>
   import { onMount } from 'svelte';
   import { FloatingPanel } from '$lib/components/FloatingPanel';
@@ -16,28 +29,31 @@
   const HEADER_H  = 52;
   const PERF_DIST = 3;
 
+  // ── Restore per-tab display state from cache ──────────────────────────────
+  const cached = getCache(tab.id);
+
   // ── Display Options state ────────────────────────────────────────────────
-  let displayOpts = $state({
-    autoScale: true,
-    directional: false,
-    xScale: 0.17,
-    yScale: 0.17,
-    xDiaScale: 6.0,
-    preserveAspectRatio: true,
-    showLeftTrack: true
-  });
+  let displayOpts = $state({ ...cached.displayOpts });
   let showDisplayOpts  = $state(false);
   let showLayersPanel  = $state(false);
 
   // ── Toolbar visibility states ─────────────────────────────────────────────
-  let showInfoBar      = $state(true);
-  let showStrata       = $state(true);
-  let showOpenHole     = $state(true);
-  let showCasing       = $state(true);
-  let showCement       = $state(true);
-  let showCompletions  = $state(true);
-  let showPerforations = $state(true);
+  let showInfoBar      = $state(cached.showInfoBar);
+  let showStrata       = $state(cached.showStrata);
+  let showOpenHole     = $state(cached.showOpenHole);
+  let showCasing       = $state(cached.showCasing);
+  let showCement       = $state(cached.showCement);
+  let showCompletions  = $state(cached.showCompletions);
+  let showPerforations = $state(cached.showPerforations);
 
+  // Persist display state whenever it changes
+  $effect(() => {
+    _cache.set(tab.id, {
+      displayOpts: { ...displayOpts },
+      showInfoBar, showOpenHole, showCasing, showCement,
+      showCompletions, showPerforations, showStrata
+    });
+  });
   // ── Edit panel state ──────────────────────────────────────────────────────
   let editPanel = $state(null);
   let editIdx = $state(-1);
