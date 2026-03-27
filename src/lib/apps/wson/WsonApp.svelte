@@ -14,6 +14,7 @@
 <script>
   import { onMount } from 'svelte';
   import { FloatingPanel } from '$lib/components/FloatingPanel';
+  import labella from 'labella';
 
   const { tab } = $props();
 
@@ -333,6 +334,59 @@
              totalW, totalH, sy, syD, sxR, sxL, wellName, rulerTicks, maxR, strataW,
              hasDir, dirPath, dirSide, dirAxis, hasProfileData, wellDir, dtx,
              autoScale: displayOpts.autoScale };
+  });
+
+  // ── Labella annotation nodes (collision-resolved labels with leader lines) ──
+  const annotations = $derived.by(() => {
+    const g = geo;
+    if (!g) return { leftNodes: [], rightNodes: [] };
+    const { oh, ch, cem, completions, sy, sxR, centerX, maxR, maxDepth, yScale, strataW, diaScale } = g;
+
+    const LEFT_X  = strataW + RULER_W + 2;            // just right of the ruler
+    const RIGHT_X = centerX + maxR * diaScale + 14;   // just outside widest borehole
+
+    const makeNode = (x1, y1, x2, y2, text) => {
+      const data = { x1, y1, x2, y2, text };
+      return new labella.Node(y2, 5, data);
+    };
+
+    const leftNodes  = [];
+    const rightNodes = [];
+
+    if (showOpenHole) {
+      for (const s of oh) {
+        const y = sy(s.bot);
+        leftNodes.push(makeNode(sxR(s.bitSize / 2), y, LEFT_X, y, `${s.bitSize}" OH → ${s.bot}m`));
+      }
+    }
+    if (showCasing) {
+      for (const c of ch) {
+        const y = sy(c.top ?? 0);
+        leftNodes.push(makeNode(sxR(c.od / 2), y, LEFT_X, y, `${c.od}" ${c.grade ?? ''}`.trim()));
+      }
+    }
+    if (showCement) {
+      for (const c of cem) {
+        const y = sy(c.top ?? 0);
+        leftNodes.push(makeNode(sxR((c.od ?? 8) / 2), y, LEFT_X, y, `Cem ${c.od ?? '?'}"`));
+      }
+    }
+    if (showCompletions) {
+      for (const comp of completions) {
+        const r      = (comp.od ?? 2.875) / 2;
+        const rOuter = r * (comp.od_multiplier ?? 1.2);
+        const ymid   = (sy(comp._top) + sy(comp._bot)) / 2;
+        rightNodes.push(makeNode(sxR(rOuter), ymid, RIGHT_X, ymid,
+          `${comp.description || 'Completion'} ${comp.od}"`));
+      }
+    }
+
+    const maxPosY = HEADER_H + maxDepth * yScale * 1.2;
+    const forceOpts = { algorithm: 'simple', nodeSpacing: 14, lineSpacing: 4, minPos: HEADER_H + 5, maxPos: maxPosY };
+    if (leftNodes.length)  new labella.Force(forceOpts).nodes(leftNodes).compute();
+    if (rightNodes.length) new labella.Force(forceOpts).nodes(rightNodes).compute();
+
+    return { leftNodes, rightNodes };
   });
 
   async function loadFile() {
@@ -959,7 +1013,6 @@
               {@const y = sy(s.top)}
               {@const ht = sy(s.bot) - y}
               <rect {x} {y} width={w} height={ht} fill="#f3e8ff" stroke="#9333ea" stroke-width="1" stroke-dasharray="5 3"/>
-              <text x={sxR(s.bitSize / 2) + 3} y={y + 10} font-size="8" fill="#7c3aed" font-family="sans-serif">{s.bitSize}"</text>
             {/if}
           {/each}
         {/if}
@@ -988,9 +1041,6 @@
               {@const y = sy(c.top)}
               {@const ht = sy(c.bot) - y}
               <rect {x} {y} width={w} height={ht} fill="azure" stroke="#111" stroke-width="1.5"/>
-              {#if c.grade}
-                <text x={sxR(c.od / 2) + 4} y={y + 22} font-size="8" fill="#1e40af" font-family="sans-serif">{c.od}" {c.grade}</text>
-              {/if}
             {/if}
           {/each}
         {/if}
@@ -1046,9 +1096,6 @@
                 <rect x={xR - 1.5} y={ytop} width="3" height={ybot - ytop} fill="#334155"/>
               {/if}
 
-              {#if comp.description && (ybot - ytop) > 10}
-                <text x={xOR + 6} y={(ytop + ybot) / 2 + 4} font-size="8" fill="#374151" font-family="sans-serif">{comp.description}</text>
-              {/if}
             {/if}
             </g>
           {/each}
@@ -1066,6 +1113,22 @@
           <line x1={sxL(2)} y1={tdY} x2={sxR(2)} y2={tdY} stroke="#dc2626" stroke-width="2"/>
           <text x={sxR(2) + 4} y={tdY + 4} font-size="9" fill="#dc2626" font-family="sans-serif">TD {tdDepth}m</text>
         {/if}
+
+        <!-- Labella collision-resolved annotations with leader lines -->
+        <g font-size="8" font-family="sans-serif">
+          {#each annotations.leftNodes as node}
+            <line x1={node.data.x1} y1={node.data.y1} x2={node.data.x2 + 2} y2={node.currentPos - 3}
+              stroke="#6b7280" stroke-width="0.8" stroke-dasharray="3,2"/>
+            <circle cx={node.data.x1} cy={node.data.y1} r="2" fill="#6b7280" opacity="0.7"/>
+            <text x={node.data.x2 + 4} y={node.currentPos} fill="#374151" text-anchor="start">{node.data.text}</text>
+          {/each}
+          {#each annotations.rightNodes as node}
+            <line x1={node.data.x1} y1={node.data.y1} x2={node.data.x2} y2={node.currentPos - 3}
+              stroke="#6b7280" stroke-width="0.8" stroke-dasharray="3,2"/>
+            <circle cx={node.data.x1} cy={node.data.y1} r="2" fill="#6b7280" opacity="0.7"/>
+            <text x={node.data.x2 + 2} y={node.currentPos} fill="#374151" text-anchor="start">{node.data.text}</text>
+          {/each}
+        </g>
       </svg>
     </div>
 
