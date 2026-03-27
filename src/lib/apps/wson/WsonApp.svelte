@@ -69,6 +69,10 @@
   let editingComp = $state(null);
   let isNewComp = $state(false);
 
+  // ── Canvas component quick-editor (dblclick on SVG completion) ────────────
+  let showCanvasCompEditor = $state(false);
+  let canvasComp = $state(null);   // { ...comp, _editIdx: i }
+
   let _compSearchTimer = null;
   function onCompSearchInput() {
     clearTimeout(_compSearchTimer);
@@ -488,6 +492,27 @@
   function cancelComp() {
     editingComp = null;
     isNewComp = false;
+  }
+
+  function saveCanvasComp() {
+    const src = getSrc();
+    if (!src || !canvasComp) return;
+    const idx = canvasComp._editIdx;
+    src.completions = src.completions.map((c, i) =>
+      i === idx ? { ...canvasComp, _editIdx: undefined } : c
+    );
+    showCanvasCompEditor = false;
+    canvasComp = null;
+    fetchDirData();
+  }
+
+  function deleteCanvasComp() {
+    const src = getSrc();
+    if (!src || !canvasComp || !confirm('Delete this completion?')) return;
+    src.completions = src.completions.filter((_, i) => i !== canvasComp._editIdx);
+    showCanvasCompEditor = false;
+    canvasComp = null;
+    fetchDirData();
   }
 
   function deleteComp(i) {
@@ -976,7 +1001,7 @@
             {@const rOuter = r * (comp.od_multiplier ?? 1.2)}
             {@const type = compTypeOf(comp)}
 
-            <g ondblclick={() => { showCompletionsEditor = true; startEditCompByIdx(i); }} style="cursor:pointer">
+            <g ondblclick={() => { canvasComp = { ...comp, _editIdx: i }; showCanvasCompEditor = true; }} style="cursor:pointer">
 
             {#if hasDir && dirPath}
               <!-- Directional completions -->
@@ -1312,6 +1337,46 @@
 
           {/if}
         </div>
+      {/snippet}
+    </FloatingPanel>
+
+    <!-- Canvas Component Quick-Editor -->
+    <FloatingPanel
+      title={canvasComp?.description || 'Edit Component'}
+      visible={showCanvasCompEditor}
+      onClose={() => { showCanvasCompEditor = false; canvasComp = null; }}
+      width={220}
+      x={120}
+      y={120}
+    >
+      {#snippet children()}
+        {#if canvasComp}
+          <div class="flex flex-col gap-2 p-2.5">
+            <div>
+              <label class="block text-xs text-slate-500 mb-0.5">Description</label>
+              <input type="text" bind:value={canvasComp.description}
+                class="w-full text-xs border border-slate-200 rounded px-2 py-1 bg-white"/>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-xs text-slate-500 mb-0.5">OD (in)</label>
+                <input type="number" step="0.001" bind:value={canvasComp.od}
+                  class="w-full text-xs border border-slate-200 rounded px-2 py-1 bg-white"/>
+              </div>
+              <div>
+                <label class="block text-xs text-slate-500 mb-0.5">Length (m)</label>
+                <input type="number" step="0.1" bind:value={canvasComp.length}
+                  class="w-full text-xs border border-slate-200 rounded px-2 py-1 bg-white"/>
+              </div>
+            </div>
+            <div class="flex gap-1.5 pt-0.5">
+              <button onclick={saveCanvasComp}
+                class="flex-1 text-xs bg-blue-600 text-white rounded px-2 py-1.5 hover:bg-blue-700 font-medium">Done</button>
+              <button onclick={deleteCanvasComp}
+                class="text-xs bg-red-50 text-red-600 border border-red-200 rounded px-2 py-1.5 hover:bg-red-100">Delete</button>
+            </div>
+          </div>
+        {/if}
       {/snippet}
     </FloatingPanel>
 
