@@ -271,7 +271,7 @@
     const rightShift = hasDir ? Math.max(0,  maxNorthing * yScale) : 0;
 
     const centerX = strataW + RULER_W + maxR * diaScale + 20 + leftShift;
-    const totalW  = centerX + maxR * diaScale + 160 + rightShift;
+    const totalW  = centerX + maxR * diaScale + 290 + rightShift;  // extra room for two annotation columns
     const totalH  = HEADER_H + (hasDir ? maxTVD : maxDepth) * yScale + 40;
 
     // ── Coordinate helpers ────────────────────────────────────────────────
@@ -337,56 +337,64 @@
   });
 
   // ── Labella annotation nodes (collision-resolved labels with leader lines) ──
+  // Two right-side columns so nothing crosses the borehole:
+  //   compNodes  — completions, nearest column  (text-anchor start)
+  //   bhNodes    — OH / CH / cement, far-right column (text-anchor end)
+  // syD is used for directional mode so anchors follow the deviated wellbore.
   const annotations = $derived.by(() => {
     const g = geo;
-    if (!g) return { leftNodes: [], rightNodes: [] };
-    const { oh, ch, cem, completions, sy, sxR, centerX, maxR, maxDepth, yScale, strataW, diaScale } = g;
+    if (!g) return { compNodes: [], bhNodes: [] };
+    const { oh, ch, cem, completions, sy, syD, sxR, centerX, maxR, maxDepth, yScale, diaScale, totalW, hasDir } = g;
 
-    const LEFT_X  = strataW + RULER_W + 2;            // just right of the ruler
-    const RIGHT_X = centerX + maxR * diaScale + 14;   // just outside widest borehole
+    // Use depth-to-SVG transform appropriate for the current display mode
+    const getY = hasDir ? syD : sy;
+
+    // Column x positions — both to the right of the widest borehole element
+    const COMP_X = centerX + maxR * diaScale + 14;   // near column (completions)
+    const BH_X   = totalW - 8;                        // far column  (OH / casing / cement)
 
     const makeNode = (x1, y1, x2, y2, text) => {
       const data = { x1, y1, x2, y2, text };
       return new labella.Node(y2, 5, data);
     };
 
-    const leftNodes  = [];
-    const rightNodes = [];
+    const compNodes = [];   // completions  → right, near
+    const bhNodes   = [];   // borehole items → right, far (text-anchor end)
 
     if (showOpenHole) {
       for (const s of oh) {
-        const y = sy(s.bot);
-        leftNodes.push(makeNode(sxR(s.bitSize / 2), y, LEFT_X, y, `${s.bitSize}" OH → ${s.bot}m`));
+        const y = getY(s.bot);
+        bhNodes.push(makeNode(sxR(s.bitSize / 2), y, BH_X, y, `${s.bitSize}" OH to ${s.bot}m`));
       }
     }
     if (showCasing) {
       for (const c of ch) {
-        const y = sy(c.top ?? 0);
-        leftNodes.push(makeNode(sxR(c.od / 2), y, LEFT_X, y, `${c.od}" ${c.grade ?? ''}`.trim()));
+        const y = getY(c.top ?? 0);
+        bhNodes.push(makeNode(sxR(c.od / 2), y, BH_X, y, `${c.od}" ${c.grade ?? ''}`.trim()));
       }
     }
     if (showCement) {
       for (const c of cem) {
-        const y = sy(c.top ?? 0);
-        leftNodes.push(makeNode(sxR((c.od ?? 8) / 2), y, LEFT_X, y, `Cem ${c.od ?? '?'}"`));
+        const y = getY(c.top ?? 0);
+        bhNodes.push(makeNode(sxR((c.od ?? 8) / 2), y, BH_X, y, `Cem ${c.od ?? '?'}"`));
       }
     }
     if (showCompletions) {
       for (const comp of completions) {
         const r      = (comp.od ?? 2.875) / 2;
         const rOuter = r * (comp.od_multiplier ?? 1.2);
-        const ymid   = (sy(comp._top) + sy(comp._bot)) / 2;
-        rightNodes.push(makeNode(sxR(rOuter), ymid, RIGHT_X, ymid,
+        const ymid   = (getY(comp._top) + getY(comp._bot)) / 2;
+        compNodes.push(makeNode(sxR(rOuter), ymid, COMP_X, ymid,
           `${comp.description || 'Completion'} ${comp.od}"`));
       }
     }
 
     const maxPosY = HEADER_H + maxDepth * yScale * 1.2;
     const forceOpts = { algorithm: 'simple', nodeSpacing: 14, lineSpacing: 4, minPos: HEADER_H + 5, maxPos: maxPosY };
-    if (leftNodes.length)  new labella.Force(forceOpts).nodes(leftNodes).compute();
-    if (rightNodes.length) new labella.Force(forceOpts).nodes(rightNodes).compute();
+    if (compNodes.length) new labella.Force(forceOpts).nodes(compNodes).compute();
+    if (bhNodes.length)   new labella.Force(forceOpts).nodes(bhNodes).compute();
 
-    return { leftNodes, rightNodes };
+    return { compNodes, bhNodes };
   });
 
   async function loadFile() {
@@ -1115,18 +1123,22 @@
         {/if}
 
         <!-- Labella collision-resolved annotations with leader lines -->
-        <g font-size="8" font-family="sans-serif">
-          {#each annotations.leftNodes as node}
-            <line x1={node.data.x1} y1={node.data.y1} x2={node.data.x2 + 2} y2={node.currentPos - 3}
-              stroke="#6b7280" stroke-width="0.8" stroke-dasharray="3,2"/>
+        <!-- compNodes: completions, near-right column, text starts at label x -->
+        <!-- bhNodes:   OH/casing/cement, far-right column, text ends at label x -->
+        <g font-size="8" font-family="sans-serif" fill="#374151">
+          {#each annotations.compNodes as node}
+            <line x1={node.data.x1} y1={node.data.y1}
+                  x2={node.data.x2} y2={node.currentPos - 3}
+                  stroke="#6b7280" stroke-width="0.8" stroke-dasharray="3,2"/>
             <circle cx={node.data.x1} cy={node.data.y1} r="2" fill="#6b7280" opacity="0.7"/>
-            <text x={node.data.x2 + 4} y={node.currentPos} fill="#374151" text-anchor="start">{node.data.text}</text>
+            <text x={node.data.x2 + 3} y={node.currentPos} text-anchor="start">{node.data.text}</text>
           {/each}
-          {#each annotations.rightNodes as node}
-            <line x1={node.data.x1} y1={node.data.y1} x2={node.data.x2} y2={node.currentPos - 3}
-              stroke="#6b7280" stroke-width="0.8" stroke-dasharray="3,2"/>
-            <circle cx={node.data.x1} cy={node.data.y1} r="2" fill="#6b7280" opacity="0.7"/>
-            <text x={node.data.x2 + 2} y={node.currentPos} fill="#374151" text-anchor="start">{node.data.text}</text>
+          {#each annotations.bhNodes as node}
+            <line x1={node.data.x1} y1={node.data.y1}
+                  x2={node.data.x2} y2={node.currentPos - 3}
+                  stroke="#4f86c6" stroke-width="0.8" stroke-dasharray="4,2"/>
+            <circle cx={node.data.x1} cy={node.data.y1} r="2" fill="#4f86c6" opacity="0.7"/>
+            <text x={node.data.x2 - 3} y={node.currentPos} text-anchor="end" fill="#1e40af">{node.data.text}</text>
           {/each}
         </g>
       </svg>
