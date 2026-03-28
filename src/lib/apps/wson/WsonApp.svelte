@@ -1,5 +1,20 @@
+<script module>
+  // Per-tab display state cache — survives component remounts (tab switching)
+  const _cache = new Map(); // tabId → { displayOpts, showOpenHole, showCasing, showCement, showCompletions, showPerforations, showStrata }
+
+  function getCache(id) {
+    return _cache.get(id) ?? {
+      displayOpts: { autoScale: true, directional: false, xScale: 0.17, yScale: 0.17, xDiaScale: 6.0, preserveAspectRatio: true, showLeftTrack: true },
+      showOpenHole: true, showCasing: true, showCement: true,
+      showCompletions: true, showPerforations: true, showStrata: true
+    };
+  }
+</script>
+
 <script>
   import { onMount } from 'svelte';
+  import { FloatingPanel } from '$lib/components/FloatingPanel';
+  import labella from 'labella';
 
   const { tab } = $props();
 
@@ -12,39 +27,91 @@
 
   // ── Layout constants ─────────────────────────────────────────────────────
   const RULER_W   = 44;
-  const HEADER_H  = 52;
+  const HEADER_H  = 100;
   const PERF_DIST = 3;
 
+  // ── Restore per-tab display state from cache ──────────────────────────────
+  const cached = getCache(tab.id);
+
   // ── Display Options state ────────────────────────────────────────────────
-  let displayOpts = $state({
-    autoScale: true,
-    directional: false,
-    xScale: 0.17,
-    yScale: 0.17,
-    xDiaScale: 6.0,
-    preserveAspectRatio: true,
-    showLeftTrack: true
-  });
-  let showDisplayOpts = $state(false);
-  let dispPos = $state({ x: 0, y: 50 });
-  let isDragging = false;
-  let dragOffX = 0, dragOffY = 0;
+  let displayOpts = $state({ ...cached.displayOpts });
+  let showDisplayOpts  = $state(false);
+  let showLayersPanel  = $state(false);
 
   // ── Toolbar visibility states ─────────────────────────────────────────────
-  let showInfoBar      = $state(true);
-  let showStrata       = $state(true);
-  let showOpenHole     = $state(true);
-  let showCasing       = $state(true);
-  let showCement       = $state(true);
-  let showCompletions  = $state(true);
-  let showPerforations = $state(true);
+  let showStrata       = $state(cached.showStrata);
+  let showOpenHole     = $state(cached.showOpenHole);
+  let showCasing       = $state(cached.showCasing);
+  let showCement       = $state(cached.showCement);
+  let showCompletions  = $state(cached.showCompletions);
+  let showPerforations = $state(cached.showPerforations);
 
-  // ── Edit panel state ──────────────────────────────────────────────────────
-  let editPanel = $state(null);
+  // Persist display state whenever it changes
+  $effect(() => {
+    _cache.set(tab.id, {
+      displayOpts: { ...displayOpts },
+      showOpenHole, showCasing, showCement,
+      showCompletions, showPerforations, showStrata
+    });
+  });
+  // ── Schematic Editor state ────────────────────────────────────────────────
+  let showSchematicEditor = $state(false);
+  let schematicTab = $state('oh'); // 'oh' | 'ch' | 'cem' | 'strata'
   let editIdx = $state(-1);
   let editData = $state({});
 
-  // ── Component JSON cache ──────────────────────────────────────────────────
+  // ── Completions Editor state ──────────────────────────────────────────────
+  let showCompletionsEditor = $state(false);
+  let compSearch = $state('');
+  let compSearchFocused = $state(false);
+  let catalogResults = $state([]);   // results from /api/schematic filtercomps
+  let catalogLoading = $state(false);
+  let editingComp = $state(null);
+  let isNewComp = $state(false);
+
+  // ── Canvas component quick-editor (dblclick on SVG completion) ────────────
+  let showCanvasCompEditor = $state(false);
+  let canvasComp = $state(null);   // { ...comp, _editIdx: i }
+
+  let _compSearchTimer = null;
+  function onCompSearchInput() {
+    clearTimeout(_compSearchTimer);
+    const q = compSearch.trim();
+    if (!q) { catalogResults = []; return; }
+    catalogLoading = true;
+    _compSearchTimer = setTimeout(async () => {
+      try {
+        const res = await fetch('/api/schematic', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'filtercomps', q, s: 30 })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          catalogResults = data.items ?? [];
+        }
+      } catch { catalogResults = []; }
+      finally { catalogLoading = false; }
+    }, 200);
+  }
+
+  function selectCatalogItem(item) {
+    // Pre-fill the edit form from the catalog entry
+    editingComp = {
+      description:    item.description   ?? item.Description   ?? '',
+      tool_comp:      item.tool_comp      ?? item.Tool_Comp     ?? item.ToolComp ?? '',
+      od:             +(item.od           ?? item.OD            ?? 2.875),
+      od_multiplier:  +(item.od_multiplier ?? item.OD_Multiplier ?? 1.2),
+      length:         +(item.length       ?? item.Length        ?? 10),
+      weight:         +(item.weight       ?? item.Weight        ?? 0),
+      noJoints:       +(item.noJoints     ?? item.NoJoints      ?? 1),
+      avgJointLength: +(item.avgJointLength ?? item.AvgJointLength ?? 10),
+    };
+    isNewComp = true;
+    compSearch = '';
+    catalogResults = [];
+  }
+
   const compJsonCache = new Map();
   let compSvgStrings = $state([]);
 
@@ -202,8 +269,8 @@
     const leftShift  = hasDir ? Math.max(0, -minNorthing * yScale) : 0;
     const rightShift = hasDir ? Math.max(0,  maxNorthing * yScale) : 0;
 
-    const centerX = strataW + RULER_W + maxR * diaScale + 20 + leftShift;
-    const totalW  = centerX + maxR * diaScale + 160 + rightShift;
+    const centerX = strataW + RULER_W + maxR * diaScale + 110 + leftShift;  // +110 left margin for OH/casing/cement labels
+    const totalW  = centerX + maxR * diaScale + 200 + rightShift;  // right margin for completion labels
     const totalH  = HEADER_H + (hasDir ? maxTVD : maxDepth) * yScale + 40;
 
     // ── Coordinate helpers ────────────────────────────────────────────────
@@ -266,6 +333,90 @@
              totalW, totalH, sy, syD, sxR, sxL, wellName, rulerTicks, maxR, strataW,
              hasDir, dirPath, dirSide, dirAxis, hasProfileData, wellDir, dtx,
              autoScale: displayOpts.autoScale };
+  });
+
+  // ── Labella annotation nodes (collision-resolved labels with leader lines) ──
+  // Two right-side columns so nothing crosses the borehole:
+  //   compNodes  — completions, nearest column  (text-anchor start)
+  //   bhNodes    — OH / CH / cement, LEFT side (text-anchor start, between ruler and borehole)
+  // syD is used for directional mode so anchors follow the deviated wellbore.
+  const annotations = $derived.by(() => {
+    const g = geo;
+    if (!g) return { compNodes: [], bhNodes: [] };
+    const { oh, ch, cem, completions, sy, syD, sxL, sxR, centerX, maxR, maxDepth, yScale, diaScale, strataW, totalW, hasDir } = g;
+
+    // Use depth-to-SVG transform appropriate for the current display mode
+    const getY = hasDir ? syD : sy;
+
+    // Left label x: right end of text area, just left of widest borehole element.
+    // text-anchor="end" means text hangs leftward from this point → line tip is on text's RIGHT.
+    const LEFT_X  = sxL(maxR) - 8;
+    // Right column: just outside widest borehole element
+    const COMP_X  = centerX + maxR * diaScale + 14;
+
+    const makeNode = (x1, y1, x2, y2, text) => {
+      const data = { x1, y1, x2, y2, text };
+      return new labella.Node(y2, 5, data);
+    };
+
+    const compNodes = [];   // completions  → right side
+    const bhNodes   = [];   // OH / casing / cement → LEFT side
+
+    if (showOpenHole) {
+      for (const s of oh) {
+        const y = getY(s.bot);
+        bhNodes.push(makeNode(sxL(s.bitSize / 2), y, LEFT_X, y, `${s.bitSize}" OH to ${s.bot}m`));
+      }
+    }
+    if (showCasing) {
+      for (const c of ch) {
+        const y = getY(c.top ?? 0);
+        bhNodes.push(makeNode(sxL(c.od / 2), y, LEFT_X, y, `${c.od}" ${c.grade ?? ''}`.trim()));
+      }
+    }
+    if (showCement) {
+      for (const c of cem) {
+        const y = getY(c.top ?? 0);
+        bhNodes.push(makeNode(sxL((c.od ?? 8) / 2), y, LEFT_X, y, `Cem ${c.od ?? '?'}"`));
+      }
+    }
+    if (showCompletions) {
+      for (const comp of completions) {
+        const r      = (comp.od ?? 2.875) / 2;
+        const rOuter = r * (comp.od_multiplier ?? 1.2);
+        const ymid   = (getY(comp._top) + getY(comp._bot)) / 2;
+        compNodes.push(makeNode(sxR(rOuter), ymid, COMP_X, ymid,
+          `${comp.description || 'Completion'} ${comp.od}"`));
+      }
+    }
+
+    const maxPosY = HEADER_H + maxDepth * yScale * 1.2;
+    const forceOpts = { algorithm: 'simple', nodeSpacing: 14, lineSpacing: 4, minPos: HEADER_H + 5, maxPos: maxPosY };
+    if (compNodes.length) new labella.Force(forceOpts).nodes(compNodes).compute();
+    if (bhNodes.length)   new labella.Force(forceOpts).nodes(bhNodes).compute();
+
+    return { compNodes, bhNodes };
+  });
+
+  // ── Well header fields (name, description, company, country, etc.) ─────────
+  const headerFields = $derived.by(() => {
+    const src = getSrc() ?? wson;
+    const ih = src?.inputHeader ?? wson?.inputHeader ?? {};
+    const get = (...keys) => {
+      for (const k of keys) {
+        const v = ih[k]?.value ?? src?.[k] ?? wson?.[k];
+        if (v != null && String(v).trim()) return String(v).trim();
+      }
+      return '';
+    };
+    return {
+      wellName: get('wellName','WELL','well_name') || tab.name || '',
+      desc:     get('wellDesc','DESC','description','WELL_DESC'),
+      company:  get('company','COMP','COMPANY'),
+      state:    get('state','ST','STAT','STATE'),
+      country:  get('country','CTRY','COUNTRY'),
+      location: get('location','LOC','UWI','LOCATION'),
+    };
   });
 
   async function loadFile() {
@@ -352,24 +503,8 @@
 
   onMount(loadFile);
 
-  // Drag for Display Options popup
-  function onDragStart(e) {
-    isDragging = true;
-    dragOffX = e.clientX - dispPos.x;
-    dragOffY = e.clientY - dispPos.y;
-    window.addEventListener('mousemove', onDragMove);
-    window.addEventListener('mouseup', onDragEnd);
-  }
-
-  function onDragMove(e) {
-    if (!isDragging) return;
-    dispPos = { x: e.clientX - dragOffX, y: e.clientY - dragOffY };
-  }
-
+  // (drag handled by FloatingPanel)
   function onDragEnd() {
-    isDragging = false;
-    window.removeEventListener('mousemove', onDragMove);
-    window.removeEventListener('mouseup', onDragEnd);
   }
 
   // Helpers — normalise WSON structure (supports dlis config.* format + legacy flat format)
@@ -382,7 +517,12 @@
   }
 
   function toggleEditPanel(panel) {
-    editPanel = editPanel === panel ? null : panel;
+    if (showSchematicEditor && schematicTab === panel) {
+      showSchematicEditor = false;
+    } else {
+      schematicTab = panel;
+      showSchematicEditor = true;
+    }
     editIdx = -1;
     editData = {};
   }
@@ -397,6 +537,97 @@
     editData = {};
   }
 
+  // Completions functions
+  function startAddComp() {
+    editingComp = { description: '', tool_comp: '', od: 2.875, od_multiplier: 1.2, length: 10, weight: 0, noJoints: 1, avgJointLength: 10 };
+    isNewComp = true;
+    showCompletionsEditor = true;
+  }
+
+  function startEditComp(i) {
+    const src = getSrc();
+    if (!src) return;
+    editingComp = { ...src.completions[i] };
+    isNewComp = false;
+  }
+
+  function saveComp() {
+    const src = getSrc();
+    if (!src || !editingComp) return;
+    if (isNewComp) {
+      src.completions = [...(src.completions ?? []), { ...editingComp }];
+    } else {
+      if (editingComp._editIdx != null) {
+        src.completions = src.completions.map((c, i) => i === editingComp._editIdx ? { ...editingComp, _editIdx: undefined } : c);
+      }
+    }
+    editingComp = null;
+    isNewComp = false;
+    fetchDirData();
+  }
+
+  function startEditCompByIdx(i) {
+    const src = getSrc();
+    if (!src) return;
+    editingComp = { ...src.completions[i], _editIdx: i };
+    isNewComp = false;
+  }
+
+  function cancelComp() {
+    editingComp = null;
+    isNewComp = false;
+  }
+
+  function saveCanvasComp() {
+    const src = getSrc();
+    if (!src || !canvasComp) return;
+    const idx = canvasComp._editIdx;
+    src.completions = src.completions.map((c, i) =>
+      i === idx ? { ...canvasComp, _editIdx: undefined } : c
+    );
+    showCanvasCompEditor = false;
+    canvasComp = null;
+    fetchDirData();
+  }
+
+  function deleteCanvasComp() {
+    const src = getSrc();
+    if (!src || !canvasComp || !confirm('Delete this completion?')) return;
+    src.completions = src.completions.filter((_, i) => i !== canvasComp._editIdx);
+    showCanvasCompEditor = false;
+    canvasComp = null;
+    fetchDirData();
+  }
+
+  function deleteComp(i) {
+    const src = getSrc();
+    if (!src || !confirm('Delete this completion?')) return;
+    src.completions = src.completions.filter((_, j) => j !== i);
+    fetchDirData();
+  }
+
+  function moveComp(i, dir) {
+    const src = getSrc();
+    if (!src) return;
+    const arr = [...(src.completions ?? [])];
+    const j = i + dir;
+    if (j < 0 || j >= arr.length) return;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+    src.completions = arr;
+    fetchDirData();
+  }
+
+  function filteredComps() {
+    const src = getSrc();
+    const all = src?.completions ?? [];
+    const q = compSearch.trim().toLowerCase();
+    if (!q) return all.map((c, i) => ({ c, i }));
+    return all.map((c, i) => ({ c, i })).filter(({ c }) =>
+      (c.description ?? '').toLowerCase().includes(q) ||
+      (c.tool_comp ?? '').toLowerCase().includes(q)
+    );
+  }
+
   // OH functions
   function addOHRow() {
     const src = getSrc();
@@ -408,14 +639,15 @@
     const src = getSrc();
     if (!src || editIdx < 0) return;
     src.oh = src.oh.map((s, i) => i === editIdx ? { ...s, ...editData } : s);
-    editIdx = -1;
-    editData = {};
+    editIdx = -1; editData = {};
+    fetchDirData();
   }
 
   function deleteOHRow(idx) {
     const src = getSrc();
     if (!src || !confirm('Delete this row?')) return;
     src.oh = src.oh.filter((_, i) => i !== idx);
+    fetchDirData();
   }
 
   // CH functions
@@ -423,20 +655,22 @@
     const src = getSrc();
     if (!src) return;
     src.ch = [...(src.ch ?? []), { od: 9.625, grade: 'L80', weight: 40, top: 0, bot: 2500 }];
+    fetchDirData();
   }
 
   function saveCHRow() {
     const src = getSrc();
     if (!src || editIdx < 0) return;
     src.ch = src.ch.map((s, i) => i === editIdx ? { ...s, ...editData } : s);
-    editIdx = -1;
-    editData = {};
+    editIdx = -1; editData = {};
+    fetchDirData();
   }
 
   function deleteCHRow(idx) {
     const src = getSrc();
     if (!src || !confirm('Delete this row?')) return;
     src.ch = src.ch.filter((_, i) => i !== idx);
+    fetchDirData();
   }
 
   // Cementing functions
@@ -444,20 +678,22 @@
     const src = getSrc();
     if (!src) return;
     src.cementing = [...(src.cementing ?? []), { od: 9.625, top: 0, bot: 2500 }];
+    fetchDirData();
   }
 
   function saveCemRow() {
     const src = getSrc();
     if (!src || editIdx < 0) return;
     src.cementing = src.cementing.map((s, i) => i === editIdx ? { ...s, ...editData } : s);
-    editIdx = -1;
-    editData = {};
+    editIdx = -1; editData = {};
+    fetchDirData();
   }
 
   function deleteCemRow(idx) {
     const src = getSrc();
     if (!src || !confirm('Delete this row?')) return;
     src.cementing = src.cementing.filter((_, i) => i !== idx);
+    fetchDirData();
   }
 
   // Strata functions
@@ -465,20 +701,22 @@
     const src = getSrc();
     if (!src) return;
     src.strata = [...(src.strata ?? []), { strata: 'New Layer', top: 0, color: '#aaaaaa' }];
+    fetchDirData();
   }
 
   function saveStrataRow() {
     const src = getSrc();
     if (!src || editIdx < 0) return;
     src.strata = src.strata.map((s, i) => i === editIdx ? { ...s, ...editData } : s);
-    editIdx = -1;
-    editData = {};
+    editIdx = -1; editData = {};
+    fetchDirData();
   }
 
   function deleteStrataRow(idx) {
     const src = getSrc();
     if (!src || !confirm('Delete this row?')) return;
     src.strata = src.strata.filter((_, i) => i !== idx);
+    fetchDirData();
   }
 
   // Download
@@ -674,95 +912,68 @@
 {:else if geo}
   {@const { oh, ch, cem, str, perf, completions, sy, syD, sxL, sxR, wellName, rulerTicks, totalW, totalH, centerX, strataW, hasDir, dirPath, dirSide, dirAxis, hasProfileData, wellDir, dtx, yScale, diaScale } = geo}
 
-  <!-- Info bar -->
-  {#if showInfoBar}
-    <div class="flex items-center gap-4 px-3 py-1.5 text-xs text-gray-500 border-b border-gray-200 flex-wrap">
-      <span class="font-semibold text-gray-700">{wellName}</span>
-      {#if oh.length}<span>OH: {oh.length}</span>{/if}
-      {#if ch.length}<span>Casing: {ch.length}</span>{/if}
-      {#if cem.length}<span>Cement: {cem.length}</span>{/if}
-      {#if completions.length}<span>Completions: {completions.length}</span>{/if}
-      {#if perf.length}<span>Perforations: {perf.length}</span>{/if}
-      {#if str.length}<span>Strata: {str.length}</span>{/if}
-      <button onclick={downloadWson} class="ml-auto px-2 py-0.5 rounded text-xs bg-green-800 text-white hover:bg-green-700">↓ Save</button>
+  {#snippet layerRow(label, active, toggle, editKey, iconHtml)}
+    <div class="flex items-center gap-2 px-3 py-2 hover:bg-gray-50">
+      <span class="text-gray-500 flex-shrink-0">{@html iconHtml}</span>
+      <span class="text-xs font-medium text-gray-700 flex-1">{label}</span>
+      <button
+        class="w-8 h-4 rounded-full transition-colors flex-shrink-0 relative {active ? 'bg-blue-500' : 'bg-gray-300'}"
+        onclick={toggle}
+        aria-label="Toggle {label}"
+      >
+        <span class="absolute top-0.5 {active ? 'left-4' : 'left-0.5'} w-3 h-3 bg-white rounded-full shadow transition-all"></span>
+      </button>
+      {#if editKey}
+        <button
+          class="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-blue-50 hover:text-blue-600 text-xs flex-shrink-0 {showSchematicEditor && schematicTab === editKey ? 'bg-blue-100 text-blue-600' : ''}"
+          onclick={() => toggleEditPanel(editKey)}
+          aria-label="Edit {label}"
+        >✎</button>
+      {:else}
+        <span class="w-6 flex-shrink-0"></span>
+      {/if}
     </div>
-  {/if}
+  {/snippet}
+
 
   <!-- Main layout -->
-  <div class="flex overflow-hidden relative" style="height: calc(100% - {showInfoBar ? 30 : 0}px)">
+  <div class="flex overflow-hidden relative" style="height: 100%">
 
     <!-- Toolbar -->
     <div class="schematic-toolbar">
       <div class="tb-item group">
-        <button class="tb-btn" class:tb-active={showInfoBar} onclick={() => (showInfoBar = !showInfoBar)} aria-label="Info">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><line x1="8" y1="7" x2="8" y2="11"/><circle cx="8" cy="5.5" r="0.6" fill="currentColor"/></svg>
+        <button class="tb-btn" onclick={downloadWson} aria-label="Save">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 12h10M8 3v7M5 7l3 3 3-3"/></svg>
         </button>
-        <span class="tb-tip">Info</span>
+        <span class="tb-tip">Save</span>
       </div>
 
       <div class="tb-item group">
-        <button class="tb-btn" class:tb-active={showOpenHole} onclick={() => (showOpenHole = !showOpenHole)} aria-label="Open Hole">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="2" width="8" height="12" stroke-dasharray="3,2"/></svg>
+        <button class="tb-btn" class:tb-active={showLayersPanel} onclick={() => (showLayersPanel = !showLayersPanel)} aria-label="Layers">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3.5"/><ellipse cx="8" cy="8" rx="7" ry="3.5"/><line x1="1" y1="8" x2="15" y2="8"/></svg>
         </button>
-        <span class="tb-tip">Open Hole</span>
-      </div>
-      <div class="tb-item group">
-        <button class="tb-btn tb-edit" class:tb-active={editPanel === 'oh'} onclick={() => toggleEditPanel('oh')} aria-label="Edit OH">✎</button>
-        <span class="tb-tip">Edit OH</span>
+        <span class="tb-tip">Layers</span>
       </div>
 
       <div class="tb-item group">
-        <button class="tb-btn" class:tb-active={showCasing} onclick={() => (showCasing = !showCasing)} aria-label="Casing">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="2" width="8" height="12"/></svg>
+        <button class="tb-btn" class:tb-active={showSchematicEditor} onclick={() => { showSchematicEditor = !showSchematicEditor; editIdx = -1; editData = {}; }} aria-label="Edit Schematic">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 2l3 3-8 8H3v-3L11 2z"/><line x1="9" y1="4" x2="12" y2="7"/></svg>
         </button>
-        <span class="tb-tip">Casing</span>
-      </div>
-      <div class="tb-item group">
-        <button class="tb-btn tb-edit" class:tb-active={editPanel === 'ch'} onclick={() => toggleEditPanel('ch')} aria-label="Edit CH">✎</button>
-        <span class="tb-tip">Edit CH</span>
+        <span class="tb-tip">Edit</span>
       </div>
 
       <div class="tb-item group">
-        <button class="tb-btn" class:tb-active={showCement} onclick={() => (showCement = !showCement)} aria-label="Cement">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="5" r="1.2" fill="currentColor"/><circle cx="12" cy="5" r="1.2" fill="currentColor"/><circle cx="4" cy="11" r="1.2" fill="currentColor"/><circle cx="12" cy="11" r="1.2" fill="currentColor"/><circle cx="8" cy="8" r="1.2" fill="currentColor"/></svg>
-        </button>
-        <span class="tb-tip">Cement</span>
-      </div>
-      <div class="tb-item group">
-        <button class="tb-btn tb-edit" class:tb-active={editPanel === 'cem'} onclick={() => toggleEditPanel('cem')} aria-label="Edit Cem">✎</button>
-        <span class="tb-tip">Edit Cem</span>
-      </div>
-
-      <div class="tb-item group">
-        <button class="tb-btn" class:tb-active={showCompletions} onclick={() => (showCompletions = !showCompletions)} aria-label="Completions">
+        <button class="tb-btn" class:tb-active={showCompletionsEditor} onclick={() => { showCompletionsEditor = !showCompletionsEditor; editingComp = null; compSearch = ''; }} aria-label="Completions">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="6" y1="2" x2="6" y2="14"/><line x1="10" y1="2" x2="10" y2="14"/><line x1="6" y1="5" x2="10" y2="5"/><line x1="6" y1="9" x2="10" y2="9"/></svg>
         </button>
         <span class="tb-tip">Completions</span>
-      </div>
-
-      <div class="tb-item group">
-        <button class="tb-btn" class:tb-active={showPerforations} onclick={() => (showPerforations = !showPerforations)} aria-label="Perforations">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="5" x2="9" y2="5"/><polyline points="7,3 10,5 7,7"/><line x1="2" y1="11" x2="9" y2="11"/><polyline points="7,9 10,11 7,13"/></svg>
-        </button>
-        <span class="tb-tip">Perforations</span>
-      </div>
-
-      <div class="tb-item group">
-        <button class="tb-btn" class:tb-active={showStrata} onclick={() => (showStrata = !showStrata)} aria-label="Strata">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="4" x2="14" y2="4"/><line x1="2" y1="8" x2="14" y2="8"/><line x1="2" y1="12" x2="14" y2="12"/></svg>
-        </button>
-        <span class="tb-tip">Strata</span>
-      </div>
-      <div class="tb-item group">
-        <button class="tb-btn tb-edit" class:tb-active={editPanel === 'strata'} onclick={() => toggleEditPanel('strata')} aria-label="Edit Strata">✎</button>
-        <span class="tb-tip">Edit Strata</span>
       </div>
 
       <div class="flex-1"></div>
 
       <div class="tb-item group">
         <button class="tb-btn" class:tb-active={showDisplayOpts} onclick={() => (showDisplayOpts = !showDisplayOpts)} aria-label="Display">⚙</button>
-        <span class="tb-tip">Display Options</span>
+        <span class="tb-tip">Display</span>
       </div>
     </div>
 
@@ -780,8 +991,81 @@
           </pattern>
         </defs>
 
-        <rect x="0" y="0" width={totalW} height={HEADER_H} fill="#1e3a5f"/>
-        <text x={totalW / 2} y={HEADER_H / 2 + 6} text-anchor="middle" fill="white" font-size="14" font-weight="bold" font-family="sans-serif">{wellName}</text>
+        <!-- ── Structured well information header ───────────────────────── -->
+        {#if HEADER_H}
+        {@const HH2  = HEADER_H / 2}
+        {@const LBW  = strataW + RULER_W}
+        {@const TBW  = 280}
+        {@const RBX  = LBW + TBW}
+        {@const RBW  = Math.max(0, totalW - RBX)}
+        {@const CW   = Math.floor(RBW / 2)}
+
+        <!-- Background + outer border -->
+        <rect x="0" y="0" width={totalW} height={HEADER_H} fill="white"/>
+        <rect x="0" y="0" width={totalW} height={HEADER_H} fill="none" stroke="#555" stroke-width="1.2"/>
+
+        <!-- Top accent stripe -->
+        <rect x="0" y="0" width={totalW} height="4" fill="#1e3a5f"/>
+
+        <!-- "Well Schematic" title block (top-left, spans LBW) -->
+        <rect x="0" y="4" width={LBW} height={HH2 - 4} fill="#f8fafc" stroke="#bbb" stroke-width="0.5"/>
+        <text x={LBW - 8} y="12" font-size="16" font-weight="bold" fill="#14532d"
+          text-anchor="end" dominant-baseline="hanging" font-family="Arial,sans-serif">Well Schematic</text>
+
+        <!-- Formation Tops + ruler label (bottom-left) -->
+        {#if strataW > 0}
+          <rect x="0" y={HH2} width={strataW} height={HH2} fill="#f0f4f8" stroke="#bbb" stroke-width="0.5"/>
+          <text x={strataW / 2} y={HH2 + 10} font-size="8.5" font-weight="600" text-anchor="middle"
+            dominant-baseline="hanging" font-family="sans-serif" fill="#334155">FORMATION TOPS</text>
+          <text x={strataW / 2} y={HH2 + 26} font-size="8" text-anchor="middle"
+            dominant-baseline="hanging" font-family="sans-serif" fill="#64748b">{hasDir ? 'TVD' : 'MD'}</text>
+        {/if}
+        <rect x={strataW} y={HH2} width={RULER_W} height={HH2} fill="none" stroke="#bbb" stroke-width="0.5"/>
+
+        <!-- Well Name + Description block (middle) -->
+        <rect x={LBW} y="4" width={TBW} height={HEADER_H - 4} fill="none" stroke="#bbb" stroke-width="0.5"/>
+        <text x={LBW + 8} y="10" font-size="9.5" font-weight="700" dominant-baseline="hanging"
+          font-family="sans-serif" fill="#374151">Well Name</text>
+        <text x={LBW + 72} y="10" font-size="9.5" dominant-baseline="hanging"
+          font-family="sans-serif" fill="#111827">{headerFields.wellName}</text>
+        <line x1={LBW} y1={HH2} x2={LBW + TBW} y2={HH2} stroke="#bbb" stroke-width="0.5"/>
+        <text x={LBW + 8} y={HH2 + 8} font-size="9" font-weight="700" dominant-baseline="hanging"
+          font-family="sans-serif" fill="#374151">Description</text>
+        <text x={LBW + 8} y={HH2 + 22} font-size="8.5" dominant-baseline="hanging"
+          font-family="sans-serif" fill="#4b5563">{headerFields.desc}</text>
+
+        <!-- Right fields: Company / State / Country / Location -->
+        {#if RBW > 40}
+          <!-- Company -->
+          <rect x={RBX} y="4" width={CW} height={HH2 - 4} fill="none" stroke="#bbb" stroke-width="0.5"/>
+          <text x={RBX + 6} y="10" font-size="9.5" font-weight="700" dominant-baseline="hanging"
+            font-family="sans-serif" fill="#374151">Company</text>
+          <text x={RBX + 6} y="26" font-size="8.5" dominant-baseline="hanging"
+            font-family="sans-serif" fill="#4b5563">{headerFields.company}</text>
+
+          <!-- State -->
+          <rect x={RBX + CW} y="4" width={RBW - CW} height={HH2 - 4} fill="none" stroke="#bbb" stroke-width="0.5"/>
+          <text x={RBX + CW + 6} y="10" font-size="9.5" font-weight="700" dominant-baseline="hanging"
+            font-family="sans-serif" fill="#374151">State</text>
+          <text x={RBX + CW + 6} y="26" font-size="8.5" dominant-baseline="hanging"
+            font-family="sans-serif" fill="#4b5563">{headerFields.state}</text>
+
+          <!-- Country -->
+          <rect x={RBX} y={HH2} width={CW} height={HH2} fill="none" stroke="#bbb" stroke-width="0.5"/>
+          <text x={RBX + 6} y={HH2 + 8} font-size="9.5" font-weight="700" dominant-baseline="hanging"
+            font-family="sans-serif" fill="#374151">Country</text>
+          <text x={RBX + 6} y={HH2 + 24} font-size="8.5" dominant-baseline="hanging"
+            font-family="sans-serif" fill="#4b5563">{headerFields.country}</text>
+
+          <!-- Location -->
+          <rect x={RBX + CW} y={HH2} width={RBW - CW} height={HH2} fill="none" stroke="#bbb" stroke-width="0.5"/>
+          <text x={RBX + CW + 6} y={HH2 + 8} font-size="9.5" font-weight="700" dominant-baseline="hanging"
+            font-family="sans-serif" fill="#374151">Location</text>
+          <text x={RBX + CW + 6} y={HH2 + 24} font-size="8.5" dominant-baseline="hanging"
+            font-family="sans-serif" fill="#4b5563">{headerFields.location}</text>
+        {/if}
+        {/if}
+        <!-- ── End header ─────────────────────────────────────────────────── -->
 
         {#if showStrata && strataW > 0}
           {#each str as s, i}
@@ -819,7 +1103,6 @@
               {@const y = sy(s.top)}
               {@const ht = sy(s.bot) - y}
               <rect {x} {y} width={w} height={ht} fill="#f3e8ff" stroke="#9333ea" stroke-width="1" stroke-dasharray="5 3"/>
-              <text x={sxR(s.bitSize / 2) + 3} y={y + 10} font-size="8" fill="#7c3aed" font-family="sans-serif">{s.bitSize}"</text>
             {/if}
           {/each}
         {/if}
@@ -848,9 +1131,6 @@
               {@const y = sy(c.top)}
               {@const ht = sy(c.bot) - y}
               <rect {x} {y} width={w} height={ht} fill="azure" stroke="#111" stroke-width="1.5"/>
-              {#if c.grade}
-                <text x={sxR(c.od / 2) + 4} y={y + 22} font-size="8" fill="#1e40af" font-family="sans-serif">{c.od}" {c.grade}</text>
-              {/if}
             {/if}
           {/each}
         {/if}
@@ -860,6 +1140,8 @@
             {@const r = (comp.od ?? 2.875) / 2}
             {@const rOuter = r * (comp.od_multiplier ?? 1.2)}
             {@const type = compTypeOf(comp)}
+
+            <g ondblclick={() => { canvasComp = { ...comp, _editIdx: i }; showCanvasCompEditor = true; }} style="cursor:pointer">
 
             {#if hasDir && dirPath}
               <!-- Directional completions -->
@@ -904,10 +1186,8 @@
                 <rect x={xR - 1.5} y={ytop} width="3" height={ybot - ytop} fill="#334155"/>
               {/if}
 
-              {#if comp.description && (ybot - ytop) > 10}
-                <text x={xOR + 6} y={(ytop + ybot) / 2 + 4} font-size="8" fill="#374151" font-family="sans-serif">{comp.description}</text>
-              {/if}
             {/if}
+            </g>
           {/each}
         {/if}
 
@@ -923,17 +1203,32 @@
           <line x1={sxL(2)} y1={tdY} x2={sxR(2)} y2={tdY} stroke="#dc2626" stroke-width="2"/>
           <text x={sxR(2) + 4} y={tdY + 4} font-size="9" fill="#dc2626" font-family="sans-serif">TD {tdDepth}m</text>
         {/if}
+
+        <!-- Labella collision-resolved annotations with leader lines -->
+        <!-- compNodes: completions — right side, leader left→right, text after line tip -->
+        <!-- bhNodes:   OH/casing/cement — left side, leader right→left, text after line tip -->
+        <g font-size="8" font-family="sans-serif">
+          {#each annotations.compNodes as node}
+            <line x1={node.data.x1} y1={node.data.y1}
+                  x2={node.data.x2 - 2} y2={node.currentPos - 3}
+                  stroke="#6b7280" stroke-width="0.8" stroke-dasharray="3,2"/>
+            <circle cx={node.data.x1} cy={node.data.y1} r="2" fill="#6b7280" opacity="0.7"/>
+            <text x={node.data.x2 + 3} y={node.currentPos} text-anchor="start" fill="#374151">{node.data.text}</text>
+          {/each}
+          {#each annotations.bhNodes as node}
+            <line x1={node.data.x1} y1={node.data.y1}
+                  x2={node.data.x2} y2={node.currentPos - 3}
+                  stroke="#4f86c6" stroke-width="0.8" stroke-dasharray="4,2"/>
+            <circle cx={node.data.x1} cy={node.data.y1} r="2" fill="#4f86c6" opacity="0.7"/>
+            <text x={node.data.x2 - 3} y={node.currentPos} text-anchor="end" fill="#1e40af">{node.data.text}</text>
+          {/each}
+        </g>
       </svg>
     </div>
 
     <!-- Display Options Popup -->
-    {#if showDisplayOpts}
-      <div class="absolute rounded-2xl bg-white/98 shadow-2xl border border-gray-200/90 flex flex-col p-1 select-none" style="width: 240px; right: 10px; top: {dispPos.y}px; z-index: 50;">
-        <div class="flex items-center justify-between px-2 py-1 bg-gradient-to-r from-blue-100/50 to-slate-100/40 border-b border-gray-300/70 rounded-t-lg cursor-grab" onmousedown={onDragStart}>
-          <h3 class="m-0 text-sm font-extrabold text-slate-900">Display Options</h3>
-          <button class="border border-slate-300/60 bg-white/90 text-slate-600 rounded-lg w-6 h-6 flex items-center justify-center cursor-pointer hover:bg-slate-100 text-xs" onclick={(e) => { e.stopPropagation(); showDisplayOpts = false; }} onmousedown={(e) => e.stopPropagation()}>✕</button>
-        </div>
-
+    <FloatingPanel title="Display Options" visible={showDisplayOpts} onClose={() => (showDisplayOpts = false)} width={240} x={60} y={60}>
+      {#snippet children()}
         <div class="px-1 py-1 flex flex-col space-y-1 overflow-y-auto">
           <div class="px-1 pt-1 pb-0">
             <div class="grid grid-cols-3 rounded border border-gray-800 p-1">
@@ -1002,154 +1297,391 @@
             <div class="text-xs self-center">Show Plot</div>
           </div>
         </div>
-      </div>
-    {/if}
+      {/snippet}
+    </FloatingPanel>
 
-    <!-- Edit Panel -->
-    {#if editPanel}
-      <div class="absolute left-16 top-14 z-40 bg-white rounded-lg shadow-2xl border border-gray-200 flex flex-col" style="width: 420px; max-height: 60vh;">
-        <div class="flex items-center justify-between px-3 py-1.5 bg-gradient-to-r from-green-100 to-slate-100 border-b border-gray-200 rounded-t-lg">
-          <h3 class="text-sm font-bold text-slate-900">
-            {editPanel === 'oh' ? 'Open Hole' : editPanel === 'ch' ? 'Cased Hole' : editPanel === 'cem' ? 'Cementing' : 'Formation Strata'}
-          </h3>
-          <button onclick={() => { editPanel = null; editIdx = -1; }} class="text-gray-500 hover:text-gray-900 text-xs">✕</button>
+    <!-- Schematic Editor (tabbed: OH | CH | Cement | Strata) -->
+    <FloatingPanel
+      title="Schematic Editor"
+      visible={showSchematicEditor}
+      onClose={() => { showSchematicEditor = false; editIdx = -1; editData = {}; }}
+      width={360}
+      x={60}
+      y={90}
+    >
+      {#snippet children()}
+        <!-- Tab bar -->
+        <div class="flex items-stretch border-b border-slate-200 bg-slate-50/60">
+          {#each [['oh','Open Hole','⬜'],['ch','Casing','▭'],['cem','Cement','⬛'],['strata','Strata','≡']] as [key, label, icon]}
+            <button
+              class="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold transition-all border-r border-slate-200/70
+                {schematicTab === key
+                  ? 'text-blue-700 bg-white border-b-2 border-b-blue-600'
+                  : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'}"
+              onclick={() => { schematicTab = key; editIdx = -1; editData = {}; }}
+            >{icon} {label}</button>
+          {/each}
         </div>
 
-        <div class="flex-1 overflow-y-auto p-2">
-          {#if editPanel === 'oh'}
+        <div class="p-2 overflow-y-auto" style="max-height: 55vh">
+          {#if schematicTab === 'oh'}
             <table class="w-full text-xs">
-              <thead class="bg-gray-50 sticky top-0">
+              <thead class="bg-gray-50 sticky top-0 z-10">
                 <tr>
-                  <th class="px-2 py-1 text-center">Bit Size (in)</th>
-                  <th class="px-2 py-1 text-center">Top (m)</th>
-                  <th class="px-2 py-1 text-center">Bot (m)</th>
-                  <th class="px-2 py-1 text-center w-16">Actions</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Bit Size (in)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Top (m)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Bot (m)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700 w-16">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
                 {#each (getSrc()?.oh ?? []) as row, i}
                   {#if editIdx === i}
                     <tr class="bg-blue-50">
-                      <td class="px-1 py-1"><input type="number" bind:value={editData.bitSize} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><input type="number" bind:value={editData.top} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><input type="number" bind:value={editData.bot} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><div class="flex gap-1 justify-center"><button onclick={saveOHRow} class="px-1 py-0.5 bg-green-500 text-white rounded text-xs">✓</button><button onclick={cancelEdit} class="px-1 py-0.5 bg-gray-400 text-white rounded text-xs">✕</button></div></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.bitSize} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveOHRow()}/></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.top} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveOHRow()}/></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.bot} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveOHRow()}/></td>
+                      <td class="px-1 py-1"><div class="flex gap-1 justify-center">
+                        <button onclick={saveOHRow} class="p-1 bg-green-500 text-white rounded hover:bg-green-600 text-xs leading-none" title="Save">✓</button>
+                        <button onclick={cancelEdit} class="p-1 bg-gray-400 text-white rounded hover:bg-gray-500 text-xs leading-none" title="Cancel">✕</button>
+                      </div></td>
                     </tr>
                   {:else}
-                    <tr class="hover:bg-gray-50 cursor-pointer" onclick={() => startEditRow(i, row)}>
-                      <td class="px-2 py-1.5 text-center">{row.bitSize}</td>
+                    <tr class="hover:bg-slate-50 cursor-pointer" onclick={() => startEditRow(i, row)}>
+                      <td class="px-2 py-1.5 text-center">{row.bitSize}"</td>
                       <td class="px-2 py-1.5 text-center">{row.top}</td>
                       <td class="px-2 py-1.5 text-center">{row.bot}</td>
-                      <td class="px-2 py-1.5"><div class="flex gap-1 justify-center"><button onclick={(e) => { e.stopPropagation(); startEditRow(i, row); }} class="text-blue-600">✎</button><button onclick={(e) => { e.stopPropagation(); deleteOHRow(i); }} class="text-red-600">✕</button></div></td>
+                      <td class="px-2 py-1.5"><div class="flex gap-1 justify-center">
+                        <button onclick={e => { e.stopPropagation(); startEditRow(i, row); }} class="p-1 text-blue-600 hover:bg-blue-50 rounded text-xs leading-none" title="Edit">✎</button>
+                        <button onclick={e => { e.stopPropagation(); deleteOHRow(i); }} class="p-1 text-red-500 hover:bg-red-50 rounded text-xs leading-none" title="Delete">✕</button>
+                      </div></td>
                     </tr>
                   {/if}
                 {/each}
               </tbody>
             </table>
-            <div class="flex justify-end pt-2"><button onclick={addOHRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-300 text-xs">+ Add</button></div>
+            <div class="flex justify-end pt-2">
+              <button onclick={addOHRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-xs font-medium">+ Add Row</button>
+            </div>
 
-          {:else if editPanel === 'ch'}
+          {:else if schematicTab === 'ch'}
             <table class="w-full text-xs">
-              <thead class="bg-gray-50 sticky top-0">
+              <thead class="bg-gray-50 sticky top-0 z-10">
                 <tr>
-                  <th class="px-2 py-1 text-center">OD (in)</th>
-                  <th class="px-2 py-1 text-center">Grade</th>
-                  <th class="px-2 py-1 text-center">Top</th>
-                  <th class="px-2 py-1 text-center">Bot</th>
-                  <th class="px-2 py-1 text-center w-12">Actions</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">OD (in)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Grade</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Wt (lb/ft)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Top</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Bot</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700 w-12">Act</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
                 {#each (getSrc()?.ch ?? getSrc()?.casedHole ?? []) as row, i}
                   {#if editIdx === i}
                     <tr class="bg-blue-50">
-                      <td class="px-1 py-1"><input type="number" bind:value={editData.od} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><input type="text" bind:value={editData.grade} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><input type="number" bind:value={editData.top} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><input type="number" bind:value={editData.bot} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><div class="flex gap-1 justify-center"><button onclick={saveCHRow} class="px-1 py-0.5 bg-green-500 text-white rounded text-xs">✓</button><button onclick={cancelEdit} class="px-1 py-0.5 bg-gray-400 text-white rounded text-xs">✕</button></div></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.od} class="w-full border border-slate-300 rounded px-1 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveCHRow()}/></td>
+                      <td class="px-1 py-1"><input type="text" bind:value={editData.grade} class="w-full border border-slate-300 rounded px-1 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveCHRow()}/></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.weight} class="w-full border border-slate-300 rounded px-1 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveCHRow()}/></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.top} class="w-full border border-slate-300 rounded px-1 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveCHRow()}/></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.bot} class="w-full border border-slate-300 rounded px-1 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveCHRow()}/></td>
+                      <td class="px-1 py-1"><div class="flex gap-1 justify-center">
+                        <button onclick={saveCHRow} class="p-1 bg-green-500 text-white rounded hover:bg-green-600 text-xs leading-none">✓</button>
+                        <button onclick={cancelEdit} class="p-1 bg-gray-400 text-white rounded hover:bg-gray-500 text-xs leading-none">✕</button>
+                      </div></td>
                     </tr>
                   {:else}
-                    <tr class="hover:bg-gray-50 cursor-pointer" onclick={() => startEditRow(i, row)}>
-                      <td class="px-2 py-1.5 text-center">{row.od}</td>
+                    <tr class="hover:bg-slate-50 cursor-pointer" onclick={() => startEditRow(i, row)}>
+                      <td class="px-2 py-1.5 text-center">{row.od}"</td>
                       <td class="px-2 py-1.5 text-center">{row.grade ?? '-'}</td>
+                      <td class="px-2 py-1.5 text-center">{row.weight ?? '-'}</td>
                       <td class="px-2 py-1.5 text-center">{row.top}</td>
                       <td class="px-2 py-1.5 text-center">{row.bot}</td>
-                      <td class="px-2 py-1.5"><div class="flex gap-1 justify-center"><button onclick={(e) => { e.stopPropagation(); startEditRow(i, row); }} class="text-blue-600">✎</button><button onclick={(e) => { e.stopPropagation(); deleteCHRow(i); }} class="text-red-600">✕</button></div></td>
+                      <td class="px-2 py-1.5"><div class="flex gap-1 justify-center">
+                        <button onclick={e => { e.stopPropagation(); startEditRow(i, row); }} class="p-1 text-blue-600 hover:bg-blue-50 rounded text-xs leading-none">✎</button>
+                        <button onclick={e => { e.stopPropagation(); deleteCHRow(i); }} class="p-1 text-red-500 hover:bg-red-50 rounded text-xs leading-none">✕</button>
+                      </div></td>
                     </tr>
                   {/if}
                 {/each}
               </tbody>
             </table>
-            <div class="flex justify-end pt-2"><button onclick={addCHRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-300 text-xs">+ Add</button></div>
+            <div class="flex justify-end pt-2">
+              <button onclick={addCHRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-xs font-medium">+ Add Row</button>
+            </div>
 
-          {:else if editPanel === 'cem'}
+          {:else if schematicTab === 'cem'}
             <table class="w-full text-xs">
-              <thead class="bg-gray-50 sticky top-0">
+              <thead class="bg-gray-50 sticky top-0 z-10">
                 <tr>
-                  <th class="px-2 py-1 text-center">OD (in)</th>
-                  <th class="px-2 py-1 text-center">Top (m)</th>
-                  <th class="px-2 py-1 text-center">Bot (m)</th>
-                  <th class="px-2 py-1 text-center w-12">Actions</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">OD (in)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Top (m)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Bot (m)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700 w-12">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
                 {#each (getSrc()?.cementing ?? []) as row, i}
                   {#if editIdx === i}
                     <tr class="bg-blue-50">
-                      <td class="px-1 py-1"><input type="number" bind:value={editData.od} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><input type="number" bind:value={editData.top} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><input type="number" bind:value={editData.bot} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><div class="flex gap-1 justify-center"><button onclick={saveCemRow} class="px-1 py-0.5 bg-green-500 text-white rounded text-xs">✓</button><button onclick={cancelEdit} class="px-1 py-0.5 bg-gray-400 text-white rounded text-xs">✕</button></div></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.od} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveCemRow()}/></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.top} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveCemRow()}/></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.bot} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveCemRow()}/></td>
+                      <td class="px-1 py-1"><div class="flex gap-1 justify-center">
+                        <button onclick={saveCemRow} class="p-1 bg-green-500 text-white rounded hover:bg-green-600 text-xs leading-none">✓</button>
+                        <button onclick={cancelEdit} class="p-1 bg-gray-400 text-white rounded hover:bg-gray-500 text-xs leading-none">✕</button>
+                      </div></td>
                     </tr>
                   {:else}
-                    <tr class="hover:bg-gray-50 cursor-pointer" onclick={() => startEditRow(i, row)}>
-                      <td class="px-2 py-1.5 text-center">{row.od}</td>
+                    <tr class="hover:bg-slate-50 cursor-pointer" onclick={() => startEditRow(i, row)}>
+                      <td class="px-2 py-1.5 text-center">{row.od}"</td>
                       <td class="px-2 py-1.5 text-center">{row.top}</td>
                       <td class="px-2 py-1.5 text-center">{row.bot}</td>
-                      <td class="px-2 py-1.5"><div class="flex gap-1 justify-center"><button onclick={(e) => { e.stopPropagation(); startEditRow(i, row); }} class="text-blue-600">✎</button><button onclick={(e) => { e.stopPropagation(); deleteCemRow(i); }} class="text-red-600">✕</button></div></td>
+                      <td class="px-2 py-1.5"><div class="flex gap-1 justify-center">
+                        <button onclick={e => { e.stopPropagation(); startEditRow(i, row); }} class="p-1 text-blue-600 hover:bg-blue-50 rounded text-xs leading-none">✎</button>
+                        <button onclick={e => { e.stopPropagation(); deleteCemRow(i); }} class="p-1 text-red-500 hover:bg-red-50 rounded text-xs leading-none">✕</button>
+                      </div></td>
                     </tr>
                   {/if}
                 {/each}
               </tbody>
             </table>
-            <div class="flex justify-end pt-2"><button onclick={addCemRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-300 text-xs">+ Add</button></div>
+            <div class="flex justify-end pt-2">
+              <button onclick={addCemRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-xs font-medium">+ Add Row</button>
+            </div>
 
-          {:else if editPanel === 'strata'}
+          {:else if schematicTab === 'strata'}
             <table class="w-full text-xs">
-              <thead class="bg-gray-50 sticky top-0">
+              <thead class="bg-gray-50 sticky top-0 z-10">
                 <tr>
-                  <th class="px-2 py-1 text-center">Strata Name</th>
-                  <th class="px-2 py-1 text-center">Top (m)</th>
-                  <th class="px-2 py-1 text-center">Color</th>
-                  <th class="px-2 py-1 text-center w-12">Actions</th>
+                  <th class="px-2 py-1.5 text-left font-semibold text-gray-700">Strata Name</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Top (m)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Color</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700 w-12">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
                 {#each (getSrc()?.strata ?? []) as row, i}
                   {#if editIdx === i}
                     <tr class="bg-blue-50">
-                      <td class="px-1 py-1"><input type="text" bind:value={editData.strata} class="w-full border rounded px-1 py-0.5 text-xs"/></td>
-                      <td class="px-1 py-1"><input type="number" bind:value={editData.top} class="w-full border rounded px-1 py-0.5 text-xs text-center"/></td>
-                      <td class="px-1 py-1"><input type="color" bind:value={editData.color} class="w-full border rounded px-0.5 py-0.5 text-xs"/></td>
-                      <td class="px-1 py-1"><div class="flex gap-1 justify-center"><button onclick={saveStrataRow} class="px-1 py-0.5 bg-green-500 text-white rounded text-xs">✓</button><button onclick={cancelEdit} class="px-1 py-0.5 bg-gray-400 text-white rounded text-xs">✕</button></div></td>
+                      <td class="px-1 py-1"><input type="text" bind:value={editData.strata} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveStrataRow()}/></td>
+                      <td class="px-1 py-1"><input type="number" bind:value={editData.top} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveStrataRow()}/></td>
+                      <td class="px-1 py-1"><input type="color" bind:value={editData.color} class="w-full h-7 border border-slate-300 rounded px-0.5 py-0.5 cursor-pointer"/></td>
+                      <td class="px-1 py-1"><div class="flex gap-1 justify-center">
+                        <button onclick={saveStrataRow} class="p-1 bg-green-500 text-white rounded hover:bg-green-600 text-xs leading-none">✓</button>
+                        <button onclick={cancelEdit} class="p-1 bg-gray-400 text-white rounded hover:bg-gray-500 text-xs leading-none">✕</button>
+                      </div></td>
                     </tr>
                   {:else}
-                    <tr class="hover:bg-gray-50 cursor-pointer" onclick={() => startEditRow(i, row)}>
+                    <tr class="hover:bg-slate-50 cursor-pointer" onclick={() => startEditRow(i, row)}>
                       <td class="px-2 py-1.5">{row.strata}</td>
                       <td class="px-2 py-1.5 text-center">{row.top}</td>
-                      <td class="px-2 py-1.5"><div class="w-6 h-5 rounded border border-gray-300" style="background-color: {row.color}"></div></td>
-                      <td class="px-2 py-1.5"><div class="flex gap-1 justify-center"><button onclick={(e) => { e.stopPropagation(); startEditRow(i, row); }} class="text-blue-600">✎</button><button onclick={(e) => { e.stopPropagation(); deleteStrataRow(i); }} class="text-red-600">✕</button></div></td>
+                      <td class="px-2 py-1.5">
+                        <div class="w-8 h-5 rounded border border-gray-300 mx-auto" style="background-color: {row.color ?? '#aaa'}"></div>
+                      </td>
+                      <td class="px-2 py-1.5"><div class="flex gap-1 justify-center">
+                        <button onclick={e => { e.stopPropagation(); startEditRow(i, row); }} class="p-1 text-blue-600 hover:bg-blue-50 rounded text-xs leading-none">✎</button>
+                        <button onclick={e => { e.stopPropagation(); deleteStrataRow(i); }} class="p-1 text-red-500 hover:bg-red-50 rounded text-xs leading-none">✕</button>
+                      </div></td>
                     </tr>
                   {/if}
                 {/each}
               </tbody>
             </table>
-            <div class="flex justify-end pt-2"><button onclick={addStrataRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-300 text-xs">+ Add</button></div>
+            <div class="flex justify-end pt-2">
+              <button onclick={addStrataRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-xs font-medium">+ Add Row</button>
+            </div>
+
           {/if}
         </div>
-      </div>
-    {/if}
+      {/snippet}
+    </FloatingPanel>
+
+    <!-- Canvas Component Quick-Editor -->
+    <FloatingPanel
+      title={canvasComp?.description || 'Edit Component'}
+      visible={showCanvasCompEditor}
+      onClose={() => { showCanvasCompEditor = false; canvasComp = null; }}
+      width={220}
+      x={120}
+      y={120}
+    >
+      {#snippet children()}
+        {#if canvasComp}
+          <div class="flex flex-col gap-2 p-2.5">
+            <div>
+              <label class="block text-xs text-slate-500 mb-0.5">Description</label>
+              <input type="text" bind:value={canvasComp.description}
+                class="w-full text-xs border border-slate-200 rounded px-2 py-1 bg-white"/>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-xs text-slate-500 mb-0.5">OD (in)</label>
+                <input type="number" step="0.001" bind:value={canvasComp.od}
+                  class="w-full text-xs border border-slate-200 rounded px-2 py-1 bg-white"/>
+              </div>
+              <div>
+                <label class="block text-xs text-slate-500 mb-0.5">Length (m)</label>
+                <input type="number" step="0.1" bind:value={canvasComp.length}
+                  class="w-full text-xs border border-slate-200 rounded px-2 py-1 bg-white"/>
+              </div>
+            </div>
+            <div class="flex gap-1.5 pt-0.5">
+              <button onclick={saveCanvasComp}
+                class="flex-1 text-xs bg-blue-600 text-white rounded px-2 py-1.5 hover:bg-blue-700 font-medium">Done</button>
+              <button onclick={deleteCanvasComp}
+                class="text-xs bg-red-50 text-red-600 border border-red-200 rounded px-2 py-1.5 hover:bg-red-100">Delete</button>
+            </div>
+          </div>
+        {/if}
+      {/snippet}
+    </FloatingPanel>
+
+    <!-- Layers Panel -->
+    <FloatingPanel title="Layers" visible={showLayersPanel} onClose={() => (showLayersPanel = false)} width={260} x={40} y={40}>
+      {#snippet children()}
+        <div class="flex flex-col divide-y divide-gray-100">
+          {@render layerRow('Open Hole', showOpenHole, () => (showOpenHole = !showOpenHole), 'oh',
+            `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="2" width="8" height="12" stroke-dasharray="3,2"/></svg>`)}
+          {@render layerRow('Casing', showCasing, () => (showCasing = !showCasing), 'ch',
+            `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="2" width="8" height="12"/></svg>`)}
+          {@render layerRow('Cement', showCement, () => (showCement = !showCement), 'cem',
+            `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="5" r="1.2" fill="currentColor"/><circle cx="12" cy="5" r="1.2" fill="currentColor"/><circle cx="8" cy="8" r="1.2" fill="currentColor"/></svg>`)}
+          {@render layerRow('Completions', showCompletions, () => (showCompletions = !showCompletions), null,
+            `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="6" y1="2" x2="6" y2="14"/><line x1="10" y1="2" x2="10" y2="14"/><line x1="6" y1="5" x2="10" y2="5"/></svg>`)}
+          {@render layerRow('Perforations', showPerforations, () => (showPerforations = !showPerforations), null,
+            `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="5" x2="9" y2="5"/><polyline points="7,3 10,5 7,7"/></svg>`)}
+          {@render layerRow('Strata', showStrata, () => (showStrata = !showStrata), 'strata',
+            `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="4" x2="14" y2="4"/><line x1="2" y1="8" x2="14" y2="8"/><line x1="2" y1="12" x2="14" y2="12"/></svg>`)}
+        </div>
+      {/snippet}
+    </FloatingPanel>
+
+    <!-- Completions Editor -->
+    <FloatingPanel
+      title="Completions Editor"
+      visible={showCompletionsEditor}
+      onClose={() => { showCompletionsEditor = false; editingComp = null; compSearch = ''; }}
+      width={280}
+      x={80}
+      y={60}
+    >
+      {#snippet children()}
+        <div class="p-2">
+
+          <!-- Catalog search (queries /api/schematic filtercomps from comp_list.xlsx) -->
+          <div class="relative mb-3">
+            <div class="flex items-center gap-1.5 px-2.5 py-1.5 border border-slate-300 rounded bg-white focus-within:ring-1 focus-within:ring-blue-500">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-400 flex-shrink-0"><circle cx="6" cy="6" r="5"/><line x1="10" y1="10" x2="14" y2="14"/></svg>
+              <input
+                type="text"
+                placeholder="Search catalog (e.g. packer 7 inch)…"
+                bind:value={compSearch}
+                oninput={onCompSearchInput}
+                onfocus={() => (compSearchFocused = true)}
+                onblur={() => setTimeout(() => (compSearchFocused = false), 200)}
+                class="flex-1 text-xs bg-transparent outline-none"
+              />
+              {#if catalogLoading}
+                <span class="text-xs text-slate-400 animate-pulse">…</span>
+              {/if}
+            </div>
+            <div class="text-xs text-slate-400 mt-0.5 px-0.5">
+              {getSrc()?.completions?.length ?? 0} in schematic
+              {#if catalogResults.length > 0} · {catalogResults.length} catalog matches{/if}
+            </div>
+
+            <!-- Catalog dropdown results -->
+            {#if compSearch.trim() && compSearchFocused && catalogResults.length > 0}
+              <div class="absolute left-0 right-0 top-full mt-0.5 bg-white border border-slate-200 rounded-lg shadow-xl z-50 max-h-56 overflow-y-auto">
+                <div class="px-2.5 py-1 bg-slate-50 border-b border-slate-100 text-xs text-slate-500 font-medium sticky top-0">
+                  Catalog — click to pre-fill form
+                </div>
+                {#each catalogResults as item}
+                  <button
+                    class="w-full text-left px-2.5 py-1.5 hover:bg-blue-50 border-b border-slate-100 last:border-0"
+                    onmousedown={() => selectCatalogItem(item)}
+                  >
+                    <div class="text-xs font-medium text-slate-800 truncate">{item.description ?? item.Description ?? '—'}</div>
+                    <div class="text-xs text-slate-400 truncate">
+                      {item.tool_comp ?? item.Tool_Comp ?? ''}
+                      {#if item.od ?? item.OD} · OD {item.od ?? item.OD}"{/if}
+                      {#if item.length ?? item.Length} · {item.length ?? item.Length}m{/if}
+                    </div>
+                  </button>
+                {/each}
+              </div>
+            {:else if compSearch.trim() && compSearchFocused && !catalogLoading}
+              <div class="absolute left-0 right-0 top-full mt-0.5 bg-white border border-slate-200 rounded-lg shadow-lg z-50 px-3 py-2 text-xs text-slate-400">
+                No catalog matches — you can still add manually below
+              </div>
+            {/if}
+          </div>
+
+          <!-- Inline edit / add form -->
+          {#if editingComp}
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-2.5 mb-3">
+              <div class="text-xs font-semibold text-slate-700 mb-2">{isNewComp ? 'Add Completion' : 'Edit Completion'}</div>
+              <div class="grid grid-cols-2 gap-x-2 gap-y-1.5">
+                {#each [
+                  ['description','Description','text'],
+                  ['tool_comp','Tool Comp','text'],
+                  ['od','OD (in)','number'],
+                  ['od_multiplier','OD Multiplier','number'],
+                  ['length','Length (m)','number'],
+                  ['weight','Weight','number'],
+                  ['noJoints','No. Joints','number'],
+                  ['avgJointLength','Avg Joint Len','number'],
+                ] as [field, label, type]}
+                  <div>
+                    <label class="block text-xs text-gray-500 mb-0.5">{label}</label>
+                    <input
+                      {type}
+                      step={type === 'number' ? '0.001' : undefined}
+                      bind:value={editingComp[field]}
+                      class="w-full px-2 py-1 border border-slate-300 rounded text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      onkeydown={e => e.key === 'Enter' && saveComp()}
+                    />
+                  </div>
+                {/each}
+              </div>
+              <div class="flex gap-2 mt-2.5">
+                <button onclick={saveComp} class="px-3 py-1 bg-green-500 text-white rounded text-xs hover:bg-green-600 font-medium">{isNewComp ? 'Add' : 'Save'}</button>
+                <button onclick={cancelComp} class="px-3 py-1 bg-gray-400 text-white rounded text-xs hover:bg-gray-500">Cancel</button>
+              </div>
+            </div>
+          {:else}
+            <div class="flex justify-end mb-2">
+              <button onclick={startAddComp} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-xs font-medium">+ Add</button>
+            </div>
+          {/if}
+
+          <!-- Full list -->
+          <div class="space-y-1">
+            {#each filteredComps() as { c, i }}
+              <div ondblclick={() => startEditCompByIdx(i)} class="flex items-start justify-between px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer {editingComp?._editIdx === i ? 'border-blue-400 bg-blue-50' : ''}">
+                <div class="flex-1 min-w-0">
+                  <div class="text-xs font-medium text-slate-800 truncate">{c.description || '—'}</div>
+                  <div class="text-xs text-slate-500">
+                    {#if c.tool_comp}<span class="mr-1.5">{c.tool_comp}</span>{/if}OD {c.od}" · {c.length}m{#if c.weight} · {c.weight}kg{/if}
+                  </div>
+                </div>
+                <div class="flex items-center gap-0.5 ml-1.5 flex-shrink-0">
+                  <button onclick={() => moveComp(i, -1)} class="p-1 text-slate-400 hover:text-slate-700 rounded text-xs leading-none">↑</button>
+                  <button onclick={() => moveComp(i,  1)} class="p-1 text-slate-400 hover:text-slate-700 rounded text-xs leading-none">↓</button>
+                  <button onclick={() => startEditCompByIdx(i)} class="p-1 text-blue-600 hover:bg-blue-50 rounded text-xs leading-none">✎</button>
+                  <button onclick={() => deleteComp(i)} class="p-1 text-red-500 hover:bg-red-50 rounded text-xs leading-none">✕</button>
+                </div>
+              </div>
+            {/each}
+            {#if filteredComps().length === 0}
+              <div class="text-center py-5 text-slate-400 text-xs">{compSearch ? 'No matches' : 'No completions yet'}</div>
+            {/if}
+          </div>
+
+        </div>
+      {/snippet}
+    </FloatingPanel>
 
   </div>
 {:else}
