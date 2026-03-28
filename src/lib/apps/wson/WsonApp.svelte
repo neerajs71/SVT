@@ -127,6 +127,17 @@
     const compLength = comp.length ?? 1;
     const compTop    = comp._top;
 
+    // In directional mode subdivide each lineTo into steps so the path follows the curve.
+    // Same principle as buildDirPath (30-step sampling) and ewell's Warp.js interpolation.
+    const DIR_STEPS = hasDir ? 8 : 1;
+
+    // Convert a component-space (jx, jy) point to SVG coordinates via txPoint
+    const jPtToSvg = (jx, jy) => {
+      const diamIn = jw > 0 ? (jx - jw / 2) * (compOD / jw) : 0;
+      const depthM = jh > 0 ? compTop + (jy * compLength / jh) : compTop;
+      return txPoint(diamIn, depthM, hasDir ? wellDir : null, dtx, yScale, diaScale, centerX, autoScale);
+    };
+
     const defs  = [];
     const paths = [];
     let gradCounter = 0;
@@ -135,17 +146,32 @@
       if (el.type !== 'freeform' || !el.points?.length) continue;
 
       const segs = [];
+      let prevPt = null;
+
       for (const pt of el.points) {
         const { x, y, directive } = pt;
-        // Raw coordinates: diameter inches, depth meters (matches dlis buildComponent.ts)
-        const diamIn = jw > 0 ? (x - jw / 2) * (compOD / jw) : 0;
-        const depthM = jh > 0 ? compTop + (y * compLength / jh) : compTop;
-        // Apply unified transform — handles directional arc-slerp + autoscale DTX
-        const [svgX, svgY] = txPoint(diamIn, depthM, hasDir ? wellDir : null, dtx, yScale, diaScale, centerX, autoScale);
 
-        if (directive === 'moveTo')       segs.push(`M${svgX.toFixed(2)} ${svgY.toFixed(2)}`);
-        else if (directive === 'lineTo')  segs.push(`L${svgX.toFixed(2)} ${svgY.toFixed(2)}`);
-        else if (directive === 'close')   segs.push('Z');
+        if (directive === 'close') {
+          segs.push('Z');
+          prevPt = null;
+          continue;
+        }
+
+        if (directive === 'moveTo' || !prevPt || DIR_STEPS === 1) {
+          const [svgX, svgY] = jPtToSvg(x, y);
+          segs.push(`${directive === 'moveTo' ? 'M' : 'L'}${svgX.toFixed(2)} ${svgY.toFixed(2)}`);
+        } else {
+          // lineTo in directional mode: interpolate segments to follow the curved wellbore
+          for (let s = 1; s <= DIR_STEPS; s++) {
+            const t = s / DIR_STEPS;
+            const [svgX, svgY] = jPtToSvg(
+              prevPt.x + (x - prevPt.x) * t,
+              prevPt.y + (y - prevPt.y) * t
+            );
+            segs.push(`L${svgX.toFixed(2)} ${svgY.toFixed(2)}`);
+          }
+        }
+        prevPt = pt;
       }
       if (segs.length === 0) continue;
 
@@ -1195,19 +1221,6 @@
         {/if}
 
         {#if showCompletions}
-          <!-- Tubing spine: continuous strip behind all completions to bridge inter-component gaps -->
-          {#if completions.length > 0}
-            {@const spineTop = completions[0]._top}
-            {@const spineBot = completions[completions.length - 1]._bot}
-            {@const spineR   = Math.min(...completions.map(c => (c.od ?? 2.875) / 2)) * 0.55}
-            {#if hasDir && dirPath}
-              <path d={dirPath(spineTop, spineBot, spineR, spineR)} fill="#b8a060" stroke="none" opacity="0.6"/>
-            {:else}
-              {@const sy0 = syD(spineTop)}
-              {@const sy1 = syD(spineBot)}
-              <rect x={sxL(spineR)} y={sy0} width={sxR(spineR) - sxL(spineR)} height={sy1 - sy0} fill="#b8a060" stroke="none" opacity="0.6"/>
-            {/if}
-          {/if}
           {#each completions as comp, i}
             {@const r = (comp.od ?? 2.875) / 2}
             {@const rOuter = r * (comp.od_multiplier ?? 1.2)}
