@@ -369,53 +369,45 @@
   //   compNodes  — completions, nearest column  (text-anchor start)
   //   bhNodes    — OH / CH / cement, LEFT side (text-anchor start, between ruler and borehole)
   // syD is used for directional mode so anchors follow the deviated wellbore.
+  // Labella is used only for y-position collision avoidance.
+  // x-positions (anchor, text column) are computed live in the SVG template from current geo
+  // so they always track diaScale / centerX changes without any closure-stale issues.
   const annotations = $derived.by(() => {
     const g = geo;
     if (!g) return { compNodes: [], bhNodes: [] };
-    const { oh, ch, cem, perf, completions, sy, syD, sxL, sxR, centerX, maxR, maxDepth, yScale, diaScale, strataW, totalW, hasDir } = g;
-
-    // Always use syD — handles DTX autoscale (straight) and arc-slerp (directional)
+    const { oh, ch, cem, perf, completions, syD, maxR, maxDepth, yScale } = g;
     const getY = syD;
 
-    // Left label x: right end of text area, just left of widest borehole element.
-    // text-anchor="end" means text hangs leftward from this point → line tip is on text's RIGHT.
-    const LEFT_X  = sxL(maxR) - 8;
-    // Right column: just outside widest borehole element
-    const COMP_X  = centerX + maxR * diaScale + 14;
+    // node.data = { radius, y0, text }  — radius in inches (world), y0 = anchor SVG-y
+    const makeNode = (radius, y0, text) =>
+      new labella.Node(y0, 5, { radius, y0, text });
 
-    const makeNode = (x1, y1, x2, y2, text) => {
-      const data = { x1, y1, x2, y2, text };
-      return new labella.Node(y2, 5, data);
-    };
-
-    const compNodes = [];   // completions  → right side
-    const bhNodes   = [];   // OH / casing / cement → LEFT side
+    const compNodes = [];
+    const bhNodes   = [];
 
     if (showOpenHole) {
       for (const s of oh) {
         const y = getY(s.bot);
-        bhNodes.push(makeNode(sxL(s.bitSize / 2), y, LEFT_X, y, `${s.bitSize}" OH to ${s.bot}m`));
+        bhNodes.push(makeNode(s.bitSize / 2, y, `${s.bitSize}" OH to ${s.bot}m`));
       }
     }
     if (showCasing) {
       for (const c of ch) {
         const y = getY(c.top ?? 0);
-        bhNodes.push(makeNode(sxL(c.od / 2), y, LEFT_X, y, `${c.od}" ${c.grade ?? ''}`.trim()));
+        bhNodes.push(makeNode(c.od / 2, y, `${c.od}" ${c.grade ?? ''}`.trim()));
       }
     }
     if (showCement) {
       for (const c of cem) {
         const y = getY(c.top ?? 0);
-        bhNodes.push(makeNode(sxL((c.od ?? 8) / 2), y, LEFT_X, y, `Cem ${c.od ?? '?'}"`));
+        bhNodes.push(makeNode((c.od ?? 8) / 2, y, `Cem ${c.od ?? '?'}"`));
       }
     }
     if (showCompletions) {
       for (const comp of completions) {
-        const r      = (comp.od ?? 2.875) / 2;
-        const rOuter = r * (comp.od_multiplier ?? 1.2);
+        const rOuter = (comp.od ?? 2.875) / 2 * (comp.od_multiplier ?? 1.2);
         const ymid   = (getY(comp._top) + getY(comp._bot)) / 2;
-        compNodes.push(makeNode(sxR(rOuter), ymid, COMP_X, ymid,
-          `${comp.description || 'Completion'} ${comp.od}"`));
+        compNodes.push(makeNode(rOuter, ymid, `${comp.description || 'Completion'} ${comp.od}"`));
       }
     }
     if (showPerforations) {
@@ -425,8 +417,7 @@
         if (pbot <= ptop) continue;
         const tip  = (p.perfID ?? p.innerDiam ?? 7) / 2;
         const ymid = (getY(ptop) + getY(pbot)) / 2;
-        compNodes.push(makeNode(sxR(tip + 5), ymid, COMP_X, ymid,
-          `Perf ${ptop}–${pbot}m`));
+        compNodes.push(makeNode(tip + 5, ymid, `Perf ${ptop}–${pbot}m`));
       }
     }
 
@@ -1289,23 +1280,26 @@
           <text x={sxR(2) + 4} y={tdY + 4} font-size="9" fill="#dc2626" font-family="sans-serif">TD {tdDepth}m</text>
         {/if}
 
-        <!-- Labella collision-resolved annotations with leader lines -->
-        <!-- compNodes: completions — right side, leader left→right, text after line tip -->
-        <!-- bhNodes:   OH/casing/cement — left side, leader right→left, text after line tip -->
+        <!-- Labella collision-resolved annotations — x positions computed live from geo -->
+        <!-- so diaScale / centerX changes are always reflected without stale closures   -->
+        {@const ANN_COMP_X = centerX + maxR * diaScale + 14}
+        {@const ANN_LEFT_X = sxL(maxR) - 8}
         <g font-size="8" font-family="sans-serif">
           {#each annotations.compNodes as node}
-            <line x1={node.data.x1} y1={node.data.y1}
-                  x2={node.data.x2 - 2} y2={node.currentPos - 3}
+            {@const ax = sxR(node.data.radius)}
+            <line x1={ax} y1={node.data.y0}
+                  x2={ANN_COMP_X - 2} y2={node.currentPos - 3}
                   stroke="#6b7280" stroke-width="0.8" stroke-dasharray="3,2"/>
-            <circle cx={node.data.x1} cy={node.data.y1} r="2" fill="#6b7280" opacity="0.7"/>
-            <text x={node.data.x2 + 3} y={node.currentPos} text-anchor="start" fill="#374151">{node.data.text}</text>
+            <circle cx={ax} cy={node.data.y0} r="2" fill="#6b7280" opacity="0.7"/>
+            <text x={ANN_COMP_X + 3} y={node.currentPos} text-anchor="start" fill="#374151">{node.data.text}</text>
           {/each}
           {#each annotations.bhNodes as node}
-            <line x1={node.data.x1} y1={node.data.y1}
-                  x2={node.data.x2} y2={node.currentPos - 3}
+            {@const ax = sxL(node.data.radius)}
+            <line x1={ax} y1={node.data.y0}
+                  x2={ANN_LEFT_X} y2={node.currentPos - 3}
                   stroke="#4f86c6" stroke-width="0.8" stroke-dasharray="4,2"/>
-            <circle cx={node.data.x1} cy={node.data.y1} r="2" fill="#4f86c6" opacity="0.7"/>
-            <text x={node.data.x2 - 3} y={node.currentPos} text-anchor="end" fill="#1e40af">{node.data.text}</text>
+            <circle cx={ax} cy={node.data.y0} r="2" fill="#4f86c6" opacity="0.7"/>
+            <text x={ANN_LEFT_X - 3} y={node.currentPos} text-anchor="end" fill="#1e40af">{node.data.text}</text>
           {/each}
         </g>
       </svg>
