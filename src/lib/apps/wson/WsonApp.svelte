@@ -343,10 +343,10 @@
   const annotations = $derived.by(() => {
     const g = geo;
     if (!g) return { compNodes: [], bhNodes: [] };
-    const { oh, ch, cem, completions, sy, syD, sxL, sxR, centerX, maxR, maxDepth, yScale, diaScale, strataW, totalW, hasDir } = g;
+    const { oh, ch, cem, perf, completions, sy, syD, sxL, sxR, centerX, maxR, maxDepth, yScale, diaScale, strataW, totalW, hasDir } = g;
 
-    // Use depth-to-SVG transform appropriate for the current display mode
-    const getY = hasDir ? syD : sy;
+    // Always use syD — handles DTX autoscale (straight) and arc-slerp (directional)
+    const getY = syD;
 
     // Left label x: right end of text area, just left of widest borehole element.
     // text-anchor="end" means text hangs leftward from this point → line tip is on text's RIGHT.
@@ -387,6 +387,14 @@
         const ymid   = (getY(comp._top) + getY(comp._bot)) / 2;
         compNodes.push(makeNode(sxR(rOuter), ymid, COMP_X, ymid,
           `${comp.description || 'Completion'} ${comp.od}"`));
+      }
+    }
+    if (showPerforations) {
+      for (const p of perf) {
+        const tip  = (p.perfID ?? 7) / 2;
+        const ymid = (getY(p.top ?? 0) + getY(p.bot ?? 0)) / 2;
+        compNodes.push(makeNode(sxR(tip + 5), ymid, COMP_X, ymid,
+          `Perf ${p.top}–${p.bot}m`));
       }
     }
 
@@ -1100,8 +1108,8 @@
             {:else}
               {@const x = sxL(s.bitSize / 2)}
               {@const w = sxR(s.bitSize / 2) - x}
-              {@const y = sy(s.top)}
-              {@const ht = sy(s.bot) - y}
+              {@const y = syD(s.top)}
+              {@const ht = syD(s.bot) - y}
               <rect {x} {y} width={w} height={ht} fill="#f3e8ff" stroke="#9333ea" stroke-width="1" stroke-dasharray="5 3"/>
             {/if}
           {/each}
@@ -1113,8 +1121,8 @@
               <path d={dirSide(cr.top, cr.bot, cr.casingR, cr.holeR, -1)} fill="url(#cement-fill)"/>
               <path d={dirSide(cr.top, cr.bot, cr.casingR, cr.holeR,  1)} fill="url(#cement-fill)"/>
             {:else}
-              {@const y = sy(cr.top)}
-              {@const ht = sy(cr.bot) - y}
+              {@const y = syD(cr.top)}
+              {@const ht = syD(cr.bot) - y}
               <rect x={sxL(cr.holeR)} y={y} width={sxL(cr.casingR) - sxL(cr.holeR)} height={ht} fill="url(#cement-fill)"/>
               <rect x={sxR(cr.casingR)} y={y} width={sxR(cr.holeR) - sxR(cr.casingR)} height={ht} fill="url(#cement-fill)"/>
             {/if}
@@ -1128,8 +1136,8 @@
             {:else}
               {@const x = sxL(c.od / 2)}
               {@const w = sxR(c.od / 2) - x}
-              {@const y = sy(c.top)}
-              {@const ht = sy(c.bot) - y}
+              {@const y = syD(c.top)}
+              {@const ht = syD(c.bot) - y}
               <rect {x} {y} width={w} height={ht} fill="azure" stroke="#111" stroke-width="1.5"/>
             {/if}
           {/each}
@@ -1157,9 +1165,9 @@
                 <path d={dirPath(comp._top, comp._bot, r, r)} fill="#334155" stroke="#334155" stroke-width="1"/>
               {/if}
             {:else}
-              <!-- Straight completions -->
-              {@const ytop = sy(comp._top)}
-              {@const ybot = sy(comp._bot)}
+              <!-- Straight completions — use syD for DTX-consistent depth positions -->
+              {@const ytop = syD(comp._top)}
+              {@const ybot = syD(comp._bot)}
               {@const xL = sxL(r)}
               {@const xR = sxR(r)}
               {@const xOL = sxL(rOuter)}
