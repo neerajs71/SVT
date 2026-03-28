@@ -60,6 +60,9 @@
   let editIdx = $state(-1);
   let editData = $state({});
 
+  // ── Survey Editor state ────────────────────────────────────────────────────
+  let showSurveyEditor = $state(false);
+
   // ── Completions Editor state ──────────────────────────────────────────────
   let showCompletionsEditor = $state(false);
   let compSearch = $state('');
@@ -1015,6 +1018,13 @@
         <span class="tb-tip">Completions</span>
       </div>
 
+      <div class="tb-item group">
+        <button class="tb-btn" class:tb-active={showSurveyEditor} onclick={() => { showSurveyEditor = !showSurveyEditor; editIdx = -1; editData = {}; }} aria-label="Survey">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="1.8" fill="currentColor" stroke="none"/><line x1="8" y1="1" x2="8" y2="4"/><line x1="8" y1="12" x2="8" y2="15"/></svg>
+        </button>
+        <span class="tb-tip">Survey</span>
+      </div>
+
     </div>
 
     <!-- SVG area (relative so the display button can float top-right) -->
@@ -1361,7 +1371,7 @@
       {#snippet children()}
         <!-- Tab bar -->
         <div class="flex items-stretch border-b border-slate-200 bg-slate-50/60">
-          {#each [['oh','Open Hole','⬜'],['ch','Casing','▭'],['cem','Cement','⬛'],['strata','Strata','≡'],['survey','Survey','◎']] as [key, label, icon]}
+          {#each [['oh','Open Hole','⬜'],['ch','Casing','▭'],['cem','Cement','⬛'],['strata','Strata','≡']] as [key, label, icon]}
             <button
               class="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold transition-all border-r border-slate-200/70
                 {schematicTab === key
@@ -1541,52 +1551,6 @@
               <button onclick={addStrataRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-xs font-medium">+ Add Row</button>
             </div>
 
-          {:else if schematicTab === 'survey'}
-            <p class="text-xs text-slate-500 mb-2 px-1">
-              MD / Inclination / Azimuth survey stations. Enable <strong>Directional</strong> mode in Display Options to render the deviated wellbore.
-            </p>
-            <table class="w-full text-xs">
-              <thead class="bg-gray-50 sticky top-0 z-10">
-                <tr>
-                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">MD (m)</th>
-                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Inc (°)</th>
-                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Az (°)</th>
-                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700 w-12">Act</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-gray-100">
-                {#each _getSurvey(getSrc() ?? {}) as row, i}
-                  {#if editIdx === i}
-                    <tr class="bg-blue-50">
-                      <td class="px-1 py-1"><input type="number" step="1" bind:value={editData.md} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveSurveyRow()}/></td>
-                      <td class="px-1 py-1"><input type="number" step="0.1" min="0" max="180" bind:value={editData.dev} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveSurveyRow()}/></td>
-                      <td class="px-1 py-1"><input type="number" step="0.1" min="0" max="360" bind:value={editData.az} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveSurveyRow()}/></td>
-                      <td class="px-1 py-1"><div class="flex gap-1 justify-center">
-                        <button onclick={saveSurveyRow} class="p-1 bg-green-500 text-white rounded hover:bg-green-600 text-xs leading-none" title="Save">✓</button>
-                        <button onclick={cancelEdit} class="p-1 bg-gray-400 text-white rounded hover:bg-gray-500 text-xs leading-none" title="Cancel">✕</button>
-                      </div></td>
-                    </tr>
-                  {:else}
-                    <tr class="hover:bg-slate-50 cursor-pointer" onclick={() => startEditRow(i, row)}>
-                      <td class="px-2 py-1.5 text-center">{row.md ?? row.MD ?? 0}</td>
-                      <td class="px-2 py-1.5 text-center">{(row.dev ?? row.inc ?? row.INC ?? 0).toFixed(2)}°</td>
-                      <td class="px-2 py-1.5 text-center">{(row.az ?? row.AZ ?? 0).toFixed(2)}°</td>
-                      <td class="px-2 py-1.5"><div class="flex gap-1 justify-center">
-                        <button onclick={e => { e.stopPropagation(); startEditRow(i, row); }} class="p-1 text-blue-600 hover:bg-blue-50 rounded text-xs leading-none" title="Edit">✎</button>
-                        <button onclick={e => { e.stopPropagation(); deleteSurveyRow(i); }} class="p-1 text-red-500 hover:bg-red-50 rounded text-xs leading-none" title="Delete">✕</button>
-                      </div></td>
-                    </tr>
-                  {/if}
-                {/each}
-                {#if _getSurvey(getSrc() ?? {}).length === 0}
-                  <tr><td colspan="4" class="px-2 py-4 text-center text-slate-400">No survey data — add stations below</td></tr>
-                {/if}
-              </tbody>
-            </table>
-            <div class="flex justify-end pt-2">
-              <button onclick={addSurveyRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-xs font-medium">+ Add Station</button>
-            </div>
-
           {/if}
         </div>
       {/snippet}
@@ -1648,6 +1612,66 @@
             `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="5" x2="9" y2="5"/><polyline points="7,3 10,5 7,7"/></svg>`)}
           {@render layerRow('Strata', showStrata, () => (showStrata = !showStrata), 'strata',
             `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="4" x2="14" y2="4"/><line x1="2" y1="8" x2="14" y2="8"/><line x1="2" y1="12" x2="14" y2="12"/></svg>`)}
+        </div>
+      {/snippet}
+    </FloatingPanel>
+
+    <!-- Survey / Deviation Editor -->
+    <FloatingPanel
+      title="Survey Data"
+      visible={showSurveyEditor}
+      onClose={() => { showSurveyEditor = false; editIdx = -1; editData = {}; }}
+      width={340}
+      x={100}
+      y={80}
+    >
+      {#snippet children()}
+        <p class="text-xs text-slate-500 px-3 pt-2 pb-1">
+          MD / Inclination / Azimuth stations. Enable <strong>Directional</strong> in Display Options to render the deviated wellbore.
+          {#if geo?.hasProfileData}<span class="text-green-600 font-medium ml-1">✓ Active</span>{/if}
+        </p>
+        <div class="p-2 overflow-y-auto" style="max-height:55vh">
+          <table class="w-full text-xs">
+            <thead class="bg-gray-50 sticky top-0 z-10">
+              <tr>
+                <th class="px-2 py-1.5 text-center font-semibold text-gray-700">MD (m)</th>
+                <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Inc (°)</th>
+                <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Az (°)</th>
+                <th class="px-2 py-1.5 text-center font-semibold text-gray-700 w-14">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              {#each _getSurvey(getSrc() ?? {}) as row, i}
+                {#if editIdx === i}
+                  <tr class="bg-blue-50">
+                    <td class="px-1 py-1"><input type="number" step="1" bind:value={editData.md} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveSurveyRow()}/></td>
+                    <td class="px-1 py-1"><input type="number" step="0.1" min="0" max="180" bind:value={editData.dev} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveSurveyRow()}/></td>
+                    <td class="px-1 py-1"><input type="number" step="0.1" min="0" max="360" bind:value={editData.az} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveSurveyRow()}/></td>
+                    <td class="px-1 py-1"><div class="flex gap-1 justify-center">
+                      <button onclick={saveSurveyRow} class="p-1 bg-green-500 text-white rounded hover:bg-green-600 text-xs leading-none" title="Save">✓</button>
+                      <button onclick={cancelEdit} class="p-1 bg-gray-400 text-white rounded hover:bg-gray-500 text-xs leading-none" title="Cancel">✕</button>
+                    </div></td>
+                  </tr>
+                {:else}
+                  <tr class="hover:bg-slate-50 cursor-pointer" onclick={() => startEditRow(i, row)}>
+                    <td class="px-2 py-1.5 text-center">{row.md ?? row.MD ?? 0}</td>
+                    <td class="px-2 py-1.5 text-center">{(+(row.dev ?? row.inc ?? row.INC ?? 0)).toFixed(2)}°</td>
+                    <td class="px-2 py-1.5 text-center">{(+(row.az ?? row.AZ ?? 0)).toFixed(2)}°</td>
+                    <td class="px-2 py-1.5"><div class="flex gap-1 justify-center">
+                      <button onclick={e => { e.stopPropagation(); startEditRow(i, row); }} class="p-1 text-blue-600 hover:bg-blue-50 rounded text-xs leading-none" title="Edit">✎</button>
+                      <button onclick={e => { e.stopPropagation(); deleteSurveyRow(i); }} class="p-1 text-red-500 hover:bg-red-50 rounded text-xs leading-none" title="Delete">✕</button>
+                    </div></td>
+                  </tr>
+                {/if}
+              {/each}
+              {#if _getSurvey(getSrc() ?? {}).length === 0}
+                <tr><td colspan="4" class="px-2 py-4 text-center text-slate-400">No survey data — add stations below</td></tr>
+              {/if}
+            </tbody>
+          </table>
+          <div class="flex justify-end pt-2">
+            <button onclick={addSurveyRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-xs font-medium">+ Add Station</button>
+          </div>
         </div>
       {/snippet}
     </FloatingPanel>
