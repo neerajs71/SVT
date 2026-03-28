@@ -1195,6 +1195,19 @@
         {/if}
 
         {#if showCompletions}
+          <!-- Tubing spine: continuous strip behind all completions to bridge inter-component gaps -->
+          {#if completions.length > 0}
+            {@const spineTop = completions[0]._top}
+            {@const spineBot = completions[completions.length - 1]._bot}
+            {@const spineR   = Math.min(...completions.map(c => (c.od ?? 2.875) / 2)) * 0.55}
+            {#if hasDir && dirPath}
+              <path d={dirPath(spineTop, spineBot, spineR, spineR)} fill="#b8a060" stroke="none" opacity="0.6"/>
+            {:else}
+              {@const sy0 = syD(spineTop)}
+              {@const sy1 = syD(spineBot)}
+              <rect x={sxL(spineR)} y={sy0} width={sxR(spineR) - sxL(spineR)} height={sy1 - sy0} fill="#b8a060" stroke="none" opacity="0.6"/>
+            {/if}
+          {/if}
           {#each completions as comp, i}
             {@const r = (comp.od ?? 2.875) / 2}
             {@const rOuter = r * (comp.od_multiplier ?? 1.2)}
