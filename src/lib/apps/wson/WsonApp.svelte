@@ -27,7 +27,7 @@
 
   // ── Layout constants ─────────────────────────────────────────────────────
   const RULER_W   = 44;
-  const HEADER_H  = 52;
+  const HEADER_H  = 100;
   const PERF_DIST = 3;
 
   // ── Restore per-tab display state from cache ──────────────────────────────
@@ -39,7 +39,6 @@
   let showLayersPanel  = $state(false);
 
   // ── Toolbar visibility states ─────────────────────────────────────────────
-  let showInfoBar      = $state(cached.showInfoBar);
   let showStrata       = $state(cached.showStrata);
   let showOpenHole     = $state(cached.showOpenHole);
   let showCasing       = $state(cached.showCasing);
@@ -51,7 +50,7 @@
   $effect(() => {
     _cache.set(tab.id, {
       displayOpts: { ...displayOpts },
-      showInfoBar, showOpenHole, showCasing, showCement,
+      showOpenHole, showCasing, showCement,
       showCompletions, showPerforations, showStrata
     });
   });
@@ -395,6 +394,27 @@
     if (bhNodes.length)   new labella.Force(forceOpts).nodes(bhNodes).compute();
 
     return { compNodes, bhNodes };
+  });
+
+  // ── Well header fields (name, description, company, country, etc.) ─────────
+  const headerFields = $derived.by(() => {
+    const src = getSrc() ?? wson;
+    const ih = src?.inputHeader ?? wson?.inputHeader ?? {};
+    const get = (...keys) => {
+      for (const k of keys) {
+        const v = ih[k]?.value ?? src?.[k] ?? wson?.[k];
+        if (v != null && String(v).trim()) return String(v).trim();
+      }
+      return '';
+    };
+    return {
+      wellName: get('wellName','WELL','well_name') || tab.name || '',
+      desc:     get('wellDesc','DESC','description','WELL_DESC'),
+      company:  get('company','COMP','COMPANY'),
+      state:    get('state','ST','STAT','STATE'),
+      country:  get('country','CTRY','COUNTRY'),
+      location: get('location','LOC','UWI','LOCATION'),
+    };
   });
 
   async function loadFile() {
@@ -913,19 +933,6 @@
     </div>
   {/snippet}
 
-  <!-- Info bar -->
-  {#if showInfoBar}
-    <div class="flex items-center gap-4 px-3 py-1.5 text-xs text-gray-500 border-b border-gray-200 flex-wrap">
-      <span class="font-semibold text-gray-700">{wellName}</span>
-      {#if oh.length}<span>OH: {oh.length}</span>{/if}
-      {#if ch.length}<span>Casing: {ch.length}</span>{/if}
-      {#if cem.length}<span>Cement: {cem.length}</span>{/if}
-      {#if completions.length}<span>Completions: {completions.length}</span>{/if}
-      {#if perf.length}<span>Perforations: {perf.length}</span>{/if}
-      {#if str.length}<span>Strata: {str.length}</span>{/if}
-      <button onclick={downloadWson} class="ml-auto px-2 py-0.5 rounded text-xs bg-green-800 text-white hover:bg-green-700">↓ Save</button>
-    </div>
-  {/if}
 
   <!-- Main layout -->
   <div class="flex overflow-hidden relative" style="height: calc(100% - {showInfoBar ? 30 : 0}px)">
@@ -933,10 +940,10 @@
     <!-- Toolbar -->
     <div class="schematic-toolbar">
       <div class="tb-item group">
-        <button class="tb-btn" class:tb-active={showInfoBar} onclick={() => (showInfoBar = !showInfoBar)} aria-label="Info">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><line x1="8" y1="7" x2="8" y2="11"/><circle cx="8" cy="5.5" r="0.6" fill="currentColor"/></svg>
+        <button class="tb-btn" onclick={downloadWson} aria-label="Save">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 12h10M8 3v7M5 7l3 3 3-3"/></svg>
         </button>
-        <span class="tb-tip">Info</span>
+        <span class="tb-tip">Save</span>
       </div>
 
       <div class="tb-item group">
@@ -982,8 +989,81 @@
           </pattern>
         </defs>
 
-        <rect x="0" y="0" width={totalW} height={HEADER_H} fill="#1e3a5f"/>
-        <text x={totalW / 2} y={HEADER_H / 2 + 6} text-anchor="middle" fill="white" font-size="14" font-weight="bold" font-family="sans-serif">{wellName}</text>
+        <!-- ── Structured well information header ───────────────────────── -->
+        {#if HEADER_H}
+        {@const HH2  = HEADER_H / 2}
+        {@const LBW  = strataW + RULER_W}
+        {@const TBW  = 280}
+        {@const RBX  = LBW + TBW}
+        {@const RBW  = Math.max(0, totalW - RBX)}
+        {@const CW   = Math.floor(RBW / 2)}
+
+        <!-- Background + outer border -->
+        <rect x="0" y="0" width={totalW} height={HEADER_H} fill="white"/>
+        <rect x="0" y="0" width={totalW} height={HEADER_H} fill="none" stroke="#555" stroke-width="1.2"/>
+
+        <!-- Top accent stripe -->
+        <rect x="0" y="0" width={totalW} height="4" fill="#1e3a5f"/>
+
+        <!-- "Well Schematic" title block (top-left, spans LBW) -->
+        <rect x="0" y="4" width={LBW} height={HH2 - 4} fill="#f8fafc" stroke="#bbb" stroke-width="0.5"/>
+        <text x={LBW - 8} y="12" font-size="16" font-weight="bold" fill="#14532d"
+          text-anchor="end" dominant-baseline="hanging" font-family="Arial,sans-serif">Well Schematic</text>
+
+        <!-- Formation Tops + ruler label (bottom-left) -->
+        {#if strataW > 0}
+          <rect x="0" y={HH2} width={strataW} height={HH2} fill="#f0f4f8" stroke="#bbb" stroke-width="0.5"/>
+          <text x={strataW / 2} y={HH2 + 10} font-size="8.5" font-weight="600" text-anchor="middle"
+            dominant-baseline="hanging" font-family="sans-serif" fill="#334155">FORMATION TOPS</text>
+          <text x={strataW / 2} y={HH2 + 26} font-size="8" text-anchor="middle"
+            dominant-baseline="hanging" font-family="sans-serif" fill="#64748b">{hasDir ? 'TVD' : 'MD'}</text>
+        {/if}
+        <rect x={strataW} y={HH2} width={RULER_W} height={HH2} fill="none" stroke="#bbb" stroke-width="0.5"/>
+
+        <!-- Well Name + Description block (middle) -->
+        <rect x={LBW} y="4" width={TBW} height={HEADER_H - 4} fill="none" stroke="#bbb" stroke-width="0.5"/>
+        <text x={LBW + 8} y="10" font-size="9.5" font-weight="700" dominant-baseline="hanging"
+          font-family="sans-serif" fill="#374151">Well Name</text>
+        <text x={LBW + 72} y="10" font-size="9.5" dominant-baseline="hanging"
+          font-family="sans-serif" fill="#111827">{headerFields.wellName}</text>
+        <line x1={LBW} y1={HH2} x2={LBW + TBW} y2={HH2} stroke="#bbb" stroke-width="0.5"/>
+        <text x={LBW + 8} y={HH2 + 8} font-size="9" font-weight="700" dominant-baseline="hanging"
+          font-family="sans-serif" fill="#374151">Description</text>
+        <text x={LBW + 8} y={HH2 + 22} font-size="8.5" dominant-baseline="hanging"
+          font-family="sans-serif" fill="#4b5563">{headerFields.desc}</text>
+
+        <!-- Right fields: Company / State / Country / Location -->
+        {#if RBW > 40}
+          <!-- Company -->
+          <rect x={RBX} y="4" width={CW} height={HH2 - 4} fill="none" stroke="#bbb" stroke-width="0.5"/>
+          <text x={RBX + 6} y="10" font-size="9.5" font-weight="700" dominant-baseline="hanging"
+            font-family="sans-serif" fill="#374151">Company</text>
+          <text x={RBX + 6} y="26" font-size="8.5" dominant-baseline="hanging"
+            font-family="sans-serif" fill="#4b5563">{headerFields.company}</text>
+
+          <!-- State -->
+          <rect x={RBX + CW} y="4" width={RBW - CW} height={HH2 - 4} fill="none" stroke="#bbb" stroke-width="0.5"/>
+          <text x={RBX + CW + 6} y="10" font-size="9.5" font-weight="700" dominant-baseline="hanging"
+            font-family="sans-serif" fill="#374151">State</text>
+          <text x={RBX + CW + 6} y="26" font-size="8.5" dominant-baseline="hanging"
+            font-family="sans-serif" fill="#4b5563">{headerFields.state}</text>
+
+          <!-- Country -->
+          <rect x={RBX} y={HH2} width={CW} height={HH2} fill="none" stroke="#bbb" stroke-width="0.5"/>
+          <text x={RBX + 6} y={HH2 + 8} font-size="9.5" font-weight="700" dominant-baseline="hanging"
+            font-family="sans-serif" fill="#374151">Country</text>
+          <text x={RBX + 6} y={HH2 + 24} font-size="8.5" dominant-baseline="hanging"
+            font-family="sans-serif" fill="#4b5563">{headerFields.country}</text>
+
+          <!-- Location -->
+          <rect x={RBX + CW} y={HH2} width={RBW - CW} height={HH2} fill="none" stroke="#bbb" stroke-width="0.5"/>
+          <text x={RBX + CW + 6} y={HH2 + 8} font-size="9.5" font-weight="700" dominant-baseline="hanging"
+            font-family="sans-serif" fill="#374151">Location</text>
+          <text x={RBX + CW + 6} y={HH2 + 24} font-size="8.5" dominant-baseline="hanging"
+            font-family="sans-serif" fill="#4b5563">{headerFields.location}</text>
+        {/if}
+        {/if}
+        <!-- ── End header ─────────────────────────────────────────────────── -->
 
         {#if showStrata && strataW > 0}
           {#each str as s, i}
