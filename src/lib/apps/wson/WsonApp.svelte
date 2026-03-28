@@ -348,8 +348,9 @@
     // Use depth-to-SVG transform appropriate for the current display mode
     const getY = hasDir ? syD : sy;
 
-    // Left column: just right of ruler, text runs rightward into the left margin
-    const LEFT_X  = strataW + RULER_W + 4;
+    // Left label x: right end of text area, just left of widest borehole element.
+    // text-anchor="end" means text hangs leftward from this point → line tip is on text's RIGHT.
+    const LEFT_X  = sxL(maxR) - 8;
     // Right column: just outside widest borehole element
     const COMP_X  = centerX + maxR * diaScale + 14;
 
@@ -1216,10 +1217,10 @@
           {/each}
           {#each annotations.bhNodes as node}
             <line x1={node.data.x1} y1={node.data.y1}
-                  x2={node.data.x2 + 2} y2={node.currentPos - 3}
+                  x2={node.data.x2} y2={node.currentPos - 3}
                   stroke="#4f86c6" stroke-width="0.8" stroke-dasharray="4,2"/>
             <circle cx={node.data.x1} cy={node.data.y1} r="2" fill="#4f86c6" opacity="0.7"/>
-            <text x={node.data.x2 + 5} y={node.currentPos} text-anchor="start" fill="#1e40af">{node.data.text}</text>
+            <text x={node.data.x2 - 3} y={node.currentPos} text-anchor="end" fill="#1e40af">{node.data.text}</text>
           {/each}
         </g>
       </svg>
