@@ -1634,7 +1634,7 @@
       title="Survey Data"
       visible={showSurveyEditor}
       onClose={() => { showSurveyEditor = false; editIdx = -1; editData = {}; }}
-      width={340}
+      width={255}
       x={100}
       y={80}
     >
