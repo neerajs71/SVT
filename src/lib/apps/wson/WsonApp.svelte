@@ -391,10 +391,13 @@
     }
     if (showPerforations) {
       for (const p of perf) {
-        const tip  = (p.perfID ?? 7) / 2;
-        const ymid = (getY(p.top ?? 0) + getY(p.bot ?? 0)) / 2;
+        const ptop = +(p.top ?? p.topMD ?? p.topDepth ?? p.perfTop ?? 0);
+        const pbot = +(p.bot ?? p.botMD ?? p.botDepth ?? p.perfBot ?? 0);
+        if (pbot <= ptop) continue;
+        const tip  = (p.perfID ?? p.innerDiam ?? 7) / 2;
+        const ymid = (getY(ptop) + getY(pbot)) / 2;
         compNodes.push(makeNode(sxR(tip + 5), ymid, COMP_X, ymid,
-          `Perf ${p.top}–${p.bot}m`));
+          `Perf ${ptop}–${pbot}m`));
       }
     }
 
@@ -727,6 +730,41 @@
     fetchDirData();
   }
 
+  // Survey / deviation functions
+  function _getSurvey(src) {
+    return src?.profile ?? src?.survey ?? [];
+  }
+  function _setSurvey(src, arr) {
+    if (src.profile !== undefined) src.profile = arr;
+    else if (src.survey !== undefined) src.survey = arr;
+    else src.profile = arr;
+  }
+
+  function addSurveyRow() {
+    const src = getSrc();
+    if (!src) return;
+    const arr = _getSurvey(src);
+    const lastMd = arr.length ? +(arr[arr.length - 1].md ?? 0) + 500 : 0;
+    _setSurvey(src, [...arr, { md: lastMd, dev: 0, az: 0 }]);
+    fetchDirData();
+  }
+
+  function saveSurveyRow() {
+    const src = getSrc();
+    if (!src || editIdx < 0) return;
+    const arr = _getSurvey(src);
+    _setSurvey(src, arr.map((s, i) => i === editIdx ? { ...s, ...editData } : s));
+    editIdx = -1; editData = {};
+    fetchDirData();
+  }
+
+  function deleteSurveyRow(idx) {
+    const src = getSrc();
+    if (!src || !confirm('Delete this survey point?')) return;
+    _setSurvey(src, _getSurvey(src).filter((_, i) => i !== idx));
+    fetchDirData();
+  }
+
   // Download
   function downloadWson() {
     if (!wson) return;
@@ -977,16 +1015,19 @@
         <span class="tb-tip">Completions</span>
       </div>
 
-      <div class="flex-1"></div>
-
-      <div class="tb-item group">
-        <button class="tb-btn" class:tb-active={showDisplayOpts} onclick={() => (showDisplayOpts = !showDisplayOpts)} aria-label="Display">⚙</button>
-        <span class="tb-tip">Display</span>
-      </div>
     </div>
 
-    <!-- SVG area -->
-    <div class="overflow-auto bg-white flex-1">
+    <!-- SVG area (relative so the display button can float top-right) -->
+    <div class="overflow-auto bg-white flex-1 relative">
+      <!-- Display options button — top-right overlay -->
+      <button
+        class="absolute top-2 right-2 z-20 w-7 h-7 flex items-center justify-center rounded-full border text-sm font-bold shadow-sm transition-all
+          {showDisplayOpts ? 'bg-blue-100 border-blue-400 text-blue-700' : 'bg-white border-slate-300 text-slate-500 hover:bg-slate-50 hover:text-slate-800'}"
+        onclick={() => (showDisplayOpts = !showDisplayOpts)}
+        aria-label="Display options"
+        title="Display options"
+      >⚙</button>
+
       <svg width={totalW} height={totalH} xmlns="http://www.w3.org/2000/svg" class="font-mono" style="display:block">
         <defs>
           <pattern id="cement-fill" x="0" y="0" width="6" height="6" patternUnits="userSpaceOnUse">
@@ -1320,7 +1361,7 @@
       {#snippet children()}
         <!-- Tab bar -->
         <div class="flex items-stretch border-b border-slate-200 bg-slate-50/60">
-          {#each [['oh','Open Hole','⬜'],['ch','Casing','▭'],['cem','Cement','⬛'],['strata','Strata','≡']] as [key, label, icon]}
+          {#each [['oh','Open Hole','⬜'],['ch','Casing','▭'],['cem','Cement','⬛'],['strata','Strata','≡'],['survey','Survey','◎']] as [key, label, icon]}
             <button
               class="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold transition-all border-r border-slate-200/70
                 {schematicTab === key
@@ -1498,6 +1539,52 @@
             </table>
             <div class="flex justify-end pt-2">
               <button onclick={addStrataRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-xs font-medium">+ Add Row</button>
+            </div>
+
+          {:else if schematicTab === 'survey'}
+            <p class="text-xs text-slate-500 mb-2 px-1">
+              MD / Inclination / Azimuth survey stations. Enable <strong>Directional</strong> mode in Display Options to render the deviated wellbore.
+            </p>
+            <table class="w-full text-xs">
+              <thead class="bg-gray-50 sticky top-0 z-10">
+                <tr>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">MD (m)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Inc (°)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700">Az (°)</th>
+                  <th class="px-2 py-1.5 text-center font-semibold text-gray-700 w-12">Act</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                {#each _getSurvey(getSrc() ?? {}) as row, i}
+                  {#if editIdx === i}
+                    <tr class="bg-blue-50">
+                      <td class="px-1 py-1"><input type="number" step="1" bind:value={editData.md} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveSurveyRow()}/></td>
+                      <td class="px-1 py-1"><input type="number" step="0.1" min="0" max="180" bind:value={editData.dev} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveSurveyRow()}/></td>
+                      <td class="px-1 py-1"><input type="number" step="0.1" min="0" max="360" bind:value={editData.az} class="w-full border border-slate-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-500" onkeydown={e => e.key === 'Enter' && saveSurveyRow()}/></td>
+                      <td class="px-1 py-1"><div class="flex gap-1 justify-center">
+                        <button onclick={saveSurveyRow} class="p-1 bg-green-500 text-white rounded hover:bg-green-600 text-xs leading-none" title="Save">✓</button>
+                        <button onclick={cancelEdit} class="p-1 bg-gray-400 text-white rounded hover:bg-gray-500 text-xs leading-none" title="Cancel">✕</button>
+                      </div></td>
+                    </tr>
+                  {:else}
+                    <tr class="hover:bg-slate-50 cursor-pointer" onclick={() => startEditRow(i, row)}>
+                      <td class="px-2 py-1.5 text-center">{row.md ?? row.MD ?? 0}</td>
+                      <td class="px-2 py-1.5 text-center">{(row.dev ?? row.inc ?? row.INC ?? 0).toFixed(2)}°</td>
+                      <td class="px-2 py-1.5 text-center">{(row.az ?? row.AZ ?? 0).toFixed(2)}°</td>
+                      <td class="px-2 py-1.5"><div class="flex gap-1 justify-center">
+                        <button onclick={e => { e.stopPropagation(); startEditRow(i, row); }} class="p-1 text-blue-600 hover:bg-blue-50 rounded text-xs leading-none" title="Edit">✎</button>
+                        <button onclick={e => { e.stopPropagation(); deleteSurveyRow(i); }} class="p-1 text-red-500 hover:bg-red-50 rounded text-xs leading-none" title="Delete">✕</button>
+                      </div></td>
+                    </tr>
+                  {/if}
+                {/each}
+                {#if _getSurvey(getSrc() ?? {}).length === 0}
+                  <tr><td colspan="4" class="px-2 py-4 text-center text-slate-400">No survey data — add stations below</td></tr>
+                {/if}
+              </tbody>
+            </table>
+            <div class="flex justify-end pt-2">
+              <button onclick={addSurveyRow} class="px-2 py-1 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-xs font-medium">+ Add Station</button>
             </div>
 
           {/if}
