@@ -31,73 +31,94 @@
   let compSvgStrings = $state([]);
 
   /**
-   * Converts component JSON data to SVG path content using our linear scale.
-   * Mirrors the DLIS buildComponent.ts logic without warpjs deviation.
+   * Warp-after-render: draw the component in its own coordinate space on an
+   * offscreen canvas, then embed the result as an SVG <image> element scaled
+   * to the component's physical slot.  This preserves the component's shape
+   * regardless of yScale / DIA_SCALE distortion ratios.
    */
-  function jsonToSvgContent(componentData, comp, compIndex, g) {
+  function jsonToSvgContent(componentData, comp, _compIndex, g) {
     const { elements, width: jw, height: jh } = componentData;
-    if (!elements || !jw || !jh) return '';
+    if (!elements || !jw || !jh || typeof document === 'undefined') return '';
 
-    const { centerX, yScale } = g;
-    const compOD     = comp.od ?? 2.875;
-    const compLength = comp.length ?? 1;
-    const compTop    = comp._top;
+    const { centerX, sy } = g;
+    const compOD = comp.od ?? 2.875;
 
-    const defs  = [];
-    const paths = [];
-    let gradCounter = 0;
+    // SVG bounding box for this component slot
+    const slotX = centerX - (compOD / 2) * DIA_SCALE;
+    const slotW = compOD * DIA_SCALE;
+    const slotY = sy(comp._top);
+    const slotH = sy(comp._bot) - slotY;
+    if (slotW < 1 || slotH < 1) return '';
+
+    // Render into an offscreen canvas using the component's native coordinates
+    const PR  = Math.min(typeof window !== 'undefined' ? (window.devicePixelRatio ?? 1) : 1, 2);
+    const cw  = Math.ceil(jw * PR);
+    const ch  = Math.ceil(jh * PR);
+    const cnv = document.createElement('canvas');
+    cnv.width  = cw;
+    cnv.height = ch;
+    const ctx  = cnv.getContext('2d');
+    if (!ctx) return '';
+    ctx.scale(PR, PR);
 
     for (const el of elements) {
       if (el.type !== 'freeform' || !el.points?.length) continue;
 
-      const segs = [];
+      ctx.beginPath();
       for (const pt of el.points) {
         const { x, y, directive } = pt;
-        // Map JSON space → physical space → SVG pixels
-        const diamIn  = (x - jw / 2) * (compOD / jw);
-        const depthM  = compTop + (y * compLength / jh);
-        const svgX    = (centerX + diamIn * DIA_SCALE).toFixed(2);
-        const svgY    = (HEADER_H + depthM * yScale).toFixed(2);
-
-        if (directive === 'moveTo')  segs.push(`M${svgX} ${svgY}`);
-        else if (directive === 'lineTo')  segs.push(`L${svgX} ${svgY}`);
-        else if (directive === 'close')   segs.push('Z');
-      }
-      if (segs.length === 0) continue;
-
-      // Fill
-      let fillAttr = 'none';
-      const fill = el.fill;
-      if (fill) {
-        if (typeof fill === 'string') {
-          fillAttr = fill;
-        } else if (fill.type === 'solid') {
-          fillAttr = fill.color ?? 'none';
-        } else if (fill.type === 'gradient') {
-          const origId  = fill.id ?? `g${gradCounter}`;
-          const uid     = `ci${compIndex}_${origId}`;
-          fillAttr = `url(#${uid})`;
-          const stops = (fill.gstops ?? []).map(s => {
-            const offset = s.offset ?? `${(s.position / 1000).toFixed(1)}%`;
-            return `<stop offset="${offset}" stop-color="${s['stop-color'] ?? '#000'}"/>`;
-          }).join('');
-          const gType = fill.gradient_type ?? 'linear';
-          if (gType === 'linear') {
-            defs.push(`<linearGradient id="${uid}" x1="0%" y1="0%" x2="100%" y2="0%">${stops}</linearGradient>`);
-          } else {
-            defs.push(`<radialGradient id="${uid}">${stops}</radialGradient>`);
-          }
-          gradCounter++;
+        if      (directive === 'moveTo') ctx.moveTo(x, y);
+        else if (directive === 'lineTo') ctx.lineTo(x, y);
+        else if (directive === 'close')  ctx.closePath();
+        else if (directive === 'bezierCurveTo' || directive === 'cubicBezierTo') {
+          const p = pt.params ?? [];
+          ctx.bezierCurveTo(p[0]??x, p[1]??y, p[2]??x, p[3]??y, p[4]??x, p[5]??y);
+        } else if (directive === 'quadraticCurveTo') {
+          const p = pt.params ?? [];
+          ctx.quadraticCurveTo(p[0]??x, p[1]??y, p[2]??x, p[3]??y);
         }
       }
 
-      const stroke = el.stroke ?? 'none';
-      const sw = Array.isArray(el.strokeWidth) ? el.strokeWidth[0] : (el.strokeWidth ?? 0);
-      paths.push(`<path d="${segs.join(' ')}" fill="${fillAttr}" stroke="${stroke}" stroke-width="${sw}"/>`);
+      // Fill
+      const fill = el.fill;
+      if (fill && fill !== 'none') {
+        if (typeof fill === 'string') {
+          ctx.fillStyle = fill;
+        } else if (fill.type === 'solid') {
+          ctx.fillStyle = fill.color ?? '#888';
+        } else if (fill.type === 'gradient') {
+          const gType = fill.gradient_type ?? 'linear';
+          let grad;
+          if (gType === 'radial') {
+            grad = ctx.createRadialGradient(jw/2, jh/2, 0, jw/2, jh/2, Math.max(jw,jh)/2);
+          } else {
+            grad = ctx.createLinearGradient(0, 0, jw, 0);
+          }
+          for (const s of fill.gstops ?? []) {
+            let off = s.offset;
+            if (off === undefined) off = (s.position ?? 0) / 1000;
+            if (typeof off === 'string') off = parseFloat(off) / 100;
+            grad.addColorStop(Math.max(0, Math.min(1, Number(off) || 0)), s['stop-color'] ?? '#000');
+          }
+          ctx.fillStyle = grad;
+        }
+        ctx.fill();
+      }
+
+      // Stroke
+      const stroke = el.stroke;
+      if (stroke && stroke !== 'none') {
+        const sw = Array.isArray(el.strokeWidth) ? el.strokeWidth[0] : (el.strokeWidth ?? 0);
+        if (sw > 0) {
+          ctx.strokeStyle = stroke;
+          ctx.lineWidth   = sw;
+          ctx.stroke();
+        }
+      }
     }
 
-    const defsSection = defs.length > 0 ? `<defs>${defs.join('')}</defs>` : '';
-    return defsSection + paths.join('');
+    const dataUrl = cnv.toDataURL('image/png');
+    return `<image x="${slotX.toFixed(2)}" y="${slotY.toFixed(2)}" width="${slotW.toFixed(2)}" height="${slotH.toFixed(2)}" href="${dataUrl}" preserveAspectRatio="none"/>`;
   }
 
   /** Fetch component JSON (with in-memory cache) */
