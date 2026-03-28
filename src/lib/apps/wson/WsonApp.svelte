@@ -1,11 +1,11 @@
 <script module>
   // Per-tab display state cache — survives component remounts (tab switching)
-  const _cache = new Map(); // tabId → { displayOpts, showInfoBar, showOpenHole, showCasing, showCement, showCompletions, showPerforations, showStrata }
+  const _cache = new Map(); // tabId → { displayOpts, showOpenHole, showCasing, showCement, showCompletions, showPerforations, showStrata }
 
   function getCache(id) {
     return _cache.get(id) ?? {
       displayOpts: { autoScale: true, directional: false, xScale: 0.17, yScale: 0.17, xDiaScale: 6.0, preserveAspectRatio: true, showLeftTrack: true },
-      showInfoBar: true, showOpenHole: true, showCasing: true, showCement: true,
+      showOpenHole: true, showCasing: true, showCement: true,
       showCompletions: true, showPerforations: true, showStrata: true
     };
   }
@@ -935,7 +935,7 @@
 
 
   <!-- Main layout -->
-  <div class="flex overflow-hidden relative" style="height: calc(100% - {showInfoBar ? 30 : 0}px)">
+  <div class="flex overflow-hidden relative" style="height: 100%">
 
     <!-- Toolbar -->
     <div class="schematic-toolbar">
