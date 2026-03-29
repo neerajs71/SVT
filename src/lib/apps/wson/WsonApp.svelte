@@ -522,16 +522,22 @@
       if (tab.file) {
         bytes = await tab.file.arrayBuffer();
       } else if (tab.driveId) {
-        const res = await fetch(`/api/drive?fileId=${encodeURIComponent(tab.driveId)}`);
-        if (!res.ok) throw new Error(`Drive fetch failed: HTTP ${res.status}`);
-        bytes = await res.arrayBuffer();
+        const ctl = new AbortController();
+        const tid = setTimeout(() => ctl.abort(), 30_000);
+        try {
+          const res = await fetch(`/api/drive?fileId=${encodeURIComponent(tab.driveId)}`, { signal: ctl.signal });
+          if (!res.ok) throw new Error(`Drive fetch failed: HTTP ${res.status}`);
+          bytes = await res.arrayBuffer();
+        } finally {
+          clearTimeout(tid);
+        }
       } else {
         throw new Error('No file source provided');
       }
       const text = new TextDecoder().decode(bytes);
       wson = JSON.parse(text);
     } catch (e) {
-      error = e.message ?? String(e);
+      error = e.name === 'AbortError' ? 'Drive download timed out — please retry' : (e.message ?? String(e));
     } finally {
       loading = false;
     }
@@ -582,16 +588,21 @@
         nodes.push({ start: 0, end: maxDepth });
       }
 
-      const res = await fetch('/api/schematic', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'autonodes', nodes, maxDepth, survey })
-      });
-      if (res.ok) {
-        dirData = await res.json();
+      const ctl = new AbortController();
+      const tid = setTimeout(() => ctl.abort(), 15_000);
+      try {
+        const res = await fetch('/api/schematic', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'autonodes', nodes, maxDepth, survey }),
+          signal: ctl.signal
+        });
+        if (res.ok) dirData = await res.json();
+      } finally {
+        clearTimeout(tid);
       }
     } catch (e) {
-      console.warn('[WsonApp] fetchDirData failed:', e);
+      console.warn('[WsonApp] fetchDirData failed:', e.message);
     }
   }
 
