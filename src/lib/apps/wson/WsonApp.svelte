@@ -1050,7 +1050,7 @@
     <p class="mt-1">{error}</p>
   </div>
 {:else if geo}
-  {@const { oh, ch, cem, str, perf, completions, sy, syD, sxL, sxR, wellName, rulerTicks, totalW, totalH, centerX, strataW, hasDir, dirPath, dirSide, dirAxis, hasProfileData, wellDir, dtx, yScale, diaScale } = geo}
+  {@const { oh, ch, cem, str, perf, completions, sy, syD, sxL, sxR, wellName, rulerTicks, totalW, totalH, centerX, strataW, hasDir, dirPath, dirSide, dirAxis, hasProfileData, wellDir, dtx, yScale, diaScale, maxR } = geo}
 
   {#snippet layerRow(label, active, toggle, editKey, iconHtml)}
     <div class="flex items-center gap-2 px-3 py-2 hover:bg-gray-50">
