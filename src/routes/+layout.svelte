@@ -1,7 +1,6 @@
 <script>
   import '../app.css';
   import { NavMenu } from '$lib/components/NavMenu';
-  import { ScreenRecorder } from '$lib/components/ScreenRecorder';
   import { onMount } from 'svelte';
 
   let { children } = $props();
@@ -14,7 +13,6 @@
 </script>
 
 <NavMenu />
-<ScreenRecorder />
 <div class="h-full overflow-hidden">
   {@render children()}
 </div>
