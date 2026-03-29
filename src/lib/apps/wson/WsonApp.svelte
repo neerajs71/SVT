@@ -76,6 +76,10 @@
   let showCanvasCompEditor = $state(false);
   let canvasComp = $state(null);   // { ...comp, _editIdx: i }
 
+  // ── Canvas perf quick-editor (dblclick on SVG perforation) ───────────────
+  let showCanvasPerfEditor = $state(false);
+  let canvasPerf = $state(null);   // { ...perf, _editIdx: i }
+
   // ── Screen recording ─────────────────────────────────────────────────────
   let recording     = $state(false);
   let _mediaRecorder = null;
@@ -479,9 +483,9 @@
         const ptop = +(p.top ?? p.topMD ?? p.topDepth ?? p.perfTop ?? 0);
         const pbot = +(p.bot ?? p.botMD ?? p.botDepth ?? p.perfBot ?? 0);
         if (pbot <= ptop) continue;
-        const tip   = (p.perfID ?? p.innerDiam ?? 7) / 2;
+        const holeR = (p.holeSize ?? p.bitSize ?? 8.5) / 2;
         const mdMid = (ptop + pbot) / 2;
-        compNodes.push(makeNode(tip + 5, mdMid, `Perf ${ptop}–${pbot}m`));
+        bhNodes.push(makeNode(holeR, mdMid, `Perf ${ptop}–${pbot}m`));
       }
     }
 
@@ -701,6 +705,26 @@
     src.completions = src.completions.filter((_, i) => i !== canvasComp._editIdx);
     showCanvasCompEditor = false;
     canvasComp = null;
+    fetchDirData();
+  }
+
+  function saveCanvasPerf() {
+    const src = getSrc();
+    if (!src || !canvasPerf) return;
+    src.perforations = src.perforations.map((p, i) =>
+      i === canvasPerf._editIdx ? { ...canvasPerf, _editIdx: undefined } : p
+    );
+    showCanvasPerfEditor = false;
+    canvasPerf = null;
+    fetchDirData();
+  }
+
+  function deleteCanvasPerf() {
+    const src = getSrc();
+    if (!src || !canvasPerf || !confirm('Delete this perforation?')) return;
+    src.perforations = src.perforations.filter((_, i) => i !== canvasPerf._editIdx);
+    showCanvasPerfEditor = false;
+    canvasPerf = null;
     fetchDirData();
   }
 
@@ -1355,8 +1379,10 @@
         {/if}
 
         {#if showPerforations}
-          {#each perf as p}
-            <path d={perfArrows(p, hasDir ? wellDir : null, dtx, yScale, diaScale, centerX, displayOpts.autoScale)} fill={p.color ?? '#e53e3e'} stroke="none" opacity="0.85"/>
+          {#each perf as p, i}
+            <g ondblclick={() => { canvasPerf = { ...p, _editIdx: i }; showCanvasPerfEditor = true; }} style="cursor:pointer">
+              <path d={perfArrows(p, hasDir ? wellDir : null, dtx, yScale, diaScale, centerX, displayOpts.autoScale)} fill={p.color ?? '#e53e3e'} stroke="none" opacity="0.85"/>
+            </g>
           {/each}
         {/if}
 
@@ -1698,6 +1724,58 @@
               <button onclick={saveCanvasComp}
                 class="flex-1 text-xs bg-blue-600 text-white rounded px-2 py-1.5 hover:bg-blue-700 font-medium">Done</button>
               <button onclick={deleteCanvasComp}
+                class="text-xs bg-red-50 text-red-600 border border-red-200 rounded px-2 py-1.5 hover:bg-red-100">Delete</button>
+            </div>
+          </div>
+        {/if}
+      {/snippet}
+    </FloatingPanel>
+
+    <!-- Canvas Perf Quick-Editor -->
+    <FloatingPanel
+      title="Edit Perforation"
+      visible={showCanvasPerfEditor}
+      onClose={() => { showCanvasPerfEditor = false; canvasPerf = null; }}
+      width={220}
+      x={140}
+      y={140}
+    >
+      {#snippet children()}
+        {#if canvasPerf}
+          <div class="flex flex-col gap-2 p-2.5">
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-xs text-slate-500 mb-0.5">Top (m)</label>
+                <input type="number" step="1" bind:value={canvasPerf.top}
+                  class="w-full text-xs border border-slate-200 rounded px-2 py-1 bg-white"/>
+              </div>
+              <div>
+                <label class="block text-xs text-slate-500 mb-0.5">Bot (m)</label>
+                <input type="number" step="1" bind:value={canvasPerf.bot}
+                  class="w-full text-xs border border-slate-200 rounded px-2 py-1 bg-white"/>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-xs text-slate-500 mb-0.5">Hole size (in)</label>
+                <input type="number" step="0.125" bind:value={canvasPerf.holeSize}
+                  class="w-full text-xs border border-slate-200 rounded px-2 py-1 bg-white"/>
+              </div>
+              <div>
+                <label class="block text-xs text-slate-500 mb-0.5">Perf ID (in)</label>
+                <input type="number" step="0.125" bind:value={canvasPerf.perfID}
+                  class="w-full text-xs border border-slate-200 rounded px-2 py-1 bg-white"/>
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs text-slate-500 mb-0.5">Color</label>
+              <input type="color" bind:value={canvasPerf.color}
+                class="w-full h-7 border border-slate-200 rounded px-1 bg-white cursor-pointer"/>
+            </div>
+            <div class="flex gap-1.5 pt-0.5">
+              <button onclick={saveCanvasPerf}
+                class="flex-1 text-xs bg-blue-600 text-white rounded px-2 py-1.5 hover:bg-blue-700 font-medium">Done</button>
+              <button onclick={deleteCanvasPerf}
                 class="text-xs bg-red-50 text-red-600 border border-red-200 rounded px-2 py-1.5 hover:bg-red-100">Delete</button>
             </div>
           </div>
