@@ -3,7 +3,7 @@
   import { parseTpl, extractLasCurve, getLasWellName, collectFiles } from './parser.js';
   import { parseLAS } from '$lib/apps/las/parser.js';
   import { processCurves } from '$lib/apps/las/utils.js';
-  import { parseDLISFile, processChannelsAndFrames } from '$lib/apps/dlis/utils.js';
+  import { parseDLISFile, extractLogicalFiles } from '$lib/apps/dlis/utils.js';
   import { datasourceStore } from '$lib/datasource/store.svelte.js';
   import { FloatingPanel } from '$lib/components/FloatingPanel';
 
@@ -138,16 +138,10 @@
 
       if (isDlis) {
         const parsed = await parseDLISFile(buf);
-        const { channels, frames } = processChannelsAndFrames(parsed);
-        const fr0 = frames[0];
-        previewData = {
-          type: 'dlis',
-          wellName: item.name.replace(/\.[^.]+$/, ''),
-          dMin: fr0?.indexMin != null ? parseFloat(fr0.indexMin) : null,
-          dMax: fr0?.indexMax != null ? parseFloat(fr0.indexMax) : null,
-          unit: '',
-          curves: channels.map(c => ({ mnem: c.name, unit: c.units, desc: c.longName })),
-        };
+        const logicalFiles = extractLogicalFiles(parsed);
+        // If only one logical file, auto-select it
+        const autoLf = logicalFiles.length === 1 ? logicalFiles[0] : null;
+        previewData = buildDlisPreview(item.name, logicalFiles, autoLf);
       } else {
         const text = new TextDecoder('utf-8').decode(buf);
         const las = parseLAS(text);
@@ -169,6 +163,33 @@
     }
   }
 
+  // ── DLIS helpers ─────────────────────────────────────────────────────────
+  function buildDlisPreview(fileName, logicalFiles, selectedLf) {
+    const fr0 = selectedLf?.frames[0];
+    return {
+      type: 'dlis',
+      wellName: fileName.replace(/\.[^.]+$/, ''),
+      logicalFiles,
+      selectedLf,
+      dMin: fr0?.indexMin != null ? parseFloat(fr0.indexMin) : null,
+      dMax: fr0?.indexMax != null ? parseFloat(fr0.indexMax) : null,
+      unit: '',
+      curves: selectedLf?.channels.map(c => ({ mnem: c.name, unit: c.units, desc: c.longName })) ?? [],
+    };
+  }
+
+  function selectLogicalFile(lf) {
+    if (!previewData) return;
+    const fr0 = lf.frames[0];
+    previewData = {
+      ...previewData,
+      selectedLf: lf,
+      dMin: fr0?.indexMin != null ? parseFloat(fr0.indexMin) : null,
+      dMax: fr0?.indexMax != null ? parseFloat(fr0.indexMax) : null,
+      curves: lf.channels.map(c => ({ mnem: c.name, unit: c.units, desc: c.longName })),
+    };
+  }
+
   // ── Assign the currently previewed file to the active slot ───────────────
   function assignPreview() {
     if (!previewItem || !previewData || previewData.error) return;
@@ -182,9 +203,10 @@
       // DLIS: store for display; curve plotting not yet supported
       slotFiles = { ...slotFiles, [pickingSlot]: {
         name: previewItem.name,
-        wellName: previewData.wellName,
+        wellName: `${previewData.wellName} / ${previewData.selectedLf?.id ?? 'LF-1'}`,
         las: null,
         isDlis: true,
+        lfId: previewData.selectedLf?.id,
       }};
     }
     closePicker();
@@ -607,6 +629,42 @@
                 </div>
               </div>
 
+              <!-- DLIS logical file selector -->
+              {#if previewData.type === 'dlis' && previewData.logicalFiles?.length > 1}
+                <div class="mb-2.5">
+                  <div class="text-[0.65rem] font-semibold text-gray-500 mb-1">
+                    Select logical file ({previewData.logicalFiles.length} found):
+                  </div>
+                  <div class="flex flex-col gap-0.5">
+                    {#each previewData.logicalFiles as lf}
+                      <button
+                        onclick={() => selectLogicalFile(lf)}
+                        class="flex items-center gap-2 text-left text-xs px-2 py-1 rounded border transition-colors
+                               {previewData.selectedLf === lf
+                                 ? 'bg-blue-50 border-blue-300 text-blue-800'
+                                 : 'bg-white border-gray-200 text-gray-600 hover:border-blue-200 hover:bg-blue-50/50'}"
+                      >
+                        <span class="font-mono font-medium w-16 truncate">{lf.id}</span>
+                        <span class="text-gray-400">{lf.channels.length} ch</span>
+                        {#if lf.frames[0]?.indexMin != null && lf.frames[0]?.indexMax != null}
+                          <span class="text-gray-400 text-[0.6rem]">
+                            {parseFloat(lf.frames[0].indexMin).toFixed(0)}–{parseFloat(lf.frames[0].indexMax).toFixed(0)}
+                          </span>
+                        {/if}
+                        {#if lf.channels.length > 0}
+                          <span class="text-[0.6rem] text-gray-400 truncate max-w-[100px]">
+                            {lf.channels.slice(0,4).map(c => c.name).join(', ')}{lf.channels.length > 4 ? '…' : ''}
+                          </span>
+                        {/if}
+                      </button>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+
+              <!-- Curves table only shown once an LF is selected (or for LAS) -->
+              {#if previewData.type === 'las' || previewData.selectedLf}
+
               <!-- Expected mnemonics legend -->
               {#if slotExpectedMnemonics.size > 0}
                 <div class="text-[0.6rem] text-gray-400 mb-1.5">
@@ -649,7 +707,10 @@
                   DLIS files can be previewed but curve plotting requires LAS format.
                 </p>
               {/if}
-            {/if}
+
+              {/if}<!-- end LF/LAS guard -->
+
+            {/if}<!-- end if/else chain (previewItem/loading/error/data) -->
           </div>
         </div>
 
@@ -661,7 +722,7 @@
           </button>
           <button
             onclick={assignPreview}
-            disabled={!previewData || !!previewData.error}
+            disabled={!previewData || !!previewData.error || (previewData.type === 'dlis' && !previewData.selectedLf)}
             class="text-xs bg-blue-600 text-white rounded px-3 py-1.5 font-medium
                    hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
             Assign to {pickingSlot}
