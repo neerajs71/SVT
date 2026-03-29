@@ -6,6 +6,7 @@
   import { parseDLISFile, extractLogicalFiles } from '$lib/apps/dlis/utils.js';
   import { datasourceStore } from '$lib/datasource/store.svelte.js';
   import { FloatingPanel } from '$lib/components/FloatingPanel';
+  import { FolderSolid, FolderOpenSolid, FileLinesOutline } from 'flowbite-svelte-icons';
 
   const { tab } = $props();
 
@@ -65,6 +66,7 @@
   // ── Workspace file list (for slot picker) ────────────────────────────────
   const DATA_EXTS = ['.las', '.las2', '.dlis', '.dlis1'];
 
+  // All data files in the tree (for search mode)
   const workspaceFiles = $derived.by(() => {
     const tree = datasourceStore.tree;
     if (!tree) return [];
@@ -73,30 +75,28 @@
     );
   });
 
-  // Group workspace files by well name (using cached slot data if already loaded)
-  const filesByWell = $derived.by(() => {
-    const groups = {};
-    for (const f of workspaceFiles) {
-      const loaded = Object.values(slotFiles).find(s => s.name === f.name);
-      const well = loaded?.wellName ?? f.name.replace(/\.[^.]+$/, '');
-      if (!groups[well]) groups[well] = [];
-      groups[well].push(f);
+  // Picker items: tree mode (no filter) or flat search results (filter typed)
+  const pickerItems = $derived.by(() => {
+    const q = slotFilter.trim().toLowerCase();
+    if (q) {
+      // Search mode: flat list of matching data files
+      return workspaceFiles
+        .filter(f => f.name.toLowerCase().includes(q) || f.path?.toLowerCase().includes(q))
+        .map(f => ({ ...f, depth: 0, _search: true }));
     }
-    return groups;
+    // Tree mode: dirs + data files from the live expanded tree
+    const all = datasourceStore.flatten(datasourceStore.tree, datasourceStore.expanded);
+    return all.filter(item =>
+      item.type === 'dir' ||
+      DATA_EXTS.some(ext => item.name.toLowerCase().endsWith(ext))
+    );
   });
 
-  // Filtered file list for the slot picker search box
-  const filteredFilesByWell = $derived.by(() => {
-    const q = slotFilter.trim().toLowerCase();
-    if (!q) return filesByWell;
-    const out = {};
-    for (const [well, files] of Object.entries(filesByWell)) {
-      const matched = files.filter(f =>
-        f.name.toLowerCase().includes(q) || well.toLowerCase().includes(q)
-      );
-      if (matched.length) out[well] = matched;
-    }
-    return out;
+  // Reset preview when filter changes (the item may no longer be visible)
+  $effect(() => {
+    slotFilter;
+    previewItem = null;
+    previewData = null;
   });
 
   // Mnemonics the TPL expects from the slot currently being picked
@@ -112,7 +112,7 @@
 
   // ── Preview a workspace file (load + parse, don't assign yet) ────────────
   async function previewFile(item) {
-    if (previewItem === item) return;
+    if (previewItem?.path === item.path) return;
     previewItem = item;
     previewData = null;
     previewLoading = true;
@@ -575,28 +575,54 @@
         <!-- Two-column body -->
         <div class="flex flex-1 overflow-hidden">
 
-          <!-- Left: file list -->
-          <div class="w-44 flex-shrink-0 border-r border-gray-100 overflow-y-auto">
-            {#if Object.keys(filteredFilesByWell).length === 0}
+          <!-- Left: folder tree / search results -->
+          <div class="w-48 flex-shrink-0 border-r border-gray-100 overflow-y-auto">
+            {#if datasourceStore.loading}
+              <p class="text-xs text-gray-400 p-3 text-center">Loading…</p>
+            {:else if !datasourceStore.tree}
+              <p class="text-xs text-gray-400 p-3 leading-snug">
+                No workspace open.<br>Open a folder from the sidebar first.
+              </p>
+            {:else if pickerItems.length === 0}
               <p class="text-xs text-gray-400 p-3">
-                {slotFilter ? 'No matches.' : 'No LAS/DLIS files in workspace.'}
+                {slotFilter ? 'No matches.' : 'No compatible files found.'}
               </p>
             {:else}
-              {#each Object.entries(filteredFilesByWell) as [well, files]}
-                <div class="px-2 pt-2 pb-0.5">
-                  <div class="text-[0.6rem] font-semibold text-gray-400 uppercase tracking-wide truncate px-1 mb-0.5"
-                    title={well}>{well}</div>
-                  {#each files as f}
-                    <button
-                      onclick={() => previewFile(f)}
-                      class="w-full text-left text-xs px-2 py-1 rounded truncate transition-colors
-                             {previewItem === f
-                               ? 'bg-blue-600 text-white'
-                               : 'text-gray-600 hover:bg-gray-100'}"
-                      title={f.name}
-                    >{f.name}</button>
-                  {/each}
-                </div>
+              {#each pickerItems as item}
+                {#if item.type === 'dir'}
+                  <!-- Folder row -->
+                  <button
+                    onclick={() => datasourceStore.toggleExpanded(item.path, item.id)}
+                    class="w-full text-left flex items-center gap-1 py-0.5 pr-2 hover:bg-gray-50 select-none"
+                    style="padding-left:{0.35 + item.depth * 0.65}rem"
+                  >
+                    <span class="w-2.5 flex-shrink-0 text-gray-400 text-center" style="font-size:0.5rem">
+                      {datasourceStore.expanded.has(item.path) ? '▼' : '▶'}
+                    </span>
+                    {#if datasourceStore.expanded.has(item.path)}
+                      <FolderOpenSolid class="w-3.5 h-3.5 text-yellow-500 flex-shrink-0" />
+                    {:else}
+                      <FolderSolid class="w-3.5 h-3.5 text-yellow-400 flex-shrink-0" />
+                    {/if}
+                    <span class="text-xs text-gray-700 truncate ml-0.5">{item.name}</span>
+                  </button>
+                {:else}
+                  <!-- File row -->
+                  <button
+                    onclick={() => previewFile(item)}
+                    class="w-full text-left flex items-center gap-1 py-0.5 pr-2 transition-colors
+                           {previewItem?.path === item.path
+                             ? 'bg-blue-600 text-white'
+                             : 'hover:bg-gray-100 text-gray-600'}"
+                    style="padding-left:{item._search ? 0.5 : 0.35 + item.depth * 0.65}rem"
+                    title={item._search ? (item.path ?? item.name) : item.name}
+                  >
+                    <span class="w-2.5 flex-shrink-0"></span>
+                    <FileLinesOutline class="w-3.5 h-3.5 flex-shrink-0
+                      {previewItem?.path === item.path ? 'text-blue-200' : 'text-gray-400'}" />
+                    <span class="text-xs truncate ml-0.5">{item.name}</span>
+                  </button>
+                {/if}
               {/each}
             {/if}
           </div>
