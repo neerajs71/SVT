@@ -76,6 +76,70 @@
   let showCanvasCompEditor = $state(false);
   let canvasComp = $state(null);   // { ...comp, _editIdx: i }
 
+  // ── Screen recording ─────────────────────────────────────────────────────
+  let recording     = $state(false);
+  let _mediaRecorder = null;
+  let _recChunks     = [];
+
+  // ── TEST SCRIPT ───────────────────────────────────────────────────────────
+  // Each step: { delay (ms before action), type ('click'|'input'|'wait'),
+  //              selector (CSS), value (for 'input') }
+  // Edit this array to define the automated demo/debug scenario.
+  const TEST_SCRIPT = [
+    // Examples (uncomment and edit as needed):
+    // { delay: 800,  type: 'click', selector: '.tb-btn[aria-label="Layers"]' },
+    // { delay: 1200, type: 'click', selector: '.tb-btn[aria-label="Edit Schematic"]' },
+    // { delay: 600,  type: 'wait'  },
+  ];
+
+  async function _runScript() {
+    for (const step of TEST_SCRIPT) {
+      await new Promise(r => setTimeout(r, step.delay ?? 400));
+      if (step.type === 'wait') continue;
+      const el = document.querySelector(step.selector);
+      if (!el) { console.warn('[record] selector not found:', step.selector); continue; }
+      if (step.type === 'click') {
+        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      } else if (step.type === 'input') {
+        el.focus();
+        el.value = step.value ?? '';
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }
+  }
+
+  async function toggleRecording() {
+    if (recording) {
+      _mediaRecorder?.stop();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15 }, audio: false });
+      _recChunks = [];
+      const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+        ? 'video/webm;codecs=vp9' : 'video/webm';
+      _mediaRecorder = new MediaRecorder(stream, { mimeType: mime });
+      _mediaRecorder.ondataavailable = e => { if (e.data.size > 0) _recChunks.push(e.data); };
+      _mediaRecorder.onstop = () => {
+        const blob = new Blob(_recChunks, { type: 'video/webm' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url; a.download = `wson-debug-${Date.now()}.webm`;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a); URL.revokeObjectURL(url);
+        stream.getTracks().forEach(t => t.stop());
+        recording = false;
+      };
+      _mediaRecorder.start();
+      recording = true;
+      if (TEST_SCRIPT.length) _runScript();
+    } catch (e) {
+      console.error('[record]', e);
+      recording = false;
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   let _compSearchTimer = null;
   function onCompSearchInput() {
     clearTimeout(_compSearchTimer);
@@ -1028,6 +1092,20 @@
         <span class="tb-tip">Edit</span>
       </div>
 
+      <!-- record button sits above bottom two (Completions + Survey) -->
+      <div class="tb-sep"></div>
+      <div class="tb-item group">
+        <button class="tb-btn" class:tb-recording={recording} onclick={toggleRecording} aria-label="Record">
+          <svg width="16" height="16" viewBox="0 0 16 16">
+            <circle cx="8" cy="8" r="5" fill={recording ? '#ef4444' : 'none'} stroke={recording ? '#ef4444' : 'currentColor'} stroke-width="1.5"/>
+            {#if recording}
+              <rect x="5.5" y="5.5" width="5" height="5" rx="1" fill="white"/>
+            {/if}
+          </svg>
+        </button>
+        <span class="tb-tip">{recording ? 'Stop recording' : 'Record'}</span>
+      </div>
+
       <div class="tb-item group">
         <button class="tb-btn" class:tb-active={showCompletionsEditor} onclick={() => { showCompletionsEditor = !showCompletionsEditor; editingComp = null; compSearch = ''; }} aria-label="Completions">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="6" y1="2" x2="6" y2="14"/><line x1="10" y1="2" x2="10" y2="14"/><line x1="6" y1="5" x2="10" y2="5"/><line x1="6" y1="9" x2="10" y2="9"/></svg>
@@ -1873,6 +1951,23 @@
   .tb-btn.tb-active {
     background: rgba(59, 130, 246, 0.15);
     color: #2563eb;
+  }
+
+  .tb-btn.tb-recording {
+    color: #ef4444;
+    animation: tb-pulse 1s ease-in-out infinite;
+  }
+
+  @keyframes tb-pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.5; }
+  }
+
+  .tb-sep {
+    width: 18px;
+    height: 1px;
+    background: #e2e8f0;
+    margin: 2px 0;
   }
 
   .tb-edit {
