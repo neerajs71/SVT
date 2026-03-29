@@ -1282,26 +1282,28 @@
 
         <!-- Labella collision-resolved annotations — anchor x,y computed via txPoint  -->
         <!-- so they follow the deviated wellbore and track diaScale / centerX changes -->
-        {@const ANN_COMP_X = centerX + maxR * diaScale + 14}
-        {@const ANN_LEFT_X = sxL(maxR) - 8}
-        <g font-size="8" font-family="sans-serif">
-          {#each annotations.compNodes as node}
-            {@const [ax, ay] = txPoint(node.data.radius, node.data.md, hasDir ? wellDir : null, dtx, yScale, diaScale, centerX, displayOpts.autoScale)}
-            <line x1={ax} y1={ay}
-                  x2={ANN_COMP_X - 2} y2={node.currentPos - 3}
-                  stroke="#6b7280" stroke-width="0.8" stroke-dasharray="3,2"/>
-            <circle cx={ax} cy={ay} r="2" fill="#6b7280" opacity="0.7"/>
-            <text x={ANN_COMP_X + 3} y={node.currentPos} text-anchor="start" fill="#374151">{node.data.text}</text>
-          {/each}
-          {#each annotations.bhNodes as node}
-            {@const [ax, ay] = txPoint(-node.data.radius, node.data.md, hasDir ? wellDir : null, dtx, yScale, diaScale, centerX, displayOpts.autoScale)}
-            <line x1={ax} y1={ay}
-                  x2={ANN_LEFT_X} y2={node.currentPos - 3}
-                  stroke="#4f86c6" stroke-width="0.8" stroke-dasharray="4,2"/>
-            <circle cx={ax} cy={ay} r="2" fill="#4f86c6" opacity="0.7"/>
-            <text x={ANN_LEFT_X - 3} y={node.currentPos} text-anchor="end" fill="#1e40af">{node.data.text}</text>
-          {/each}
-        </g>
+        {#if annotations.compNodes.length || annotations.bhNodes.length}
+          {@const ANN_COMP_X = centerX + maxR * diaScale + 14}
+          {@const ANN_LEFT_X = sxL(maxR) - 8}
+          <g font-size="8" font-family="sans-serif">
+            {#each annotations.compNodes as node}
+              {@const [ax, ay] = txPoint(node.data.radius, node.data.md, hasDir ? wellDir : null, dtx, yScale, diaScale, centerX, displayOpts.autoScale)}
+              <line x1={ax} y1={ay}
+                    x2={ANN_COMP_X - 2} y2={node.currentPos - 3}
+                    stroke="#6b7280" stroke-width="0.8" stroke-dasharray="3,2"/>
+              <circle cx={ax} cy={ay} r="2" fill="#6b7280" opacity="0.7"/>
+              <text x={ANN_COMP_X + 3} y={node.currentPos} text-anchor="start" fill="#374151">{node.data.text}</text>
+            {/each}
+            {#each annotations.bhNodes as node}
+              {@const [ax, ay] = txPoint(-node.data.radius, node.data.md, hasDir ? wellDir : null, dtx, yScale, diaScale, centerX, displayOpts.autoScale)}
+              <line x1={ax} y1={ay}
+                    x2={ANN_LEFT_X} y2={node.currentPos - 3}
+                    stroke="#4f86c6" stroke-width="0.8" stroke-dasharray="4,2"/>
+              <circle cx={ax} cy={ay} r="2" fill="#4f86c6" opacity="0.7"/>
+              <text x={ANN_LEFT_X - 3} y={node.currentPos} text-anchor="end" fill="#1e40af">{node.data.text}</text>
+            {/each}
+          </g>
+        {/if}
       </svg>
     </div>
 
