@@ -1096,11 +1096,10 @@
       <div class="tb-sep"></div>
       <div class="tb-item group">
         <button class="tb-btn" class:tb-recording={recording} onclick={toggleRecording} aria-label="Record">
-          <svg width="16" height="16" viewBox="0 0 16 16">
-            <circle cx="8" cy="8" r="5" fill={recording ? '#ef4444' : 'none'} stroke={recording ? '#ef4444' : 'currentColor'} stroke-width="1.5"/>
-            {#if recording}
-              <rect x="5.5" y="5.5" width="5" height="5" rx="1" fill="white"/>
-            {/if}
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="8" cy="8" r="5.5"/>
+            {#if !recording}<circle cx="8" cy="8" r="3" fill="currentColor" stroke="none"/>{/if}
+            {#if recording}<rect x="5.5" y="5.5" width="5" height="5" rx="1" fill="#ef4444" stroke="none"/>{/if}
           </svg>
         </button>
         <span class="tb-tip">{recording ? 'Stop recording' : 'Record'}</span>
