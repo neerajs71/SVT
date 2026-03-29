@@ -149,7 +149,7 @@
 </script>
 
 <!-- ── Floating button ────────────────────────────────────────────────────── -->
-<div class="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2">
+<div class="fixed bottom-4 left-4 z-50 flex flex-col items-start gap-2">
 
   <!-- GIF preview / download panel -->
   {#if gifUrl}
@@ -195,7 +195,7 @@
   {/if}
 
   <!-- Main record button -->
-  <div class="flex gap-1 items-center">
+  <div class="flex gap-1 items-center flex-row-reverse">
 
     <!-- Settings cog (only when idle) -->
     {#if !recording && !encoding}
