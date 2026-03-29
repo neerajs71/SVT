@@ -1,6 +1,10 @@
 <script>
   import { GIFEncoder, quantize, applyPalette } from 'gifenc';
 
+  // ── support check ─────────────────────────────────────────────────────────
+  const supported = typeof navigator !== 'undefined' &&
+    typeof navigator.mediaDevices?.getDisplayMedia === 'function';
+
   // ── state ─────────────────────────────────────────────────────────────────
   let recording  = $state(false);
   let encoding   = $state(false);
@@ -148,7 +152,8 @@
   }
 </script>
 
-<!-- ── Floating button ────────────────────────────────────────────────────── -->
+<!-- ── Only render on browsers that support getDisplayMedia ─────────────── -->
+{#if supported}
 <div class="fixed bottom-4 left-4 z-50 flex flex-col items-start gap-2">
 
   <!-- GIF preview / download panel -->
@@ -232,3 +237,4 @@
 
   </div>
 </div>
+{/if}
