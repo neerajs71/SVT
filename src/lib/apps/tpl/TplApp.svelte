@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { parseTpl, extractLasCurve, getLasWellName, collectFiles } from './parser.js';
   import { parseLAS } from '$lib/apps/las/parser.js';
+  import { processCurves } from '$lib/apps/las/utils.js';
+  import { parseDLISFile, processChannelsAndFrames } from '$lib/apps/dlis/utils.js';
   import { datasourceStore } from '$lib/datasource/store.svelte.js';
   import { FloatingPanel } from '$lib/components/FloatingPanel';
 
@@ -17,6 +19,12 @@
 
   // Which slot is being picked
   let pickingSlot = $state(null);
+
+  // Slot picker: preview state
+  let previewItem    = $state(null);   // workspace item being previewed
+  let previewData    = $state(null);   // { type, wellName, dMin, dMax, unit, curves[], las?, error? }
+  let previewLoading = $state(false);
+  let slotFilter     = $state('');
 
   // Editing overlays
   let editingPanel = $state(null);
@@ -65,11 +73,10 @@
     );
   });
 
-  // Group workspace files by well name (using cached LAS header if already loaded)
+  // Group workspace files by well name (using cached slot data if already loaded)
   const filesByWell = $derived.by(() => {
     const groups = {};
     for (const f of workspaceFiles) {
-      // Check if already loaded in a slot — use that well name
       const loaded = Object.values(slotFiles).find(s => s.name === f.name);
       const well = loaded?.wellName ?? f.name.replace(/\.[^.]+$/, '');
       if (!groups[well]) groups[well] = [];
@@ -78,28 +85,116 @@
     return groups;
   });
 
-  // ── Assign file to slot ──────────────────────────────────────────────────
-  async function assignFile(slotKey, item) {
+  // Filtered file list for the slot picker search box
+  const filteredFilesByWell = $derived.by(() => {
+    const q = slotFilter.trim().toLowerCase();
+    if (!q) return filesByWell;
+    const out = {};
+    for (const [well, files] of Object.entries(filesByWell)) {
+      const matched = files.filter(f =>
+        f.name.toLowerCase().includes(q) || well.toLowerCase().includes(q)
+      );
+      if (matched.length) out[well] = matched;
+    }
+    return out;
+  });
+
+  // Mnemonics the TPL expects from the slot currently being picked
+  const slotExpectedMnemonics = $derived.by(() => {
+    if (!pickingSlot || !tpl) return new Set();
+    return new Set(
+      (tpl.curveDefinitions ?? [])
+        .filter(c => c.fileSlot === pickingSlot)
+        .map(c => c.curveMnemonic?.toUpperCase())
+        .filter(Boolean)
+    );
+  });
+
+  // ── Preview a workspace file (load + parse, don't assign yet) ────────────
+  async function previewFile(item) {
+    if (previewItem === item) return;
+    previewItem = item;
+    previewData = null;
+    previewLoading = true;
+
+    const isDlis = /\.dlis\d?$/i.test(item.name);
+
     try {
-      let text;
+      // Fetch as ArrayBuffer (works for both binary DLIS and text LAS)
+      let buf;
       if (item.file) {
-        text = await item.file.text();
+        buf = await item.file.arrayBuffer();
       } else if (item.id) {
         const ctl = new AbortController();
         const tid = setTimeout(() => ctl.abort(), 30_000);
         try {
           const res = await fetch(`/api/drive?fileId=${encodeURIComponent(item.id)}`, { signal: ctl.signal });
           if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-          text = await res.text();
+          buf = await res.arrayBuffer();
         } finally { clearTimeout(tid); }
+      } else {
+        throw new Error('No source');
       }
-      const las = parseLAS(text);
-      const wellName = getLasWellName(las, item.name);
-      slotFiles = { ...slotFiles, [slotKey]: { name: item.name, wellName, las } };
+
+      if (isDlis) {
+        const parsed = await parseDLISFile(buf);
+        const { channels, frames } = processChannelsAndFrames(parsed);
+        const fr0 = frames[0];
+        previewData = {
+          type: 'dlis',
+          wellName: item.name.replace(/\.[^.]+$/, ''),
+          dMin: fr0?.indexMin != null ? parseFloat(fr0.indexMin) : null,
+          dMax: fr0?.indexMax != null ? parseFloat(fr0.indexMax) : null,
+          unit: '',
+          curves: channels.map(c => ({ mnem: c.name, unit: c.units, desc: c.longName })),
+        };
+      } else {
+        const text = new TextDecoder('utf-8').decode(buf);
+        const las = parseLAS(text);
+        const summary = processCurves(las);
+        previewData = {
+          type: 'las',
+          wellName: getLasWellName(las, item.name),
+          dMin: parseFloat(summary.startDepth),
+          dMax: parseFloat(summary.stopDepth),
+          unit: las.well['STRT']?.unit ?? las.well['DEPT']?.unit ?? '',
+          curves: summary.curves.map(c => ({ mnem: c.name, unit: c.unit, desc: c.desc, isIndex: c.isIndex })),
+          las,
+        };
+      }
     } catch (e) {
-      console.error('[TplApp] assignFile:', e);
+      previewData = { error: e.message ?? String(e) };
+    } finally {
+      previewLoading = false;
     }
+  }
+
+  // ── Assign the currently previewed file to the active slot ───────────────
+  function assignPreview() {
+    if (!previewItem || !previewData || previewData.error) return;
+    if (previewData.type === 'las') {
+      slotFiles = { ...slotFiles, [pickingSlot]: {
+        name: previewItem.name,
+        wellName: previewData.wellName,
+        las: previewData.las,
+      }};
+    } else {
+      // DLIS: store for display; curve plotting not yet supported
+      slotFiles = { ...slotFiles, [pickingSlot]: {
+        name: previewItem.name,
+        wellName: previewData.wellName,
+        las: null,
+        isDlis: true,
+      }};
+    }
+    closePicker();
+  }
+
+  function closePicker() {
     pickingSlot = null;
+    previewItem = null;
+    previewData = null;
+    slotFilter = '';
   }
 
   function clearSlot(slotKey) {
@@ -437,31 +532,142 @@
   <FloatingPanel
     title="Assign file to {pickingSlot}"
     visible={pickingSlot !== null}
-    onClose={() => (pickingSlot = null)}
-    width={300}
-    x={80}
-    y={80}
+    onClose={closePicker}
+    width={580}
+    x={60}
+    y={60}
   >
     {#snippet children()}
-      <div class="p-2 max-h-80 overflow-y-auto">
-        {#if Object.keys(filesByWell).length === 0}
-          <p class="text-xs text-gray-400 p-2">No LAS/DLIS files in workspace.<br>Open a folder from the sidebar first.</p>
-        {:else}
-          {#each Object.entries(filesByWell) as [well, files]}
-            <div class="mb-2">
-              <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide px-2 py-1">{well}</div>
-              {#each files as f}
-                <button
-                  onclick={() => assignFile(pickingSlot, f)}
-                  class="w-full text-left text-xs px-3 py-1.5 hover:bg-blue-50 hover:text-blue-700 rounded truncate"
-                  title={f.name}
-                >
-                  {f.name}
-                </button>
+      <div class="flex flex-col" style="height:420px">
+
+        <!-- Search bar -->
+        <div class="px-3 pt-2 pb-1.5 border-b border-gray-100 flex-shrink-0">
+          <input
+            type="text"
+            bind:value={slotFilter}
+            placeholder="Filter files…"
+            class="w-full text-xs border border-gray-200 rounded px-2.5 py-1.5 focus:outline-none focus:border-blue-400"
+          />
+        </div>
+
+        <!-- Two-column body -->
+        <div class="flex flex-1 overflow-hidden">
+
+          <!-- Left: file list -->
+          <div class="w-44 flex-shrink-0 border-r border-gray-100 overflow-y-auto">
+            {#if Object.keys(filteredFilesByWell).length === 0}
+              <p class="text-xs text-gray-400 p-3">
+                {slotFilter ? 'No matches.' : 'No LAS/DLIS files in workspace.'}
+              </p>
+            {:else}
+              {#each Object.entries(filteredFilesByWell) as [well, files]}
+                <div class="px-2 pt-2 pb-0.5">
+                  <div class="text-[0.6rem] font-semibold text-gray-400 uppercase tracking-wide truncate px-1 mb-0.5"
+                    title={well}>{well}</div>
+                  {#each files as f}
+                    <button
+                      onclick={() => previewFile(f)}
+                      class="w-full text-left text-xs px-2 py-1 rounded truncate transition-colors
+                             {previewItem === f
+                               ? 'bg-blue-600 text-white'
+                               : 'text-gray-600 hover:bg-gray-100'}"
+                      title={f.name}
+                    >{f.name}</button>
+                  {/each}
+                </div>
               {/each}
-            </div>
-          {/each}
-        {/if}
+            {/if}
+          </div>
+
+          <!-- Right: preview -->
+          <div class="flex-1 overflow-y-auto p-3">
+            {#if !previewItem}
+              <p class="text-xs text-gray-400 mt-8 text-center">Select a file to preview</p>
+
+            {:else if previewLoading}
+              <p class="text-xs text-gray-400 mt-8 text-center">Loading…</p>
+
+            {:else if previewData?.error}
+              <p class="text-xs text-red-500 p-2">{previewData.error}</p>
+
+            {:else if previewData}
+              <!-- Well info -->
+              <div class="mb-2.5">
+                <div class="text-xs font-semibold text-gray-800 truncate" title={previewData.wellName}>
+                  {previewData.wellName}
+                </div>
+                <div class="text-[0.65rem] text-gray-400 mt-0.5">
+                  {#if previewData.dMin != null && previewData.dMax != null && isFinite(previewData.dMin) && isFinite(previewData.dMax)}
+                    Depth: {previewData.dMin.toFixed(1)} – {previewData.dMax.toFixed(1)}{previewData.unit ? ' ' + previewData.unit : ''}
+                  {:else}
+                    Depth range unknown
+                  {/if}
+                  &nbsp;·&nbsp;{previewData.curves.length} curve{previewData.curves.length !== 1 ? 's' : ''}
+                  &nbsp;·&nbsp;<span class="uppercase">{previewData.type}</span>
+                </div>
+              </div>
+
+              <!-- Expected mnemonics legend -->
+              {#if slotExpectedMnemonics.size > 0}
+                <div class="text-[0.6rem] text-gray-400 mb-1.5">
+                  TPL expects:
+                  {#each [...slotExpectedMnemonics] as m}
+                    <span class="inline-block bg-amber-50 text-amber-700 border border-amber-200 rounded px-1 mr-0.5">{m}</span>
+                  {/each}
+                </div>
+              {/if}
+
+              <!-- Curves table -->
+              <div class="border border-gray-100 rounded overflow-hidden">
+                <table class="w-full text-[0.65rem]">
+                  <thead>
+                    <tr class="bg-gray-50 text-gray-500">
+                      <th class="text-left px-2 py-1 font-medium w-4"></th>
+                      <th class="text-left px-2 py-1 font-medium">Mnemonic</th>
+                      <th class="text-left px-2 py-1 font-medium">Unit</th>
+                      <th class="text-left px-2 py-1 font-medium max-w-[120px]">Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each previewData.curves as c, i}
+                      {@const matched = slotExpectedMnemonics.has(c.mnem?.toUpperCase())}
+                      <tr class="{matched ? 'bg-green-50' : i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}">
+                        <td class="px-2 py-0.5 text-center">
+                          {#if matched}<span class="text-green-600 font-bold">✓</span>{/if}
+                        </td>
+                        <td class="px-2 py-0.5 font-mono font-medium {matched ? 'text-green-700' : 'text-gray-700'}">{c.mnem}</td>
+                        <td class="px-2 py-0.5 text-gray-400">{c.unit || '—'}</td>
+                        <td class="px-2 py-0.5 text-gray-500 truncate max-w-[120px]" title={c.desc}>{c.desc || '—'}</td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+
+              {#if previewData.type === 'dlis'}
+                <p class="text-[0.6rem] text-amber-600 mt-2">
+                  DLIS files can be previewed but curve plotting requires LAS format.
+                </p>
+              {/if}
+            {/if}
+          </div>
+        </div>
+
+        <!-- Footer actions -->
+        <div class="flex items-center justify-end gap-2 px-3 py-2 border-t border-gray-100 flex-shrink-0 bg-gray-50">
+          <button onclick={closePicker}
+            class="text-xs text-gray-500 hover:text-gray-700 px-2 py-1">
+            Cancel
+          </button>
+          <button
+            onclick={assignPreview}
+            disabled={!previewData || !!previewData.error}
+            class="text-xs bg-blue-600 text-white rounded px-3 py-1.5 font-medium
+                   hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
+            Assign to {pickingSlot}
+          </button>
+        </div>
+
       </div>
     {/snippet}
   </FloatingPanel>
