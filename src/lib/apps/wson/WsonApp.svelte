@@ -530,14 +530,13 @@
       }
       const text = new TextDecoder().decode(bytes);
       wson = JSON.parse(text);
-
-      // Fetch directional segments + autoscale DTX from server
-      await fetchDirData();
     } catch (e) {
       error = e.message ?? String(e);
     } finally {
       loading = false;
     }
+    // Fire directional fetch after loading — must not block the loading flag
+    fetchDirData();
   }
 
   async function fetchDirData() {
@@ -572,16 +571,16 @@
           nodes.push({ start: +p.top, end: +p.bot });
         }
       }
-      // Default node covering full depth if nothing found (like dlis does)
-      if (nodes.length === 0 && maxDepth > 0) {
-        nodes.push({ start: 0, end: maxDepth });
-      }
-
       const allD = [
         ...(src.oh ?? src.openHole ?? []).map(s => s.bot),
         ...(src.ch ?? src.casedHole ?? []).map(c => c.bot),
       ];
       const maxDepth = allD.length ? Math.max(...allD) + 50 : 3000;
+
+      // Default node covering full depth if nothing found
+      if (nodes.length === 0 && maxDepth > 0) {
+        nodes.push({ start: 0, end: maxDepth });
+      }
 
       const res = await fetch('/api/schematic', {
         method: 'POST',
