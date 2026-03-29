@@ -164,6 +164,37 @@ function extractFolderId(input) {
 
 // ─── Route handler ────────────────────────────────────────────────────────────
 
+// ─── DELETE handler — trash a file/folder ─────────────────────────────────────
+
+export async function DELETE({ url }) {
+  const fileId = url.searchParams.get('fileId');
+  if (!fileId) throw error(400, 'fileId query param is required');
+
+  try {
+    const accessToken = await getAccessToken();
+    // Use PATCH to set trashed=true (recoverable) rather than permanent DELETE
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ trashed: true })
+      }
+    );
+    if (!res.ok) {
+      const msg = await res.text();
+      throw new Error(`Drive trash failed (${res.status}): ${msg}`);
+    }
+    return new Response(null, { status: 204 });
+  } catch (err) {
+    console.error('[/api/drive DELETE]', err.message);
+    throw error(500, err.message);
+  }
+}
+
 export async function GET({ url }) {
   const rootEnv = env.GOOGLE_DRIVE_FOLDER_ID;
   if (!rootEnv) {

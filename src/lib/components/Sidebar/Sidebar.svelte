@@ -1,15 +1,20 @@
 <script>
   import { Tooltip } from 'flowbite-svelte';
-  import { FolderOpenSolid, FolderSolid, FileLinesOutline, CloudArrowUpOutline, DesktopPcOutline } from 'flowbite-svelte-icons';
+  import { FolderOpenSolid, FolderSolid, FileLinesOutline, CloudArrowUpOutline, DesktopPcOutline, TrashBinOutline } from 'flowbite-svelte-icons';
   import { datasourceStore } from '$lib/datasource';
   import { tabStore } from '$lib/tabs/tabs.svelte.js';
 
   let { open = $bindable(false) } = $props();
 
   let fileInput;
-  let tooltipItem = $state(null);
-  let tooltipX = $state(0);
-  let tooltipY = $state(0);
+  let tooltipItem   = $state(null);
+  let tooltipX      = $state(0);
+  let tooltipY      = $state(0);
+
+  // Delete state
+  let pendingDelete  = $state(null);   // path awaiting confirmation
+  let deletingPath   = $state(null);   // path currently being deleted
+  let deleteError    = $state('');
 
   function handleFiles(e) {
     datasourceStore.loadLocalFiles(Array.from(e.target.files));
@@ -24,6 +29,41 @@
 
   function hideTooltip() {
     tooltipItem = null;
+  }
+
+  // ── Delete logic ──────────────────────────────────────────────────────────
+
+  function requestDelete(e, item) {
+    e.stopPropagation();
+    deleteError = '';
+    if (pendingDelete === item.path) {
+      confirmDelete(item);
+    } else {
+      pendingDelete = item.path;
+      setTimeout(() => { if (pendingDelete === item.path) pendingDelete = null; }, 3000);
+    }
+  }
+
+  async function confirmDelete(item) {
+    pendingDelete  = null;
+    deletingPath   = item.path;
+    deleteError    = '';
+    try {
+      await datasourceStore.deleteItem(item.path, item.id);
+      // Close any open tabs that reference the deleted item/subtree
+      for (const tab of [...tabStore.tabs]) {
+        if (tab.path?.startsWith(item.path)) tabStore.closeTab(tab.id);
+      }
+    } catch (e) {
+      deleteError = e.message ?? String(e);
+    } finally {
+      deletingPath = null;
+    }
+  }
+
+  function cancelDelete(e) {
+    e.stopPropagation();
+    pendingDelete = null;
   }
 
   const visibleItems = $derived(
@@ -53,6 +93,14 @@
       onchange={handleFiles}
     />
 
+    <!-- Delete error banner -->
+    {#if deleteError}
+      <div class="px-2 py-1 bg-red-50 border-b border-red-200 text-red-700 text-xs flex items-start gap-1">
+        <span class="flex-1 leading-snug">{deleteError}</span>
+        <button onclick={() => deleteError = ''} class="flex-shrink-0 font-bold leading-none mt-0.5">✕</button>
+      </div>
+    {/if}
+
     <!-- Tree or status -->
     <div class="flex-1 overflow-y-auto overflow-x-hidden text-xs">
       {#if datasourceStore.loading}
@@ -69,31 +117,68 @@
         </p>
       {:else}
         {#each visibleItems as item (item.path)}
-          <button
-            class="w-full text-left flex items-center py-0.5 pr-2 hover:bg-green-50 select-none"
+          {@const isPending  = pendingDelete  === item.path}
+          {@const isDeleting = deletingPath   === item.path}
+          <div
+            class="group w-full flex items-center py-0.5 pr-1 hover:bg-green-50 select-none
+                   {isPending  ? 'bg-red-50 hover:bg-red-50' : ''}
+                   {isDeleting ? 'opacity-40 pointer-events-none' : ''}"
             style="padding-left: {0.25 + item.depth * 0.75}rem"
-            onclick={() => item.type === 'dir'
-              ? datasourceStore.toggleExpanded(item.path, item.id)
-              : tabStore.openFile(item)}
             onmouseenter={(e) => showTooltip(e, item)}
             onmouseleave={hideTooltip}
           >
+            <!-- LEFT: delete / confirm / spinner -->
+            {#if isDeleting}
+              <span class="w-4 flex-shrink-0 text-gray-400 text-center animate-spin mr-0.5" style="font-size:0.65rem">⟳</span>
+            {:else if isPending}
+              <button
+                onclick={(e) => { e.stopPropagation(); confirmDelete(item); }}
+                class="flex-shrink-0 text-[0.55rem] bg-red-600 text-white rounded px-1 py-0.5 leading-none mr-0.5"
+                title="Confirm — click to delete"
+              >✓</button>
+              <button
+                onclick={cancelDelete}
+                class="flex-shrink-0 text-[0.55rem] text-gray-400 hover:text-gray-600 leading-none mr-0.5"
+                title="Cancel"
+              >✕</button>
+            {:else}
+              <!-- Trash icon — appears on row hover -->
+              <button
+                onclick={(e) => requestDelete(e, item)}
+                class="flex-shrink-0 w-4 opacity-0 group-hover:opacity-100 p-0.5 rounded
+                       text-gray-300 hover:text-red-500 hover:bg-red-50 transition-opacity mr-0.5"
+                title="{datasourceStore.mode === 'remote' ? 'Move to trash' : 'Remove from workspace'}"
+              >
+                <TrashBinOutline class="w-3 h-3" />
+              </button>
+            {/if}
+
+            <!-- Expand arrow -->
             <span class="w-3 flex-shrink-0 text-gray-400 text-center" style="font-size:0.55rem; line-height:1">
               {#if item.type === 'dir' && (item.hasChildren || item.id)}
                 {datasourceStore.expanded.has(item.path) ? '▼' : '▶'}
               {/if}
             </span>
-            {#if item.type === 'dir'}
-              {#if datasourceStore.expanded.has(item.path)}
-                <FolderOpenSolid class="w-3.5 h-3.5 text-yellow-500 flex-shrink-0 mr-1" />
+
+            <!-- Icon + name (click to open/expand) -->
+            <button
+              class="flex-1 min-w-0 flex items-center py-0.5 text-left"
+              onclick={() => item.type === 'dir'
+                ? datasourceStore.toggleExpanded(item.path, item.id)
+                : tabStore.openFile(item)}
+            >
+              {#if item.type === 'dir'}
+                {#if datasourceStore.expanded.has(item.path)}
+                  <FolderOpenSolid class="w-3.5 h-3.5 text-yellow-500 flex-shrink-0 mr-1" />
+                {:else}
+                  <FolderSolid class="w-3.5 h-3.5 text-yellow-400 flex-shrink-0 mr-1" />
+                {/if}
               {:else}
-                <FolderSolid class="w-3.5 h-3.5 text-yellow-400 flex-shrink-0 mr-1" />
+                <FileLinesOutline class="w-3.5 h-3.5 text-gray-400 flex-shrink-0 mr-1" />
               {/if}
-            {:else}
-              <FileLinesOutline class="w-3.5 h-3.5 text-gray-400 flex-shrink-0 mr-1" />
-            {/if}
-            <span class="truncate text-gray-800">{item.name}</span>
-          </button>
+              <span class="truncate {isPending ? 'text-red-700 font-medium' : 'text-gray-800'}">{item.name}</span>
+            </button>
+          </div>
         {/each}
       {/if}
     </div>

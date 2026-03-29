@@ -68,6 +68,43 @@ class DatasourceState {
     this.expanded = next;
   }
 
+  /**
+   * Remove an item from the in-memory tree by path.
+   * For remote items, also trashes the file in Google Drive.
+   *
+   * @param {string} path  - slash-separated path (e.g. "SAMPLE_1/wells/W1/log.las")
+   * @param {string|null} id - Drive file ID (remote only)
+   */
+  async deleteItem(path, id) {
+    if (this.mode === 'remote' && id) {
+      await remote.trashFile(id);
+    }
+
+    const parts = path.split('/');
+    const removeFromNode = (node, parts) => {
+      if (parts.length === 1) {
+        const children = { ...node.children };
+        delete children[parts[0]];
+        return { ...node, children };
+      }
+      const [head, ...tail] = parts;
+      if (!node.children?.[head]) return node;
+      return {
+        ...node,
+        children: { ...node.children, [head]: removeFromNode(node.children[head], tail) }
+      };
+    };
+
+    this.tree = removeFromNode(this.tree, parts);
+
+    // Clean up expanded state for deleted folder
+    if (this.expanded.has(path)) {
+      const next = new Set(this.expanded);
+      next.delete(path);
+      this.expanded = next;
+    }
+  }
+
   flatten(tree, expanded) {
     return tree ? flatten(tree, expanded) : [];
   }
