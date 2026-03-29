@@ -378,36 +378,36 @@
     const { oh, ch, cem, perf, completions, syD, maxR, maxDepth, yScale } = g;
     const getY = syD;
 
-    // node.data = { radius, y0, text }  — radius in inches (world), y0 = anchor SVG-y
-    const makeNode = (radius, y0, text) =>
-      new labella.Node(y0, 5, { radius, y0, text });
+    // node.data = { radius, md, y0, text }
+    // radius — inches (world), md — anchor depth (m), y0 — SVG-y for labella collision
+    const makeNode = (radius, md, text) => {
+      const y0 = getY(md);
+      return new labella.Node(y0, 5, { radius, md, y0, text });
+    };
 
     const compNodes = [];
     const bhNodes   = [];
 
     if (showOpenHole) {
       for (const s of oh) {
-        const y = getY(s.bot);
-        bhNodes.push(makeNode(s.bitSize / 2, y, `${s.bitSize}" OH to ${s.bot}m`));
+        bhNodes.push(makeNode(s.bitSize / 2, s.bot, `${s.bitSize}" OH to ${s.bot}m`));
       }
     }
     if (showCasing) {
       for (const c of ch) {
-        const y = getY(c.top ?? 0);
-        bhNodes.push(makeNode(c.od / 2, y, `${c.od}" ${c.grade ?? ''}`.trim()));
+        bhNodes.push(makeNode(c.od / 2, c.top ?? 0, `${c.od}" ${c.grade ?? ''}`.trim()));
       }
     }
     if (showCement) {
       for (const c of cem) {
-        const y = getY(c.top ?? 0);
-        bhNodes.push(makeNode((c.od ?? 8) / 2, y, `Cem ${c.od ?? '?'}"`));
+        bhNodes.push(makeNode((c.od ?? 8) / 2, c.top ?? 0, `Cem ${c.od ?? '?'}"`));
       }
     }
     if (showCompletions) {
       for (const comp of completions) {
         const rOuter = (comp.od ?? 2.875) / 2 * (comp.od_multiplier ?? 1.2);
-        const ymid   = (getY(comp._top) + getY(comp._bot)) / 2;
-        compNodes.push(makeNode(rOuter, ymid, `${comp.description || 'Completion'} ${comp.od}"`));
+        const mdMid  = ((comp._top ?? 0) + (comp._bot ?? 0)) / 2;
+        compNodes.push(makeNode(rOuter, mdMid, `${comp.description || 'Completion'} ${comp.od}"`));
       }
     }
     if (showPerforations) {
@@ -415,9 +415,9 @@
         const ptop = +(p.top ?? p.topMD ?? p.topDepth ?? p.perfTop ?? 0);
         const pbot = +(p.bot ?? p.botMD ?? p.botDepth ?? p.perfBot ?? 0);
         if (pbot <= ptop) continue;
-        const tip  = (p.perfID ?? p.innerDiam ?? 7) / 2;
-        const ymid = (getY(ptop) + getY(pbot)) / 2;
-        compNodes.push(makeNode(tip + 5, ymid, `Perf ${ptop}–${pbot}m`));
+        const tip   = (p.perfID ?? p.innerDiam ?? 7) / 2;
+        const mdMid = (ptop + pbot) / 2;
+        compNodes.push(makeNode(tip + 5, mdMid, `Perf ${ptop}–${pbot}m`));
       }
     }
 
@@ -1280,25 +1280,25 @@
           <text x={sxR(2) + 4} y={tdY + 4} font-size="9" fill="#dc2626" font-family="sans-serif">TD {tdDepth}m</text>
         {/if}
 
-        <!-- Labella collision-resolved annotations — x positions computed live from geo -->
-        <!-- so diaScale / centerX changes are always reflected without stale closures   -->
+        <!-- Labella collision-resolved annotations — anchor x,y computed via txPoint  -->
+        <!-- so they follow the deviated wellbore and track diaScale / centerX changes -->
         {@const ANN_COMP_X = centerX + maxR * diaScale + 14}
         {@const ANN_LEFT_X = sxL(maxR) - 8}
         <g font-size="8" font-family="sans-serif">
           {#each annotations.compNodes as node}
-            {@const ax = sxR(node.data.radius)}
-            <line x1={ax} y1={node.data.y0}
+            {@const [ax, ay] = txPoint(node.data.radius, node.data.md, hasDir ? wellDir : null, dtx, yScale, diaScale, centerX, displayOpts.autoScale)}
+            <line x1={ax} y1={ay}
                   x2={ANN_COMP_X - 2} y2={node.currentPos - 3}
                   stroke="#6b7280" stroke-width="0.8" stroke-dasharray="3,2"/>
-            <circle cx={ax} cy={node.data.y0} r="2" fill="#6b7280" opacity="0.7"/>
+            <circle cx={ax} cy={ay} r="2" fill="#6b7280" opacity="0.7"/>
             <text x={ANN_COMP_X + 3} y={node.currentPos} text-anchor="start" fill="#374151">{node.data.text}</text>
           {/each}
           {#each annotations.bhNodes as node}
-            {@const ax = sxL(node.data.radius)}
-            <line x1={ax} y1={node.data.y0}
+            {@const [ax, ay] = txPoint(-node.data.radius, node.data.md, hasDir ? wellDir : null, dtx, yScale, diaScale, centerX, displayOpts.autoScale)}
+            <line x1={ax} y1={ay}
                   x2={ANN_LEFT_X} y2={node.currentPos - 3}
                   stroke="#4f86c6" stroke-width="0.8" stroke-dasharray="4,2"/>
-            <circle cx={ax} cy={node.data.y0} r="2" fill="#4f86c6" opacity="0.7"/>
+            <circle cx={ax} cy={ay} r="2" fill="#4f86c6" opacity="0.7"/>
             <text x={ANN_LEFT_X - 3} y={node.currentPos} text-anchor="end" fill="#1e40af">{node.data.text}</text>
           {/each}
         </g>
