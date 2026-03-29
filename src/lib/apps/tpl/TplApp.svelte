@@ -63,6 +63,20 @@
     }
   });
 
+  // Load the bundled sample template (for offline / quick testing)
+  async function loadSample() {
+    try {
+      loading = true; error = '';
+      const res = await fetch('/samples/basic_log.tpl');
+      if (!res.ok) throw new Error('Sample not found');
+      tpl = parseTpl(await res.text());
+    } catch (e) {
+      error = e.message ?? String(e);
+    } finally {
+      loading = false;
+    }
+  }
+
   // ── Workspace file list (for slot picker) ────────────────────────────────
   const DATA_EXTS = ['.las', '.las2', '.dlis', '.dlis1'];
 
@@ -97,6 +111,22 @@
     slotFilter;
     previewItem = null;
     previewData = null;
+  });
+
+  // When the slot picker opens, expand the first level of the tree so files
+  // are immediately visible without any manual clicking.
+  $effect(() => {
+    if (pickingSlot === null) return;
+    const tree = datasourceStore.tree;
+    if (!tree?.children) return;
+    for (const [, child] of Object.entries(tree.children)) {
+      if (child.type === 'dir') {
+        const path = child.name;
+        if (!datasourceStore.expanded.has(path)) {
+          datasourceStore.toggleExpanded(path, child.id ?? null);
+        }
+      }
+    }
   });
 
   // Mnemonics the TPL expects from the slot currently being picked
@@ -385,9 +415,22 @@
 {#if loading}
   <div class="flex items-center justify-center h-48 text-gray-400 text-sm">Loading template…</div>
 {:else if error}
-  <div class="p-4 text-red-600 text-sm">
-    <p class="font-semibold">Failed to load TPL</p>
-    <p class="mt-1">{error}</p>
+  <div class="p-6 flex flex-col items-start gap-3 text-sm">
+    <p class="font-semibold text-red-600">Failed to load TPL</p>
+    <p class="text-red-500 text-xs">{error}</p>
+    <button onclick={loadSample}
+      class="text-xs bg-white border border-gray-300 rounded px-3 py-1.5 text-gray-600 hover:bg-gray-50">
+      Load bundled sample instead
+    </button>
+  </div>
+{:else if !tpl}
+  <!-- Shown when tab was opened with no file source (shouldn't normally happen) -->
+  <div class="p-6 flex flex-col items-start gap-2 text-sm text-gray-500">
+    <p>No template loaded.</p>
+    <button onclick={loadSample}
+      class="text-xs bg-white border border-gray-300 rounded px-3 py-1.5 text-gray-600 hover:bg-gray-50">
+      Load bundled sample
+    </button>
   </div>
 {:else if tpl}
   <div class="flex flex-col h-full overflow-hidden bg-white">
@@ -581,7 +624,8 @@
               <p class="text-xs text-gray-400 p-3 text-center">Loading…</p>
             {:else if !datasourceStore.tree}
               <p class="text-xs text-gray-400 p-3 leading-snug">
-                No workspace open.<br>Open a folder from the sidebar first.
+                No workspace open.<br>
+                Open a local folder or connect to remote via the sidebar.
               </p>
             {:else if pickerItems.length === 0}
               <p class="text-xs text-gray-400 p-3">
