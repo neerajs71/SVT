@@ -16,8 +16,23 @@
   let deletingPath   = $state(null);   // path currently being deleted
   let deleteError    = $state('');
 
+  // Legacy fallback: webkitdirectory <input> (no delete support)
   function handleFiles(e) {
     datasourceStore.loadLocalFiles(Array.from(e.target.files));
+  }
+
+  // Preferred: File System Access API (supports real file deletion)
+  async function openFolder() {
+    if (typeof window !== 'undefined' && 'showDirectoryPicker' in window) {
+      try {
+        const dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+        await datasourceStore.loadLocalFolder(dirHandle);
+      } catch (e) {
+        if (e.name !== 'AbortError') deleteError = e.message;
+      }
+    } else {
+      fileInput.click();  // fallback to <input webkitdirectory>
+    }
   }
 
   function showTooltip(e, item) {
@@ -212,7 +227,7 @@
       <div class="border-t border-gray-200 px-2 py-1.5 flex justify-center">
         <button
           id="btn-open-dir"
-          onclick={() => fileInput.click()}
+          onclick={openFolder}
           class="flex items-center gap-1.5 w-full justify-center px-2 py-1 rounded text-xs
                  text-gray-600 hover:bg-green-50 hover:text-green-800"
           aria-label="Open local directory"

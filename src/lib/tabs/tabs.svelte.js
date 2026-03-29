@@ -19,7 +19,7 @@ class TabState {
     return this.tabs.find(t => t.id === this.activeId) ?? null;
   }
 
-  openFile(item) {
+  async openFile(item) {
     // If already open, just activate it
     if (this.tabs.find(t => t.id === item.path)) {
       this.activeId = item.path;
@@ -30,11 +30,17 @@ class TabState {
       ? '.' + item.name.split('.').pop().toLowerCase()
       : '';
 
+    // Resolve FileSystemFileHandle → File so app viewers get a plain File object
+    let file = item.file ?? null;
+    if (!file && item.handle?.kind === 'file') {
+      file = await item.handle.getFile();
+    }
+
     this.tabs.push({
       id: item.path,
       name: item.name,
       ext,
-      file: item.file ?? null,
+      file,
       driveId: item.id ?? null,
     });
     this.activeId = item.path;
