@@ -6,3 +6,4 @@ build/
 !.env.example
 vite.config.js.timestamp-*
 google-service-account.json
+.playwright-mcp/
