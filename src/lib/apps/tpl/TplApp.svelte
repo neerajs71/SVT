@@ -938,7 +938,7 @@
     title="Edit Curve"
     visible={editingCurve !== null}
     onClose={() => (editingCurve = null)}
-    width={220}
+    width={260}
     x={120}
     y={120}
   >
@@ -949,6 +949,27 @@
             <label class="block text-xs text-gray-500 mb-0.5">Mnemonic</label>
             <input type="text" bind:value={editingCurve.curveMnemonic}
               class="w-full text-xs border border-gray-200 rounded px-2 py-1 uppercase"/>
+          </div>
+          <!-- Panel + File Slot in one row -->
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-xs text-gray-500 mb-0.5">Panel</label>
+              <select bind:value={editingCurve.trackId}
+                class="w-full text-xs border border-gray-200 rounded px-2 py-1">
+                {#each tpl.panels ?? [] as p}
+                  <option value={p.id}>{p.title ?? p.id}</option>
+                {/each}
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs text-gray-500 mb-0.5">File Slot</label>
+              <select bind:value={editingCurve.fileSlot}
+                class="w-full text-xs border border-gray-200 rounded px-2 py-1">
+                {#each Object.keys(tpl.fileSlots ?? {}) as slotKey}
+                  <option value={slotKey}>{slotKey}</option>
+                {/each}
+              </select>
+            </div>
           </div>
           <div>
             <label class="block text-xs text-gray-500 mb-0.5">Color</label>
