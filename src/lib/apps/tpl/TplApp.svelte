@@ -380,6 +380,24 @@
     return parseFloat(n.toPrecision(3)).toString();
   }
 
+  // ── View mode ────────────────────────────────────────────────────────────
+  let viewMode = $state('chart'); // 'chart' | 'table'
+
+  function addNewCurve() {
+    const firstSlot  = Object.keys(tpl.fileSlots ?? {})[0] ?? 'F1';
+    const firstPanel = tpl.panels?.[0]?.id ?? 'P1';
+    const newCurve = {
+      id: `curve_${Date.now()}`,
+      curveMnemonic: 'NEW',
+      trackId: firstPanel,
+      fileSlot: firstSlot,
+      color: '#374151',
+      line: { thickness: 1.2, style: 'solid' },
+    };
+    tpl = { ...tpl, curveDefinitions: [...(tpl.curveDefinitions ?? []), newCurve] };
+    startEditCurve(newCurve);
+  }
+
   // ── Template editing ─────────────────────────────────────────────────────
   function startEditPanel(panel) { editingPanel = { ...panel }; }
   function saveEditPanel() {
@@ -433,43 +451,95 @@
     </button>
   </div>
 {:else if tpl}
-  <div class="flex flex-col h-full overflow-hidden bg-white">
+  <div class="flex h-full overflow-hidden bg-white">
 
-    <!-- ── Toolbar ─────────────────────────────────────────────────────── -->
-    <div class="flex items-center gap-3 px-3 py-2 border-b border-gray-200 bg-gray-50 flex-shrink-0 flex-wrap">
-      <span class="text-sm font-semibold text-gray-700">{tpl.title ?? tab.name}</span>
-      <span class="text-xs text-gray-400">{tpl.depth?.min ?? 0} – {tpl.depth?.max ?? '?'} {tpl.depth?.unit ?? ''}</span>
+    <!-- ── Left vertical toolbar ──────────────────────────────────────── -->
+    <div class="tpl-toolbar">
 
-      <!-- File slot assignments -->
-      <div class="flex items-center gap-2 ml-2 flex-wrap">
-        {#each Object.entries(tpl.fileSlots ?? {}) as [slotKey]}
-          <div class="flex items-center gap-1">
-            <span class="text-xs text-gray-500 font-mono">{slotKey}:</span>
-            {#if slotFiles[slotKey]}
-              <span class="text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded px-2 py-0.5 max-w-[140px] truncate"
-                title={slotFiles[slotKey].wellName}>
-                {slotFiles[slotKey].wellName}
-              </span>
-              <button onclick={() => clearSlot(slotKey)}
-                class="text-xs text-gray-400 hover:text-red-500 leading-none">✕</button>
-            {:else}
-              <button onclick={() => (pickingSlot = slotKey)}
-                class="text-xs bg-white border border-dashed border-gray-300 text-gray-500 rounded px-2 py-0.5 hover:border-blue-400 hover:text-blue-600">
-                Assign file…
-              </button>
-            {/if}
-          </div>
-        {/each}
+      <!-- Save -->
+      <div class="tb-item group">
+        <button class="tb-btn" onclick={saveTpl} aria-label="Save TPL">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M3 12h10M8 3v7M5 7l3 3 3-3"/>
+          </svg>
+        </button>
+        <span class="tb-tip">Save</span>
       </div>
 
-      <div class="flex-1"></div>
-      <button onclick={saveTpl}
-        class="text-xs bg-white border border-gray-300 rounded px-2.5 py-1 hover:bg-gray-50 text-gray-600">
-        Save TPL
-      </button>
+      <div class="tb-sep"></div>
+
+      <!-- Chart view -->
+      <div class="tb-item group">
+        <button class="tb-btn" class:tb-active={viewMode === 'chart'}
+          onclick={() => viewMode = 'chart'} aria-label="Chart view">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="2" width="12" height="12" rx="1"/>
+            <line x1="5" y1="2" x2="5" y2="14"/><line x1="9" y1="2" x2="9" y2="14"/>
+            <line x1="13" y1="2" x2="13" y2="14"/>
+          </svg>
+        </button>
+        <span class="tb-tip">Chart</span>
+      </div>
+
+      <!-- Table view -->
+      <div class="tb-item group">
+        <button class="tb-btn" class:tb-active={viewMode === 'table'}
+          onclick={() => viewMode = 'table'} aria-label="Table view">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="2" width="12" height="12" rx="1"/>
+            <line x1="2" y1="6" x2="14" y2="6"/><line x1="2" y1="10" x2="14" y2="10"/>
+            <line x1="6" y1="2" x2="6" y2="14"/>
+          </svg>
+        </button>
+        <span class="tb-tip">Curves Table</span>
+      </div>
+
+      <div class="tb-sep"></div>
+
+      <!-- Add curve -->
+      <div class="tb-item group">
+        <button class="tb-btn" onclick={addNewCurve} aria-label="Add curve">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <line x1="8" y1="3" x2="8" y2="13"/><line x1="3" y1="8" x2="13" y2="8"/>
+          </svg>
+        </button>
+        <span class="tb-tip">Add Curve</span>
+      </div>
+
     </div>
 
-    <!-- ── Main SVG area ──────────────────────────────────────────────── -->
+    <!-- ── Right: top bar + content ────────────────────────────────────── -->
+    <div class="flex flex-col flex-1 overflow-hidden">
+
+      <!-- Top bar: title + slot assignments -->
+      <div class="flex items-center gap-3 px-3 py-2 border-b border-gray-200 bg-gray-50 flex-shrink-0 flex-wrap">
+        <span class="text-sm font-semibold text-gray-700">{tpl.title ?? tab.name}</span>
+        <span class="text-xs text-gray-400">{tpl.depth?.min ?? 0} – {tpl.depth?.max ?? '?'} {tpl.depth?.unit ?? ''}</span>
+
+        <!-- File slot assignments -->
+        <div class="flex items-center gap-2 ml-2 flex-wrap">
+          {#each Object.entries(tpl.fileSlots ?? {}) as [slotKey]}
+            <div class="flex items-center gap-1">
+              <span class="text-xs text-gray-500 font-mono">{slotKey}:</span>
+              {#if slotFiles[slotKey]}
+                <span class="text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded px-2 py-0.5 max-w-[140px] truncate"
+                  title={slotFiles[slotKey].wellName}>
+                  {slotFiles[slotKey].wellName}
+                </span>
+                <button onclick={() => clearSlot(slotKey)}
+                  class="text-xs text-gray-400 hover:text-red-500 leading-none">✕</button>
+              {:else}
+                <button onclick={() => (pickingSlot = slotKey)}
+                  class="text-xs bg-white border border-dashed border-gray-300 text-gray-500 rounded px-2 py-0.5 hover:border-blue-400 hover:text-blue-600">
+                  Assign file…
+                </button>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      </div>
+
+    <!-- ── Main content area ───────────────────────────────────────────── -->
     <div class="flex-1 overflow-auto">
       <svg
         width={totalSvgW}
@@ -589,9 +659,11 @@
         {/each}
 
       </svg>
-    </div>
+    </div><!-- end main content -->
 
-  </div>
+    </div><!-- end right column -->
+
+  </div><!-- end outer flex -->
 
   <!-- ── Slot Picker FloatingPanel ────────────────────────────────────── -->
   <FloatingPanel
@@ -915,3 +987,60 @@
   </FloatingPanel>
 
 {/if}
+
+<style>
+  .tpl-toolbar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 2px;
+    background: #ffffff;
+    border-right: 1px solid #e2e8f0;
+    width: 30px;
+    flex-shrink: 0;
+  }
+  .tb-item {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .tb-btn {
+    background: none;
+    border: none;
+    color: #64748b;
+    width: 26px;
+    height: 26px;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .tb-btn:hover { background: #f1f5f9; color: #1e293b; }
+  :global(.tb-btn.tb-active) { background: #dbeafe; color: #2563eb; }
+  .tb-sep {
+    width: 18px;
+    height: 1px;
+    background: #e2e8f0;
+    margin: 2px 0;
+  }
+  .tb-tip {
+    display: none;
+    position: absolute;
+    left: 32px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #1e293b;
+    color: #fff;
+    font-size: 11px;
+    padding: 3px 7px;
+    border-radius: 4px;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 999;
+  }
+  .tb-item:hover .tb-tip { display: block; }
+</style>
