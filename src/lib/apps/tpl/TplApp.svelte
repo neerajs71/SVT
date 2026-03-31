@@ -381,7 +381,44 @@
   }
 
   // ── View mode ────────────────────────────────────────────────────────────
-  let viewMode = $state('chart'); // 'chart' | 'table'
+  let viewMode     = $state('chart'); // 'chart' | 'table'
+  let tableSortCol = $state('curveMnemonic');
+  let tableSortAsc = $state(true);
+
+  function sortBy(col) {
+    if (tableSortCol === col) tableSortAsc = !tableSortAsc;
+    else { tableSortCol = col; tableSortAsc = true; }
+  }
+
+  const sortedCurves = $derived.by(() => {
+    if (!tpl) return [];
+    const curves = [...(tpl.curveDefinitions ?? [])];
+    curves.sort((a, b) => {
+      let av, bv;
+      if (tableSortCol === 'thickness') { av = a.line?.thickness ?? 0; bv = b.line?.thickness ?? 0; }
+      else if (tableSortCol === 'style') { av = a.line?.style ?? ''; bv = b.line?.style ?? ''; }
+      else if (tableSortCol === 'panel') {
+        av = tpl.panels?.find(p => p.id === a.trackId)?.title ?? a.trackId ?? '';
+        bv = tpl.panels?.find(p => p.id === b.trackId)?.title ?? b.trackId ?? '';
+      }
+      else { av = a[tableSortCol] ?? ''; bv = b[tableSortCol] ?? ''; }
+      if (typeof av === 'number' && typeof bv === 'number')
+        return tableSortAsc ? av - bv : bv - av;
+      return tableSortAsc
+        ? String(av).localeCompare(String(bv))
+        : String(bv).localeCompare(String(av));
+    });
+    return curves;
+  });
+
+  function updateCurveField(curveId, field, value) {
+    tpl = { ...tpl, curveDefinitions: tpl.curveDefinitions.map(c => {
+      if (c.id !== curveId) return c;
+      if (field === 'thickness') return { ...c, line: { ...c.line, thickness: parseFloat(value) || 1 } };
+      if (field === 'style')     return { ...c, line: { ...c.line, style: value } };
+      return { ...c, [field]: value };
+    })};
+  }
 
   function addNewCurve() {
     const firstSlot  = Object.keys(tpl.fileSlots ?? {})[0] ?? 'F1';
@@ -541,6 +578,133 @@
 
     <!-- ── Main content area ───────────────────────────────────────────── -->
     <div class="flex-1 overflow-auto">
+
+    {#if viewMode === 'table'}
+      <!-- ── Curves Table ────────────────────────────────────────────── -->
+      <div class="p-3">
+        <table class="w-full text-xs border-collapse">
+          <thead>
+            <tr class="bg-gray-100 text-gray-600 select-none">
+              {#each [
+                ['curveMnemonic','Mnemonic'],
+                ['color','Color'],
+                ['fileSlot','Slot'],
+                ['panel','Panel'],
+                ['thickness','Thick.'],
+                ['style','Style'],
+              ] as [col, label]}
+                <th
+                  onclick={() => sortBy(col)}
+                  class="text-left px-2 py-1.5 font-medium cursor-pointer whitespace-nowrap
+                         hover:bg-gray-200 border border-gray-200
+                         {tableSortCol === col ? 'bg-blue-50 text-blue-700' : ''}"
+                >
+                  {label}
+                  {#if tableSortCol === col}
+                    <span class="ml-0.5">{tableSortAsc ? '▲' : '▼'}</span>
+                  {/if}
+                </th>
+              {/each}
+              <th class="px-2 py-1.5 border border-gray-200 w-6"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each sortedCurves as c, i}
+              <tr class="{i % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50/40 group">
+
+                <!-- Mnemonic -->
+                <td class="border border-gray-200 px-1 py-0.5">
+                  <input
+                    value={c.curveMnemonic}
+                    onchange={(e) => updateCurveField(c.id, 'curveMnemonic', e.currentTarget.value.toUpperCase())}
+                    class="w-full bg-transparent font-mono font-medium uppercase px-1 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-300 rounded"
+                  />
+                </td>
+
+                <!-- Color -->
+                <td class="border border-gray-200 px-1 py-0.5 w-16">
+                  <div class="flex items-center gap-1">
+                    <input type="color" value={c.color ?? '#374151'}
+                      onchange={(e) => updateCurveField(c.id, 'color', e.currentTarget.value)}
+                      class="w-5 h-5 rounded cursor-pointer border-0 p-0"/>
+                    <span class="font-mono text-[0.6rem] text-gray-400">{c.color ?? ''}</span>
+                  </div>
+                </td>
+
+                <!-- File Slot -->
+                <td class="border border-gray-200 px-1 py-0.5">
+                  <select
+                    value={c.fileSlot}
+                    onchange={(e) => updateCurveField(c.id, 'fileSlot', e.currentTarget.value)}
+                    class="w-full bg-transparent text-xs focus:outline-none focus:ring-1 focus:ring-blue-300 rounded"
+                  >
+                    {#each Object.keys(tpl.fileSlots ?? {}) as slotKey}
+                      <option value={slotKey}>{slotKey}</option>
+                    {/each}
+                  </select>
+                </td>
+
+                <!-- Panel -->
+                <td class="border border-gray-200 px-1 py-0.5">
+                  <select
+                    value={c.trackId}
+                    onchange={(e) => updateCurveField(c.id, 'trackId', e.currentTarget.value)}
+                    class="w-full bg-transparent text-xs focus:outline-none focus:ring-1 focus:ring-blue-300 rounded"
+                  >
+                    {#each tpl.panels ?? [] as p}
+                      <option value={p.id}>{p.title ?? p.id}</option>
+                    {/each}
+                  </select>
+                </td>
+
+                <!-- Thickness -->
+                <td class="border border-gray-200 px-1 py-0.5 w-16">
+                  <input type="number" step="0.1" min="0.5" max="5"
+                    value={c.line?.thickness ?? 1.2}
+                    onchange={(e) => updateCurveField(c.id, 'thickness', e.currentTarget.value)}
+                    class="w-full bg-transparent text-xs focus:outline-none focus:ring-1 focus:ring-blue-300 rounded px-1"
+                  />
+                </td>
+
+                <!-- Style -->
+                <td class="border border-gray-200 px-1 py-0.5 w-20">
+                  <select
+                    value={c.line?.style ?? 'solid'}
+                    onchange={(e) => updateCurveField(c.id, 'style', e.currentTarget.value)}
+                    class="w-full bg-transparent text-xs focus:outline-none focus:ring-1 focus:ring-blue-300 rounded"
+                  >
+                    <option value="solid">Solid</option>
+                    <option value="dashed">Dashed</option>
+                    <option value="dotted">Dotted</option>
+                  </select>
+                </td>
+
+                <!-- Delete -->
+                <td class="border border-gray-200 px-1 py-0.5 text-center">
+                  <button
+                    onclick={() => { tpl = { ...tpl, curveDefinitions: tpl.curveDefinitions.filter(x => x.id !== c.id) }; }}
+                    class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-opacity leading-none"
+                    title="Remove curve"
+                  >✕</button>
+                </td>
+              </tr>
+            {/each}
+
+            <!-- Add row -->
+            <tr>
+              <td colspan="7" class="border border-gray-200 px-2 py-1">
+                <button onclick={addNewCurve}
+                  class="text-xs text-blue-600 hover:text-blue-800 font-medium">
+                  + Add curve
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    {:else}
+      <!-- chart view -->
       <svg
         width={totalSvgW}
         height={TOTAL_H}
@@ -659,6 +823,8 @@
         {/each}
 
       </svg>
+
+    {/if}<!-- end chart/table toggle -->
     </div><!-- end main content -->
 
     </div><!-- end right column -->
