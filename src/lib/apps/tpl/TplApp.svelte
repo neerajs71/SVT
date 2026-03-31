@@ -420,6 +420,102 @@
     })};
   }
 
+  // ── Build from files ─────────────────────────────────────────────────────
+  let showBuildModal  = $state(false);
+  let buildFiles      = $state([]);  // { item, curves[], loading, error }
+  let buildFilter     = $state('');
+
+  const buildPickerItems = $derived.by(() => {
+    const q = buildFilter.trim().toLowerCase();
+    if (q) {
+      return workspaceFiles
+        .filter(f => f.name.toLowerCase().includes(q) || f.path?.toLowerCase().includes(q))
+        .map(f => ({ ...f, depth: 0, _search: true }));
+    }
+    const all = datasourceStore.flatten(datasourceStore.tree, datasourceStore.expanded);
+    return all.filter(item =>
+      item.type === 'dir' ||
+      DATA_EXTS.some(ext => item.name.toLowerCase().endsWith(ext))
+    );
+  });
+
+  function isBuildSelected(item) {
+    return buildFiles.some(f => f.item.path === item.path);
+  }
+
+  async function toggleBuildFile(item) {
+    if (isBuildSelected(item)) {
+      buildFiles = buildFiles.filter(f => f.item.path !== item.path);
+      return;
+    }
+    const entry = { item, curves: [], loading: true, error: '' };
+    buildFiles = [...buildFiles, entry];
+
+    try {
+      let buf;
+      if (item.file) buf = await item.file.arrayBuffer();
+      else if (item.id) {
+        const res = await fetch(`/api/drive?fileId=${encodeURIComponent(item.id)}`);
+        if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+        buf = await res.arrayBuffer();
+      }
+      const isDlis = /\.dlis\d?$/i.test(item.name);
+      let curves;
+      if (isDlis) {
+        const parsed = await parseDLISFile(buf);
+        const lfs = extractLogicalFiles(parsed);
+        curves = (lfs[0]?.channels ?? []).map(c => ({
+          mnem: c.name, unit: c.units, desc: c.longName,
+          slot: Object.keys(tpl.fileSlots ?? {})[0] ?? 'F1',
+          panel: tpl.panels?.[0]?.id ?? 'P1',
+          selected: true,
+        }));
+      } else {
+        const text = new TextDecoder().decode(buf);
+        const las = parseLAS(text);
+        const summary = processCurves(las);
+        curves = summary.curves.filter(c => !c.isIndex).map(c => ({
+          mnem: c.name, unit: c.unit, desc: c.desc,
+          slot: Object.keys(tpl.fileSlots ?? {})[0] ?? 'F1',
+          panel: tpl.panels?.[0]?.id ?? 'P1',
+          selected: true,
+        }));
+      }
+      buildFiles = buildFiles.map(f =>
+        f.item.path === item.path ? { ...f, curves, loading: false } : f
+      );
+    } catch (e) {
+      buildFiles = buildFiles.map(f =>
+        f.item.path === item.path ? { ...f, loading: false, error: e.message } : f
+      );
+    }
+  }
+
+  function applyBuild() {
+    const newCurves = [];
+    for (const bf of buildFiles) {
+      for (const c of bf.curves) {
+        if (!c.selected) continue;
+        newCurves.push({
+          id: `curve_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
+          curveMnemonic: c.mnem,
+          trackId: c.panel,
+          fileSlot: c.slot,
+          color: randomCurveColor(),
+          line: { thickness: 1.2, style: 'solid' },
+        });
+      }
+    }
+    tpl = { ...tpl, curveDefinitions: [...(tpl.curveDefinitions ?? []), ...newCurves] };
+    buildFiles = [];
+    buildFilter = '';
+    showBuildModal = false;
+  }
+
+  const CURVE_COLORS = ['#2563eb','#16a34a','#dc2626','#d97706','#7c3aed','#0891b2','#db2777'];
+  let _colorIdx = 0;
+  function randomCurveColor() { return CURVE_COLORS[_colorIdx++ % CURVE_COLORS.length]; }
+
   function addNewCurve() {
     const firstSlot  = Object.keys(tpl.fileSlots ?? {})[0] ?? 'F1';
     const firstPanel = tpl.panels?.[0]?.id ?? 'P1';
@@ -541,6 +637,20 @@
           </svg>
         </button>
         <span class="tb-tip">Add Curve</span>
+      </div>
+
+      <!-- Build from files -->
+      <div class="tb-item group">
+        <button class="tb-btn" class:tb-active={showBuildModal}
+          onclick={() => showBuildModal = true} aria-label="Build from files">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="9" width="3" height="5" rx="0.5"/>
+            <rect x="6.5" y="6" width="3" height="8" rx="0.5"/>
+            <rect x="11" y="3" width="3" height="11" rx="0.5"/>
+            <line x1="1" y1="14" x2="15" y2="14"/>
+          </svg>
+        </button>
+        <span class="tb-tip">Build from files</span>
       </div>
 
     </div>
@@ -1170,6 +1280,116 @@
           </div>
         </div>
       {/if}
+    {/snippet}
+  </FloatingPanel>
+
+  <!-- ── Build from Files FloatingPanel ───────────────────────────────── -->
+  <FloatingPanel
+    title="Build Template from Files"
+    bind:open={showBuildModal}
+    width={600}
+    height={480}>
+    {#snippet body()}
+      <div class="flex flex-col h-full gap-2 p-2">
+        <!-- search bar -->
+        <input type="search" placeholder="Filter files…" bind:value={buildFilter}
+          class="w-full text-xs border border-gray-200 rounded px-2 py-1 outline-none focus:border-blue-400"/>
+
+        <div class="flex gap-2 flex-1 min-h-0">
+          <!-- left: file list -->
+          <div class="flex flex-col w-52 flex-shrink-0 border border-gray-200 rounded overflow-y-auto bg-gray-50">
+            <div class="text-xs font-semibold text-gray-500 px-2 py-1 border-b border-gray-200 bg-white sticky top-0">
+              Workspace Files
+            </div>
+            {#each buildPickerItems as item}
+              {@const selected = isBuildSelected(item)}
+              <button
+                onclick={() => toggleBuildFile(item)}
+                class="flex items-center gap-1.5 px-2 py-1 text-xs text-left hover:bg-blue-50 transition-colors"
+                class:bg-blue-100={selected}
+                class:text-blue-800={selected}>
+                <span class="flex-shrink-0">
+                  {#if selected}
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="#2563eb"><rect x="1" y="1" width="10" height="10" rx="2"/><path d="M3 6l2 2 4-4" stroke="white" stroke-width="1.5" fill="none"/></svg>
+                  {:else}
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#9ca3af" stroke-width="1.2"><rect x="1" y="1" width="10" height="10" rx="2"/></svg>
+                  {/if}
+                </span>
+                <span class="truncate">{item.name}</span>
+              </button>
+            {:else}
+              <p class="text-xs text-gray-400 px-2 py-3 text-center">No files in workspace</p>
+            {/each}
+          </div>
+
+          <!-- right: curves per selected file -->
+          <div class="flex-1 overflow-y-auto border border-gray-200 rounded bg-white">
+            {#if buildFiles.length === 0}
+              <p class="text-xs text-gray-400 text-center mt-8">Select files on the left to see their curves</p>
+            {:else}
+              {#each buildFiles as bf}
+                <div class="border-b border-gray-100 last:border-0">
+                  <!-- file header -->
+                  <div class="flex items-center gap-1 px-2 py-1 bg-gray-50 sticky top-0 border-b border-gray-100">
+                    <span class="text-xs font-semibold text-gray-700 truncate flex-1">{bf.item.name}</span>
+                    {#if bf.loading}
+                      <svg class="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2.5"><circle cx="12" cy="12" r="9" stroke-opacity="0.3"/><path d="M12 3a9 9 0 0 1 9 9"/></svg>
+                    {/if}
+                    {#if bf.error}
+                      <span class="text-xs text-red-500 ml-1">{bf.error}</span>
+                    {/if}
+                  </div>
+
+                  {#if !bf.loading && !bf.error}
+                    <!-- column headers -->
+                    <div class="grid text-xs font-semibold text-gray-500 px-2 py-0.5 bg-white border-b border-gray-100"
+                      style="grid-template-columns: 1.2rem 1fr 5rem 5rem;">
+                      <span></span>
+                      <span>Mnemonic</span>
+                      <span>Slot</span>
+                      <span>Panel</span>
+                    </div>
+                    {#each bf.curves as c}
+                      <div class="grid items-center px-2 py-0.5 hover:bg-gray-50 text-xs"
+                        style="grid-template-columns: 1.2rem 1fr 5rem 5rem;">
+                        <input type="checkbox" bind:checked={c.selected} class="cursor-pointer"/>
+                        <span class="truncate" class:text-gray-400={!c.selected}>{c.mnemonic}</span>
+                        <select bind:value={c.fileSlot} disabled={!c.selected}
+                          class="text-xs border border-gray-200 rounded px-1 py-0.5 disabled:opacity-40">
+                          {#each Object.keys(tpl.fileSlots ?? {}) as slotKey}
+                            <option value={slotKey}>{slotKey}</option>
+                          {/each}
+                        </select>
+                        <select bind:value={c.trackId} disabled={!c.selected}
+                          class="text-xs border border-gray-200 rounded px-1 py-0.5 disabled:opacity-40">
+                          {#each tpl.panels ?? [] as p}
+                            <option value={p.id}>{p.title ?? p.id}</option>
+                          {/each}
+                        </select>
+                      </div>
+                    {:else}
+                      <p class="text-xs text-gray-400 px-2 py-1">No curves found</p>
+                    {/each}
+                  {/if}
+                </div>
+              {/each}
+            {/if}
+          </div>
+        </div>
+
+        <!-- footer -->
+        <div class="flex justify-end gap-2 pt-1 border-t border-gray-100">
+          <button onclick={() => { showBuildModal = false; buildFiles = []; buildFilter = ''; }}
+            class="text-xs border border-gray-200 rounded px-3 py-1.5 hover:bg-gray-50">
+            Cancel
+          </button>
+          <button onclick={applyBuild}
+            disabled={buildFiles.every(bf => bf.curves.every(c => !c.selected))}
+            class="text-xs bg-blue-600 text-white rounded px-3 py-1.5 hover:bg-blue-700 font-medium disabled:opacity-40">
+            Add Selected Curves
+          </button>
+        </div>
+      </div>
     {/snippet}
   </FloatingPanel>
 
