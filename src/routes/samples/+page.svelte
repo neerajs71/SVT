@@ -14,6 +14,12 @@
   let driveBusy   = $state(false);
   let driveUploadInput;
 
+  /** Parse a fetch Response error into a readable string */
+  async function readError(res) {
+    const text = await res.text();
+    try { return JSON.parse(text)?.message ?? text; } catch { return text; }
+  }
+
   // ── Status toast ─────────────────────────────────────────────────────────────
   let toast = $state('');
   let toastTimer;
@@ -39,7 +45,7 @@
     localBusy = true; localError = '';
     try {
       const res = await fetch('/api/samples');
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await readError(res));
       const data = await res.json();
       localFiles = data.files;
     } catch (e) { localError = e.message; }
@@ -50,7 +56,7 @@
     const fd = new FormData();
     fd.append('file', fileObj);
     const res = await fetch('/api/samples', { method: 'POST', body: fd });
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) throw new Error(await readError(res));
     return res.json();
   }
 
@@ -59,7 +65,7 @@
     localBusy = true;
     try {
       const res = await fetch(`/api/samples?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await readError(res));
       showToast(`Deleted ${name}`);
       await refreshLocal();
     } catch (e) { localError = e.message; }
@@ -89,7 +95,7 @@
     try {
       const params = folderId ? `?folderId=${encodeURIComponent(folderId)}` : '';
       const res = await fetch(`/api/drive${params}`);
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await readError(res));
       const node = await res.json();
       // node.children is an object {name: {name, type, id, children?}}
       driveItems = Object.values(node.children ?? {}).sort((a, b) => {
@@ -120,7 +126,7 @@
     driveBusy = true;
     try {
       const res = await fetch(`/api/drive?fileId=${encodeURIComponent(item.id)}`);
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await readError(res));
       const blob = await res.blob();
       const file = new File([blob], item.name, { type: blob.type });
       await uploadLocalFile(file);
@@ -170,7 +176,7 @@
         const res = await fetch(`/api/drive?folderId=${encodeURIComponent(folderId)}`, {
           method: 'POST', body: fd
         });
-        if (!res.ok) throw new Error(await res.text());
+        if (!res.ok) throw new Error(await readError(res));
       }
       showToast(`Uploaded ${files.length} file(s) to Drive`);
       await refreshDrive(folderId);
@@ -184,7 +190,7 @@
     driveBusy = true;
     try {
       const res = await fetch(`/api/drive?fileId=${encodeURIComponent(item.id)}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await readError(res));
       showToast(`Trashed "${item.name}"`);
       await refreshDrive(currentDriveFolderId());
     } catch (e) { driveError = e.message; }
