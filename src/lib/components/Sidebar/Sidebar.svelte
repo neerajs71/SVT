@@ -1,4 +1,5 @@
 <script>
+  import { onMount } from 'svelte';
   import { Tooltip } from 'flowbite-svelte';
   import { FolderOpenSolid, FolderSolid, FileLinesOutline, CloudArrowUpOutline, DesktopPcOutline, TrashBinOutline } from 'flowbite-svelte-icons';
   import { datasourceStore } from '$lib/datasource';
@@ -15,6 +16,8 @@
   let pendingDelete  = $state(null);   // path awaiting confirmation
   let deletingPath   = $state(null);   // path currently being deleted
   let deleteError    = $state('');
+
+  onMount(() => datasourceStore.initRecentWorkspaces());
 
   // Resizable sidebar
   let sidebarWidth = $state(166);  // px, default ~10.4rem
@@ -253,8 +256,24 @@
       </Tooltip>
     </div>
 
-    <!-- Bottom row 2: Open directory (local only) -->
+    <!-- Bottom row 2: Recent workspaces + Open Folder (local only) -->
     {#if datasourceStore.mode === 'local'}
+      {#if datasourceStore.recentHandles.length > 0}
+        <div class="border-t border-gray-200 px-2 pt-1.5 pb-0.5">
+          <p class="text-[0.6rem] font-semibold text-gray-400 uppercase tracking-wide mb-1 px-1">Recent</p>
+          {#each datasourceStore.recentHandles as entry}
+            <button
+              onclick={() => datasourceStore.reopenWorkspace(entry)}
+              class="flex items-center gap-1.5 w-full px-1.5 py-1 rounded text-xs text-gray-600
+                     hover:bg-green-50 hover:text-green-800 truncate"
+              title={entry.name}
+            >
+              <FolderSolid class="w-3 h-3 text-yellow-400 flex-shrink-0" />
+              <span class="truncate">{entry.name}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
       <div class="border-t border-gray-200 px-2 py-1.5 flex justify-center">
         <button
           id="btn-open-dir"

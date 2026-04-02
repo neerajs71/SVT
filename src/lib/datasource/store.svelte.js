@@ -4,6 +4,43 @@ import { RemoteDataSource } from './RemoteDataSource.js';
 const local = new LocalDataSource();
 const remote = new RemoteDataSource();
 
+// ── IndexedDB helpers — persist FileSystemDirectoryHandles across sessions ───
+const IDB_DB    = 'svtc-workspaces';
+const IDB_STORE = 'handles';
+const MAX_RECENT = 5;
+
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(IDB_DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE, { keyPath: 'name' });
+    req.onsuccess = () => res(req.result);
+    req.onerror   = () => rej(req.error);
+  });
+}
+
+async function idbSave(handle) {
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put({ name: handle.name, handle, savedAt: Date.now() });
+    tx.oncomplete = res;
+    tx.onerror    = () => rej(tx.error);
+  });
+}
+
+async function idbLoadAll() {
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx  = db.transaction(IDB_STORE, 'readonly');
+    const req = tx.objectStore(IDB_STORE).getAll();
+    req.onsuccess = () =>
+      res((req.result ?? []).sort((a, b) => b.savedAt - a.savedAt).slice(0, MAX_RECENT));
+    req.onerror = () => rej(req.error);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function getNodeByPath(tree, path) {
   const parts = path.split('/');
   let node = tree;
@@ -15,11 +52,30 @@ function getNodeByPath(tree, path) {
 }
 
 class DatasourceState {
-  mode = $state('remote');
-  tree = $state(null);
-  expanded = $state(new Set());
-  loading = $state(true);
-  error = $state(null);
+  mode          = $state('local');   // default to local
+  tree          = $state(null);
+  expanded      = $state(new Set());
+  loading       = $state(false);
+  error         = $state(null);
+  recentHandles = $state([]);        // [{ name, handle, savedAt }]
+
+  /** Call from onMount in Sidebar to populate recent workspaces list. */
+  async initRecentWorkspaces() {
+    if (typeof indexedDB === 'undefined') return;
+    try { this.recentHandles = await idbLoadAll(); } catch { /* ignore */ }
+  }
+
+  /** Re-open a persisted handle — browser will prompt for permission. */
+  async reopenWorkspace(entry) {
+    if (!entry?.handle) return;
+    try {
+      const perm = await entry.handle.requestPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') return;
+      await this.loadLocalFolder(entry.handle);
+    } catch (e) {
+      this.error = e.message;
+    }
+  }
 
   toggleMode() {
     const newMode = this.mode === 'local' ? 'remote' : 'local';
@@ -38,18 +94,18 @@ class DatasourceState {
     }
   }
 
-  /**
-   * Load from a FileSystemDirectoryHandle (File System Access API).
-   * Enables real file deletion via removeEntry().
-   */
   async loadLocalFolder(dirHandle) {
     this.loading = true;
     this.error = null;
     try {
       const tree = await local.buildTreeFromHandle(dirHandle);
-      // Wrap in a virtual root to match legacy shape ({ name:'', children:{...} })
       this.tree = { name: '', type: 'dir', children: { [dirHandle.name]: tree } };
       this.expanded = new Set([dirHandle.name]);
+      // Persist handle for recent workspaces
+      if (typeof indexedDB !== 'undefined') {
+        await idbSave(dirHandle).catch(() => {});
+        this.recentHandles = await idbLoadAll().catch(() => this.recentHandles);
+      }
     } catch (e) {
       this.error = e.message;
     } finally {
@@ -57,9 +113,6 @@ class DatasourceState {
     }
   }
 
-  /**
-   * Legacy: load from webkitdirectory FileList (no delete support).
-   */
   loadLocalFiles(files) {
     if (!files || !files.length) return;
     this.tree = local.buildTree(files);
@@ -90,22 +143,6 @@ class DatasourceState {
     this.expanded = next;
   }
 
-  /**
-   * Delete an item from the workspace.
-   *
-   * Local mode (File System Access API):
-   *   Calls parentHandle.removeEntry(name) to delete from disk,
-   *   then removes from in-memory tree.
-   *
-   * Local mode (legacy FileList):
-   *   Removes from in-memory tree only (no disk access).
-   *
-   * Remote mode:
-   *   Trashes the file in Google Drive, then removes from in-memory tree.
-   *
-   * @param {string} path  - slash-separated path in the tree
-   * @param {string|null} id - Drive file ID (remote only)
-   */
   async deleteItem(path, id) {
     const parts = path.split('/');
     const name  = parts[parts.length - 1];
@@ -113,20 +150,16 @@ class DatasourceState {
     if (this.mode === 'remote') {
       if (id) await remote.trashFile(id);
     } else {
-      // Local: try File System Access API deletion
       const parentParts = parts.slice(0, -1);
       const parentNode  = parentParts.length
         ? getNodeByPath(this.tree, parentParts.join('/'))
         : this.tree;
 
       if (parentNode?.handle) {
-        // Real deletion from disk
         await parentNode.handle.removeEntry(name, { recursive: true });
       }
-      // If no handle (legacy input), just remove from tree silently
     }
 
-    // Remove from in-memory tree
     const removeFromNode = (node, parts) => {
       if (parts.length === 1) {
         const children = { ...node.children };
@@ -143,7 +176,6 @@ class DatasourceState {
 
     this.tree = removeFromNode(this.tree, parts);
 
-    // Clean up expanded state for deleted folder
     if (this.expanded.has(path)) {
       const next = new Set(this.expanded);
       next.delete(path);
@@ -157,8 +189,3 @@ class DatasourceState {
 }
 
 export const datasourceStore = new DatasourceState();
-
-// Auto-fetch remote tree on load
-remote.fetchTree()
-  .then(tree => { datasourceStore.tree = tree; datasourceStore.loading = false; })
-  .catch(err => { datasourceStore.loading = false; datasourceStore.error = err.message; });
