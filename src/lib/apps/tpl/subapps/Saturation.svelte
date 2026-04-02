@@ -6,10 +6,21 @@
 
   // ── Models ────────────────────────────────────────────────────────────────
   const MODELS = [
-    { id: 'archie',     label: 'Archie',     shalyInputs: false },
-    { id: 'simandoux',  label: 'Simandoux',  shalyInputs: true  },
-    { id: 'indonesian', label: 'Indonesian', shalyInputs: true  },
+    { id: 'archie',     label: 'Archie',     shalyInputs: false,
+      formula: 'Sw = [(a·Rw) / (φᵐ·Rt)]^(1/n)' },
+    { id: 'simandoux',  label: 'Simandoux',  shalyInputs: true,
+      formula: 'Sw²·φᵐ/(a·Rw) + Sw·Vcl/Rcl = 1/Rt' },
+    { id: 'indonesian', label: 'Indonesian', shalyInputs: true,
+      formula: '1/√Rt = [φ^(m/2)/√(a·Rw) + Vcl^(1−Vcl/2)/√Rcl]·Sw^(n/2)' },
   ];
+
+  const VCL_FORMULAS = {
+    linear:        'Vcl = IGR',
+    larionov_old:  'Vcl = 0.33·(2^(2·IGR) − 1)',
+    larionov_ter:  'Vcl = 0.083·(2^(3.7·IGR) − 1)',
+    clavier:       'Vcl = 1.7 − √(3.38 − (IGR+0.7)²)',
+    steiber:       'Vcl = IGR / (3 − 2·IGR)',
+  };
   let modelId = $state('archie');
   const model = $derived(MODELS.find(m => m.id === modelId));
 
@@ -121,13 +132,17 @@
 
     // Stage 1: Vclay array (shaly models only)
     let vclMap = null, rclData = null;
+    let vclTrackDepths = [], vclTrackValues = [];
     if (model?.shalyInputs) {
       const grData = getSlotCurve(grSlot, grCurve);
       if (!grData) { calcError = `GR curve "${grCurve}" not found in ${grSlot}`; return; }
       vclMap = new Map(grData.depths.map((d, i) => [d, calcVclOf(grData.values[i])]));
+      // Store full Vclay track for plotting
+      vclTrackDepths = grData.depths;
+      vclTrackValues = grData.depths.map((_, i) => calcVclOf(grData.values[i]));
 
       // Stats for display
-      const vclArr = [...vclMap.values()].filter(v => isFinite(v));
+      const vclArr = vclTrackValues.filter(v => isFinite(v));
       if (vclArr.length) {
         const sum = vclArr.reduce((s, v) => s + v, 0);
         vclStats = {
@@ -190,24 +205,45 @@
     }
 
     if (!depths.length) { calcError = 'No overlapping depths between curves.'; return; }
-    swResult = { depths, sw };
+    swResult = { depths, sw, vclDepths: vclTrackDepths, vcl: vclTrackValues };
   }
 
   // ── Chart ─────────────────────────────────────────────────────────────────
-  const CHART_W  = 200;
+  const TRACK_W  = 160;   // width of each track
   const CHART_H  = 500;
-  const HEADER_H = 40;
+  const HEADER_H = 50;
   const MARGIN_L = 40;
+  const TRACK_GAP = 8;
 
   const dMin = $derived(tpl?.depth?.visibleMin ?? tpl?.depth?.min ?? 0);
   const dMax = $derived(tpl?.depth?.visibleMax ?? tpl?.depth?.max ?? 5000);
   function sy(d) { return HEADER_H + ((d - dMin) / ((dMax - dMin) || 1)) * CHART_H; }
-  function sx(v) { return MARGIN_L + v * CHART_W; }
+
+  // Vclay track x-scale (left track)
+  const VCL_X0 = $derived(MARGIN_L);
+  function svx(v) { return VCL_X0 + v * TRACK_W; }
+
+  // Sw track x-scale (right track, or left when no vcl)
+  const SW_X0 = $derived(swResult?.vclDepths?.length ? MARGIN_L + TRACK_W + TRACK_GAP : MARGIN_L);
+  function ssx(v) { return SW_X0 + v * TRACK_W; }
+
+  const svgWidth = $derived(
+    swResult?.vclDepths?.length
+      ? MARGIN_L + TRACK_W + TRACK_GAP + TRACK_W + 20
+      : MARGIN_L + TRACK_W + 20
+  );
 
   const swPolyline = $derived.by(() => {
     if (!swResult) return '';
     return swResult.depths
-      .map((d, i) => d < dMin || d > dMax ? null : `${sx(swResult.sw[i]).toFixed(1)},${sy(d).toFixed(1)}`)
+      .map((d, i) => d < dMin || d > dMax ? null : `${ssx(swResult.sw[i]).toFixed(1)},${sy(d).toFixed(1)}`)
+      .filter(Boolean).join(' ');
+  });
+
+  const vclPolyline = $derived.by(() => {
+    if (!swResult?.vclDepths?.length) return '';
+    return swResult.vclDepths
+      .map((d, i) => d < dMin || d > dMax ? null : `${svx(Math.max(0, Math.min(1, swResult.vcl[i]))).toFixed(1)},${sy(d).toFixed(1)}`)
       .filter(Boolean).join(' ');
   });
 
@@ -227,7 +263,7 @@
     <!-- Model selector -->
     <div class="px-3 pt-3 pb-2 border-b border-gray-200">
       <label class="block text-[0.6rem] text-gray-400 uppercase tracking-wide mb-1">Model</label>
-      <div class="flex gap-1">
+      <div class="flex gap-1 mb-1.5">
         {#each MODELS as mod}
           <button
             onclick={() => { modelId = mod.id; swResult = null; calcError = ''; vclStats = null; activePanel = mod.shalyInputs ? 'vclay' : 'vclay'; }}
@@ -239,6 +275,7 @@
           </button>
         {/each}
       </div>
+      <p class="text-[0.6rem] font-mono text-gray-500 leading-snug">{model?.formula}</p>
     </div>
 
     {#if model?.shalyInputs}
@@ -370,11 +407,12 @@
               {#each VCL_METHODS as vm}
                 <button
                   onclick={() => vclMethod = vm.id}
-                  class="w-full text-left text-xs px-2 py-1 rounded border transition-colors
+                  class="w-full text-left px-2 py-1 rounded border transition-colors
                          {vclMethod === vm.id
                            ? 'bg-amber-500 text-white border-amber-500'
                            : 'bg-white text-gray-600 border-gray-200 hover:border-amber-300'}">
-                  {vm.label}
+                  <div class="text-xs">{vm.label}</div>
+                  <div class="text-[0.58rem] font-mono opacity-75 mt-0.5">{VCL_FORMULAS[vm.id]}</div>
                 </button>
               {/each}
             </div>
@@ -595,29 +633,64 @@
         Configure inputs and click Calculate Sw
       </div>
     {:else}
-      <svg width={MARGIN_L + CHART_W + 20} height={HEADER_H + CHART_H + 20}
+      <!-- Formula banner -->
+      <div class="px-4 py-2 border-b border-gray-100 bg-gray-50">
+        <span class="text-[0.6rem] text-gray-400 uppercase tracking-wide mr-2">Formula</span>
+        <span class="text-[0.65rem] font-mono text-gray-600">{model?.formula}</span>
+        {#if model?.shalyInputs}
+          <span class="text-gray-300 mx-1">·</span>
+          <span class="text-[0.6rem] text-amber-500 font-mono">{VCL_FORMULAS[vclMethod]}</span>
+          <span class="text-[0.55rem] text-gray-400 ml-1">where IGR=(GR−{grMin})/(GR{grMax}−{grMin})</span>
+        {/if}
+      </div>
+
+      <svg width={svgWidth} height={HEADER_H + CHART_H + 20}
         style="display:block; font-family:sans-serif">
 
-        <rect x={MARGIN_L} y={HEADER_H} width={CHART_W} height={CHART_H} fill="#f8fafc"/>
-
-        <text x={MARGIN_L + CHART_W/2} y="16" text-anchor="middle" font-size="11" font-weight="bold" fill="#374151">Sw</text>
-        <text x={MARGIN_L + CHART_W/2} y="28" text-anchor="middle" font-size="9" fill="#6b7280">{model?.label}</text>
-
-        {#each [0, 0.25, 0.5, 0.75, 1.0] as v}
-          <line x1={sx(v)} y1={HEADER_H} x2={sx(v)} y2={HEADER_H + CHART_H} stroke="#e5e7eb" stroke-width="1"/>
-          <text x={sx(v)} y={HEADER_H - 4} text-anchor="middle" font-size="8" fill="#9ca3af">{v}</text>
-        {/each}
-
+        <!-- Depth ticks -->
         {#each depthTicks as t}
-          <line x1={MARGIN_L - 4} y1={t.py} x2={MARGIN_L + CHART_W} y2={t.py} stroke="#e5e7eb" stroke-width="0.5"/>
+          <line x1={MARGIN_L - 4} y1={t.py} x2={svgWidth - 10} y2={t.py} stroke="#e5e7eb" stroke-width="0.5"/>
           <text x={MARGIN_L - 6} y={t.py + 3} text-anchor="end" font-size="8" fill="#6b7280">{t.label}</text>
         {/each}
 
+        <!-- ── Vclay track (shaly models only) ──────────────────────────── -->
+        {#if swResult.vclDepths?.length}
+          <rect x={VCL_X0} y={HEADER_H} width={TRACK_W} height={CHART_H} fill="#fffbeb"/>
+          <!-- header -->
+          <text x={VCL_X0 + TRACK_W/2} y="18" text-anchor="middle" font-size="10" font-weight="bold" fill="#92400e">Vclay</text>
+          <text x={VCL_X0 + TRACK_W/2} y="30" text-anchor="middle" font-size="8" fill="#b45309">{VCL_METHODS.find(v=>v.id===vclMethod)?.label}</text>
+          <text x={VCL_X0 + TRACK_W/2} y="42" text-anchor="middle" font-size="7" fill="#d97706" font-style="italic">{VCL_FORMULAS[vclMethod]}</text>
+          <!-- x-axis ticks -->
+          {#each [0, 0.25, 0.5, 0.75, 1.0] as v}
+            <line x1={svx(v)} y1={HEADER_H} x2={svx(v)} y2={HEADER_H + CHART_H} stroke="#fde68a" stroke-width="1"/>
+            <text x={svx(v)} y={HEADER_H - 4} text-anchor="middle" font-size="8" fill="#d97706">{v}</text>
+          {/each}
+          <!-- curve -->
+          {#if vclPolyline}
+            <polyline points={vclPolyline} fill="none" stroke="#d97706" stroke-width="1.5" opacity="0.9"/>
+          {/if}
+          <!-- 0.5 marker -->
+          <line x1={svx(0.5)} y1={HEADER_H} x2={svx(0.5)} y2={HEADER_H + CHART_H}
+            stroke="#92400e" stroke-width="1" stroke-dasharray="3,3" opacity="0.4"/>
+        {/if}
+
+        <!-- ── Sw track ───────────────────────────────────────────────────── -->
+        <rect x={SW_X0} y={HEADER_H} width={TRACK_W} height={CHART_H} fill="#eff6ff"/>
+        <!-- header -->
+        <text x={SW_X0 + TRACK_W/2} y="18" text-anchor="middle" font-size="10" font-weight="bold" fill="#1e40af">Sw</text>
+        <text x={SW_X0 + TRACK_W/2} y="30" text-anchor="middle" font-size="8" fill="#3b82f6">{model?.label}</text>
+        <text x={SW_X0 + TRACK_W/2} y="42" text-anchor="middle" font-size="7" fill="#60a5fa" font-style="italic">{model?.formula}</text>
+        <!-- x-axis ticks -->
+        {#each [0, 0.25, 0.5, 0.75, 1.0] as v}
+          <line x1={ssx(v)} y1={HEADER_H} x2={ssx(v)} y2={HEADER_H + CHART_H} stroke="#bfdbfe" stroke-width="1"/>
+          <text x={ssx(v)} y={HEADER_H - 4} text-anchor="middle" font-size="8" fill="#93c5fd">{v}</text>
+        {/each}
+        <!-- curve -->
         {#if swPolyline}
           <polyline points={swPolyline} fill="none" stroke="#2563eb" stroke-width="1.5" opacity="0.9"/>
         {/if}
-
-        <line x1={sx(0.5)} y1={HEADER_H} x2={sx(0.5)} y2={HEADER_H + CHART_H}
+        <!-- 0.5 marker -->
+        <line x1={ssx(0.5)} y1={HEADER_H} x2={ssx(0.5)} y2={HEADER_H + CHART_H}
           stroke="#dc2626" stroke-width="1" stroke-dasharray="4,3" opacity="0.6"/>
       </svg>
     {/if}
