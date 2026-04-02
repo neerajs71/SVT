@@ -438,6 +438,53 @@
     return null;
   }
 
+  // ── Hover crosshair ──────────────────────────────────────────────────────
+  let hoverDepth = $state(null);
+  let hoverClientX = $state(0);
+  let hoverClientY = $state(0);
+
+  function onSvgMouseMove(e) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const svgY = e.clientY - rect.top;
+    const depth = dMin() + ((svgY - HEADER_H) / CHART_H) * dRange();
+    if (depth < dMin() || depth > dMax()) { hoverDepth = null; return; }
+    hoverDepth = depth;
+    hoverClientX = e.clientX - rect.left;
+    hoverClientY = svgY;
+  }
+
+  function getCurveValueAtDepth(curveDef, depth) {
+    const slot = slotFiles[curveDef.fileSlot];
+    if (!slot) return null;
+    let depths, values;
+    if (slot.las) {
+      const cd = extractLasCurve(slot.las, curveDef.curveMnemonic);
+      if (!cd) return null;
+      depths = cd.depths; values = cd.values;
+    } else if (slot.dlis) {
+      const cd = extractCurveData(slot.dlis, curveDef.curveMnemonic);
+      if (!cd) return null;
+      depths = cd.xs; values = cd.ys;
+    } else return null;
+    if (!depths?.length) return null;
+    // Binary search for nearest depth
+    let lo = 0, hi = depths.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (depths[mid] < depth) lo = mid + 1; else hi = mid;
+    }
+    const idx = (lo > 0 && Math.abs(depths[lo-1] - depth) < Math.abs(depths[lo] - depth)) ? lo - 1 : lo;
+    const v = values[idx];
+    return isFinite(v) ? v : null;
+  }
+
+  const hoverReadings = $derived.by(() => {
+    if (hoverDepth === null || !tpl) return [];
+    return (tpl.curveDefinitions ?? [])
+      .map(c => ({ mnem: c.curveMnemonic, color: c.color ?? '#374151', value: getCurveValueAtDepth(c, hoverDepth) }))
+      .filter(c => c.value !== null);
+  });
+
   function fmtNum(n) {
     if (!isFinite(n)) return '';
     if (Math.abs(n) >= 10000) return (n / 1000).toFixed(0) + 'k';
@@ -1011,10 +1058,13 @@
 
     {:else}
       <!-- chart view -->
+      <div style="position:relative;display:inline-block">
       <svg
         width={totalSvgW}
         height={TOTAL_H}
         style="display:block;min-width:{totalSvgW}px;font-family:sans-serif"
+        onmousemove={onSvgMouseMove}
+        onmouseleave={() => hoverDepth = null}
       >
         <!-- Depth column background -->
         <rect x="0" y="0" width={DEPTH_W} height={TOTAL_H} fill="#f3f4f6"/>
@@ -1128,7 +1178,35 @@
 
         {/each}
 
+        <!-- Hover crosshair -->
+        {#if hoverDepth !== null}
+          {@const cy = sy(hoverDepth)}
+          <line x1={DEPTH_W} x2={totalSvgW} y1={cy} y2={cy}
+            stroke="#374151" stroke-width="0.75" stroke-dasharray="4,3" pointer-events="none"/>
+          <text x={DEPTH_W - 2} y={cy - 2} text-anchor="end" font-size="8" fill="#374151" font-weight="bold"
+            pointer-events="none">{hoverDepth.toFixed(1)}</text>
+        {/if}
+
       </svg>
+
+      <!-- Hover tooltip -->
+      {#if hoverDepth !== null && hoverReadings.length > 0}
+        <div style="position:absolute;left:{hoverClientX + 14}px;top:{Math.max(4, hoverClientY - 8)}px;pointer-events:none;z-index:30"
+          class="bg-white border border-gray-200 rounded shadow-lg px-2 py-1.5 text-xs min-w-[120px]">
+          <div class="text-gray-500 font-mono text-[0.65rem] mb-1 border-b border-gray-100 pb-0.5">
+            {hoverDepth.toFixed(1)} {tpl.depth?.unit ?? 'ft'}
+          </div>
+          {#each hoverReadings as r}
+            <div class="flex items-center gap-1.5 py-0.5">
+              <span class="w-2.5 h-2.5 rounded-sm flex-shrink-0" style="background:{r.color}"></span>
+              <span class="text-gray-600 flex-1">{r.mnem}</span>
+              <span class="font-mono text-gray-800 ml-2">{r.value.toPrecision(4)}</span>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+      </div><!-- end svg wrapper -->
 
     {/if}<!-- end chart/table toggle -->
     </div><!-- end main content -->
