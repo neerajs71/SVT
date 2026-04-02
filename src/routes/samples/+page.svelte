@@ -359,11 +359,6 @@
                     disabled={driveBusy || localBusy}
                     class="px-2 py-0.5 rounded text-xs bg-green-50 active:bg-green-200 text-green-700 disabled:opacity-40 border border-green-100"
                   >→ Samples</button>
-                  <button
-                    onclick={() => deleteDriveFile(item)}
-                    disabled={driveBusy}
-                    class="px-2 py-0.5 rounded text-xs bg-red-50 active:bg-red-200 text-red-700 disabled:opacity-40 border border-red-100"
-                  >Trash</button>
                 </div>
               {/if}
             </div>
@@ -374,7 +369,7 @@
 
     <!-- Footer hint -->
     <div class="px-4 py-2 text-xs text-gray-400 bg-white border-t border-gray-100 shrink-0">
-      {driveItems.length} item(s) · "→ Samples" copies to local samples · "✕" moves to Drive trash
+      {driveItems.length} item(s) · "→ Samples" copies file to local samples
     </div>
   </div>
 </div>
