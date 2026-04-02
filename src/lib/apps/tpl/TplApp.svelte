@@ -112,15 +112,15 @@
     pickerExpanded = paths;
   });
 
-  // Picker items: tree structure, folders hidden/shown based on filter
+  // Picker items: tree structure, always pruned to data files only, filtered when query typed
   const pickerItems = $derived.by(() => {
     const q = slotFilter.trim().toLowerCase();
-    // Matching file paths when filter is active
+    // matchPaths = set of visible file paths (filtered subset, or all data files)
     const matchPaths = q
       ? new Set(workspaceFiles
           .filter(f => f.name.toLowerCase().includes(q) || f.path?.toLowerCase().includes(q))
           .map(f => f.path))
-      : null;
+      : new Set(workspaceFiles.map(f => f.path));
 
     function subtreeHasMatch(node, parentPath) {
       for (const [name, child] of Object.entries(node?.children ?? {})) {
@@ -136,13 +136,13 @@
       for (const [name, child] of Object.entries(node?.children ?? {})) {
         const path = parentPath ? `${parentPath}/${name}` : name;
         if (child.type === 'dir') {
-          if (matchPaths && !subtreeHasMatch(child, path)) continue;
+          if (!subtreeHasMatch(child, path)) continue; // always prune empty branches
           result.push({ ...child, path, name, depth, type: 'dir' });
-          const expanded = matchPaths ? true : pickerExpanded.has(path);
+          const expanded = q ? true : pickerExpanded.has(path);
           if (expanded) walk(child, path, depth + 1);
         } else {
           if (!DATA_EXTS.some(ext => name.toLowerCase().endsWith(ext))) continue;
-          if (matchPaths && !matchPaths.has(path)) continue;
+          if (!matchPaths.has(path)) continue;
           result.push({ ...child, path, name, depth, type: 'file' });
         }
       }
