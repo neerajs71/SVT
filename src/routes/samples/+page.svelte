@@ -232,7 +232,10 @@
 
     <!-- Error -->
     {#if localError}
-      <div class="px-4 py-2 text-xs text-red-700 bg-red-50 border-b border-red-200 shrink-0">{localError}</div>
+      <div class="flex items-start gap-2 px-3 py-2 text-xs text-red-700 bg-red-50 border-b border-red-200 shrink-0">
+        <span class="flex-1 break-words">{localError}</span>
+        <button onclick={() => (localError = '')} class="shrink-0 font-bold text-red-500 leading-none">✕</button>
+      </div>
     {/if}
 
     <!-- File list -->
@@ -317,7 +320,10 @@
 
     <!-- Error -->
     {#if driveError}
-      <div class="px-4 py-2 text-xs text-red-700 bg-red-50 border-b border-red-200 shrink-0">{driveError}</div>
+      <div class="flex items-start gap-2 px-3 py-2 text-xs text-red-700 bg-red-50 border-b border-red-200 shrink-0">
+        <span class="flex-1 break-words">{driveError}</span>
+        <button onclick={() => (driveError = '')} class="shrink-0 font-bold text-red-500 leading-none">✕</button>
+      </div>
     {/if}
 
     <!-- File list -->

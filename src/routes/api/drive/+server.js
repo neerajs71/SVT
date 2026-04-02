@@ -127,8 +127,9 @@ async function listFolder(folderId, accessToken) {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
     if (!res.ok) {
-      const msg = await res.text();
-      throw new Error(`Drive list failed (${res.status}): ${msg}`);
+      const body = await res.text();
+      let msg; try { msg = JSON.parse(body)?.error?.message; } catch {}
+      throw new Error(msg || `Drive list failed (${res.status})`);
     }
     const data = await res.json();
     all.push(...data.files);
@@ -185,8 +186,10 @@ export async function DELETE({ url }) {
       }
     );
     if (!res.ok) {
-      const msg = await res.text();
-      throw new Error(`Drive trash failed (${res.status}): ${msg}`);
+      const body = await res.text();
+      let msg;
+      try { msg = JSON.parse(body)?.error?.message; } catch {}
+      throw new Error(msg || `Drive trash failed (${res.status})`);
     }
     return new Response(null, { status: 204 });
   } catch (err) {
@@ -236,8 +239,9 @@ export async function POST({ request, url }) {
     );
 
     if (!res.ok) {
-      const msg = await res.text();
-      throw new Error(`Drive upload failed (${res.status}): ${msg}`);
+      const body = await res.text();
+      let msg; try { msg = JSON.parse(body)?.error?.message; } catch {}
+      throw new Error(msg || `Drive upload failed (${res.status})`);
     }
 
     const data = await res.json();
