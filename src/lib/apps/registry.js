@@ -13,6 +13,7 @@ import DlisApp from './dlis/DlisApp.svelte';
 import LasApp from './las/LasApp.svelte';
 import WsonApp from './wson/WsonApp.svelte';
 import TplApp from './tpl/TplApp.svelte';
+import DgeoApp from './dgeo/DgeoApp.svelte';
 
 export const appRegistry = {
   // DLIS well-log files
@@ -25,6 +26,8 @@ export const appRegistry = {
   '.wson':  WsonApp,
   // Plot template files
   '.tpl':   TplApp,
+  // Geological cross-section
+  '.dgeo':  DgeoApp,
   // text / markup
   '.txt':  GenericApp,
   '.md':   GenericApp,
