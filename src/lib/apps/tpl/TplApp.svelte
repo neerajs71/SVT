@@ -569,9 +569,29 @@
     editingPanel = null;
   }
 
-  function startEditCurve(curve) { editingCurve = { ...curve, line: { ...curve.line } }; }
+  function startEditCurve(curve) {
+    const panel = (tpl.panels ?? []).find(p => p.id === curve.trackId);
+    editingCurve = {
+      ...curve,
+      line:       { ...curve.line },
+      scaleMin:   panel?.xMin  ?? 0,
+      scaleMax:   panel?.xMax  ?? 150,
+      scaleType:  panel?.gridType ?? 'linear',
+    };
+  }
   function saveEditCurve() {
-    tpl = { ...tpl, curveDefinitions: tpl.curveDefinitions.map(c => c.id === editingCurve.id ? { ...editingCurve } : c) };
+    const { scaleMin, scaleMax, scaleType, ...curveOnly } = editingCurve;
+    tpl = {
+      ...tpl,
+      curveDefinitions: tpl.curveDefinitions.map(c =>
+        c.id === editingCurve.id ? { ...curveOnly } : c
+      ),
+      panels: (tpl.panels ?? []).map(p =>
+        p.id === editingCurve.trackId
+          ? { ...p, xMin: parseFloat(scaleMin) || 0, xMax: parseFloat(scaleMax) || 150, gridType: scaleType }
+          : p
+      ),
+    };
     editingCurve = null;
   }
   function deleteCurve() {
@@ -1349,6 +1369,30 @@
                 <option value="solid">Solid</option>
                 <option value="dashed">Dashed</option>
                 <option value="dotted">Dotted</option>
+              </select>
+            </div>
+          </div>
+          <!-- Panel scale (shared by all curves on this panel) -->
+          <div class="border-t border-gray-100 pt-2 mt-1">
+            <p class="text-[0.6rem] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Panel Scale</p>
+            <div class="grid grid-cols-2 gap-2 mb-2">
+              <div>
+                <label class="block text-xs text-gray-500 mb-0.5">Min</label>
+                <input type="number" bind:value={editingCurve.scaleMin}
+                  class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400"/>
+              </div>
+              <div>
+                <label class="block text-xs text-gray-500 mb-0.5">Max</label>
+                <input type="number" bind:value={editingCurve.scaleMax}
+                  class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400"/>
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs text-gray-500 mb-0.5">Type</label>
+              <select bind:value={editingCurve.scaleType}
+                class="w-full text-xs border border-gray-200 rounded px-2 py-1">
+                <option value="linear">Linear</option>
+                <option value="logarithmic">Logarithmic</option>
               </select>
             </div>
           </div>
