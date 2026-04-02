@@ -92,6 +92,29 @@
   // Picker-local expanded state (separate from sidebar)
   let pickerExpanded = $state(new Set());
 
+  // Resizable left panel in picker
+  let pickerPanelW = $state(192);  // px
+  let pickerPanelDragging = false;
+  let pickerPanelDragStartX = 0;
+  let pickerPanelDragStartW = 0;
+  function onPickerPanelDragStart(e) {
+    pickerPanelDragging = true;
+    pickerPanelDragStartX = e.clientX;
+    pickerPanelDragStartW = pickerPanelW;
+    window.addEventListener('pointermove', onPickerPanelDragMove);
+    window.addEventListener('pointerup', onPickerPanelDragEnd);
+    e.preventDefault();
+  }
+  function onPickerPanelDragMove(e) {
+    if (!pickerPanelDragging) return;
+    pickerPanelW = Math.max(120, Math.min(400, pickerPanelDragStartW + (e.clientX - pickerPanelDragStartX)));
+  }
+  function onPickerPanelDragEnd() {
+    pickerPanelDragging = false;
+    window.removeEventListener('pointermove', onPickerPanelDragMove);
+    window.removeEventListener('pointerup', onPickerPanelDragEnd);
+  }
+
   function togglePickerFolder(path) {
     const next = new Set(pickerExpanded);
     next.has(path) ? next.delete(path) : next.add(path);
@@ -1078,7 +1101,7 @@
     y={60}
   >
     {#snippet children()}
-      <div class="flex flex-col" style="height:420px">
+      <div class="flex flex-col" style="height:336px">
 
         <!-- Search bar -->
         <div class="px-3 pt-2 pb-1.5 border-b border-gray-100 flex-shrink-0">
@@ -1094,7 +1117,11 @@
         <div class="flex flex-1 overflow-hidden">
 
           <!-- Left: folder tree / search results -->
-          <div class="w-48 flex-shrink-0 border-r border-gray-100 overflow-y-auto">
+          <div class="relative flex-shrink-0 border-r border-gray-100 overflow-y-auto" style="width:{pickerPanelW}px">
+            <!-- Drag handle -->
+            <div onpointerdown={onPickerPanelDragStart}
+              class="absolute top-0 right-0 w-1 h-full cursor-col-resize z-10 hover:bg-blue-400 active:bg-blue-500 transition-colors">
+            </div>
             {#if datasourceStore.loading}
               <p class="text-xs text-gray-400 p-3 text-center">Loading…</p>
             {:else if !datasourceStore.tree}

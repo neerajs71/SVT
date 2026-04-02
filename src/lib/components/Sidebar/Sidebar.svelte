@@ -20,7 +20,7 @@
   onMount(() => datasourceStore.initRecentWorkspaces());
 
   // Resizable sidebar
-  let sidebarWidth = $state(166);  // px, default ~10.4rem
+  let sidebarWidth = $state(220);  // px
   let dragging = false;
   let dragStartX = 0;
   let dragStartWidth = 0;
