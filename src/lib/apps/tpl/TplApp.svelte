@@ -852,27 +852,11 @@
       {/each}
 
       <!-- Add sub-app button -->
-      <div class="relative ml-1">
-        <button
-          onclick={() => showSubappMenu = !showSubappMenu}
-          class="flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 text-gray-500
-                 hover:border-blue-400 hover:text-blue-600 text-sm leading-none font-bold flex-shrink-0"
-          title="Add workflow">+</button>
-
-        {#if showSubappMenu}
-          <div class="absolute top-8 left-0 z-50 bg-white border border-gray-200 rounded shadow-lg min-w-[180px]">
-            {#each Object.values(SUBAPP_REGISTRY) as def}
-              <button onclick={() => addSubapp(def.id)}
-                class="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 hover:text-blue-700">
-                <span class="font-medium block">{def.label}</span>
-                <span class="text-gray-400">{def.description}</span>
-              </button>
-            {/each}
-          </div>
-          <!-- Click-outside to close -->
-          <div class="fixed inset-0 z-40" onclick={() => showSubappMenu = false}></div>
-        {/if}
-      </div>
+      <button
+        onclick={() => showSubappMenu = true}
+        class="flex items-center justify-center w-6 h-6 ml-1 rounded-full border-2 border-gray-300 text-gray-500
+               hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50 text-base leading-none font-bold flex-shrink-0 transition-colors"
+        title="Add workflow">+</button>
     </div>
 
     <!-- ── Main content area ───────────────────────────────────────────── -->
@@ -1162,6 +1146,32 @@
     </div><!-- end right column -->
 
   </div><!-- end outer flex -->
+
+  <!-- ── Add Sub-App dialog ───────────────────────────────────────────── -->
+  <FloatingPanel
+    title="Add Workflow"
+    visible={showSubappMenu}
+    onClose={() => showSubappMenu = false}
+    width={480}
+    x={120} y={120}>
+    {#snippet children()}
+      <div class="p-4">
+        <p class="text-xs text-gray-500 mb-4">Select a workflow to add as a tab in this template.</p>
+        <div class="grid grid-cols-2 gap-3">
+          {#each Object.values(SUBAPP_REGISTRY) as def}
+            <button
+              onclick={() => addSubapp(def.id)}
+              class="flex flex-col gap-1 text-left p-3 border-2 border-gray-200 rounded-lg
+                     hover:border-blue-400 hover:bg-blue-50 transition-colors group">
+              <span class="text-2xl mb-1">⚗️</span>
+              <span class="text-sm font-semibold text-gray-800 group-hover:text-blue-700">{def.label}</span>
+              <span class="text-xs text-gray-400 leading-snug">{def.description}</span>
+            </button>
+          {/each}
+        </div>
+      </div>
+    {/snippet}
+  </FloatingPanel>
 
   <!-- ── Slot Picker FloatingPanel ────────────────────────────────────── -->
   <FloatingPanel
