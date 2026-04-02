@@ -1,14 +1,14 @@
-import ArchieSw from './ArchieSw.svelte';
+import Saturation from './Saturation.svelte';
 
 /**
  * Registry of TPL sub-apps.
  * Each entry: { id, label, description, component }
  */
 export const SUBAPP_REGISTRY = {
-  archie_sw: {
-    id:          'archie_sw',
-    label:       'Sw — Archie',
-    description: "Water saturation via Archie's formula",
-    component:   ArchieSw,
+  saturation: {
+    id:          'saturation',
+    label:       'Saturation',
+    description: 'Water saturation — Archie, Simandoux, Indonesian',
+    component:   Saturation,
   },
 };
