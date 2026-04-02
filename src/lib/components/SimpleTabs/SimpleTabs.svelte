@@ -35,14 +35,15 @@
       {/each}
     </div>
 
-    <!-- Active tab content -->
-    <div class="flex-1 overflow-hidden">
-      {#if tabStore.activeTab}
-        {#key tabStore.activeId}
-          {@const AppComponent = getApp(tabStore.activeTab.ext)}
-          <AppComponent tab={tabStore.activeTab} />
-        {/key}
-      {/if}
+    <!-- Tab contents — all mounted, active one visible -->
+    <div class="flex-1 overflow-hidden relative">
+      {#each tabStore.tabs as tab (tab.id)}
+        {@const AppComponent = getApp(tab.ext)}
+        <div class="absolute inset-0 overflow-hidden"
+             style="display:{tab.id === tabStore.activeId ? 'block' : 'none'}">
+          <AppComponent tab={tab} />
+        </div>
+      {/each}
     </div>
 
   </div>
