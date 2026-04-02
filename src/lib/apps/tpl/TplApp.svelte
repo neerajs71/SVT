@@ -394,7 +394,25 @@
   }
 
   // ── View mode ────────────────────────────────────────────────────────────
-  let viewMode     = $state('chart'); // 'chart' | 'table'
+  let viewMode     = $state('chart'); // 'chart' | 'table' | 'text'
+  let rawText      = $state('');
+  let rawTextError = $state('');
+
+  function enterTextMode() {
+    rawText = JSON.stringify(tpl, null, 2);
+    rawTextError = '';
+    viewMode = 'text';
+  }
+
+  function applyRawText() {
+    try {
+      tpl = JSON.parse(rawText);
+      rawTextError = '';
+      viewMode = 'chart';
+    } catch (e) {
+      rawTextError = e.message;
+    }
+  }
   let tableSortCol = $state('curveMnemonic');
   let tableSortAsc = $state(true);
 
@@ -640,6 +658,18 @@
         <span class="tb-tip">Curves Table</span>
       </div>
 
+      <!-- Source / text view -->
+      <div class="tb-item group">
+        <button class="tb-btn" class:tb-active={viewMode === 'text'}
+          onclick={enterTextMode} aria-label="Edit source">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <polyline points="5,4 2,8 5,12"/><polyline points="11,4 14,8 11,12"/>
+            <line x1="9" y1="3" x2="7" y2="13"/>
+          </svg>
+        </button>
+        <span class="tb-tip">Edit Source</span>
+      </div>
+
       <div class="tb-sep"></div>
 
       <!-- Add curve -->
@@ -842,6 +872,29 @@
             </tr>
           </tbody>
         </table>
+      </div>
+
+    {:else if viewMode === 'text'}
+      <!-- ── Source / text editor ───────────────────────────────────── -->
+      <div class="flex flex-col h-full p-2 gap-2">
+        {#if rawTextError}
+          <div class="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1 font-mono">{rawTextError}</div>
+        {/if}
+        <textarea
+          bind:value={rawText}
+          spellcheck="false"
+          class="flex-1 w-full font-mono text-xs border border-gray-200 rounded p-2 resize-none focus:outline-none focus:border-blue-400 bg-gray-50"
+        ></textarea>
+        <div class="flex gap-2 justify-end flex-shrink-0">
+          <button onclick={() => viewMode = 'chart'}
+            class="text-xs border border-gray-200 rounded px-3 py-1.5 hover:bg-gray-50">
+            Cancel
+          </button>
+          <button onclick={applyRawText}
+            class="text-xs bg-blue-600 text-white rounded px-3 py-1.5 hover:bg-blue-700 font-medium">
+            Apply
+          </button>
+        </div>
       </div>
 
     {:else}
