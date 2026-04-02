@@ -9,10 +9,16 @@ import { readdir, writeFile, unlink, stat } from 'node:fs/promises';
 import { existsSync, mkdirSync } from 'node:fs';
 import { resolve, join, basename } from 'node:path';
 
-const SAMPLES_DIR = resolve('static/samples');
-
-// Ensure the directory exists
-if (!existsSync(SAMPLES_DIR)) mkdirSync(SAMPLES_DIR, { recursive: true });
+// In production (adapter-node) static files land in build/client/;
+// in dev they stay in static/. Try both so uploads and reads work in both environments.
+const SAMPLES_DIR = (() => {
+  for (const p of [resolve('build/client/samples'), resolve('static/samples')]) {
+    if (existsSync(p)) return p;
+  }
+  const p = resolve('static/samples');
+  mkdirSync(p, { recursive: true });
+  return p;
+})();
 
 // ── GET — list ────────────────────────────────────────────────────────────────
 export async function GET() {
