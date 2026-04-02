@@ -3,7 +3,7 @@
   import { parseTpl, extractLasCurve, getLasWellName, collectFiles } from './parser.js';
   import { parseLAS } from '$lib/apps/las/parser.js';
   import { processCurves } from '$lib/apps/las/utils.js';
-  import { parseDLISFile, extractLogicalFiles } from '$lib/apps/dlis/utils.js';
+  import { parseDLISFile, extractLogicalFiles, extractCurveData } from '$lib/apps/dlis/utils.js';
   import { datasourceStore } from '$lib/datasource/store.svelte.js';
   import { FloatingPanel } from '$lib/components/FloatingPanel';
   import { FolderSolid, FolderOpenSolid, FileLinesOutline } from 'flowbite-svelte-icons';
@@ -172,6 +172,7 @@
         // If only one logical file, auto-select it
         const autoLf = logicalFiles.length === 1 ? logicalFiles[0] : null;
         previewData = buildDlisPreview(item.name, logicalFiles, autoLf);
+        previewData._parsed = parsed;  // keep raw parse result for slot assignment
       } else {
         const text = new TextDecoder('utf-8').decode(buf);
         const las = parseLAS(text);
@@ -230,13 +231,11 @@
         las: previewData.las,
       }};
     } else {
-      // DLIS: store for display; curve plotting not yet supported
       slotFiles = { ...slotFiles, [pickingSlot]: {
         name: previewItem.name,
-        wellName: `${previewData.wellName} / ${previewData.selectedLf?.id ?? 'LF-1'}`,
-        las: null,
-        isDlis: true,
-        lfId: previewData.selectedLf?.id,
+        wellName: previewData.wellName,
+        lfId: previewData.selectedLf?.id ?? 'LF-1',
+        dlis: previewData._parsed,
       }};
     }
     closePicker();
@@ -350,15 +349,29 @@
 
   function curvePoints(panel, curveDef) {
     const slot = slotFiles[curveDef.fileSlot];
-    if (!slot?.las) return '';
-    const cd = extractLasCurve(slot.las, curveDef.curveMnemonic);
-    if (!cd) return '';
-    const { depths, values } = cd;
+    if (!slot) return '';
+
+    let depths, values;
+
+    if (slot.las) {
+      const cd = extractLasCurve(slot.las, curveDef.curveMnemonic);
+      if (!cd) return '';
+      depths = cd.depths;
+      values = cd.values;
+    } else if (slot.dlis) {
+      const cd = extractCurveData(slot.dlis, curveDef.curveMnemonic);
+      if (!cd) return '';
+      depths = cd.xs;
+      values = cd.ys;
+    } else {
+      return '';
+    }
+
     const dMn = dMin(), dMx = dMax();
     const pts = [];
     for (let i = 0; i < depths.length; i++) {
       const d = depths[i], v = values[i];
-      if (d < dMn || d > dMx) continue;
+      if (!isFinite(d) || !isFinite(v) || d < dMn || d > dMx) continue;
       const py = sy(d);
       const px = Math.max(0, Math.min(panel.width, xToPixel(panel, v)));
       pts.push(`${px.toFixed(1)},${py.toFixed(1)}`);
@@ -669,9 +682,13 @@
             <div class="flex items-center gap-1">
               <span class="text-xs text-gray-500 font-mono">{slotKey}:</span>
               {#if slotFiles[slotKey]}
+                {@const sf = slotFiles[slotKey]}
+                {@const tipText = sf.lfId
+                  ? `${sf.name}\nLogical file: ${sf.lfId}`
+                  : sf.name}
                 <span class="text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded px-2 py-0.5 max-w-[140px] truncate"
-                  title={slotFiles[slotKey].wellName}>
-                  {slotFiles[slotKey].wellName}
+                  title={tipText}>
+                  {sf.lfId ? `${sf.wellName} / ${sf.lfId}` : sf.wellName}
                 </span>
                 <button onclick={() => clearSlot(slotKey)}
                   class="text-xs text-gray-400 hover:text-red-500 leading-none">✕</button>
