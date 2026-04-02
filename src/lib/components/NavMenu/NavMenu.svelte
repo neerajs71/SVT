@@ -28,6 +28,10 @@
         class="block px-3 py-1.5 text-sm text-gray-800 hover:bg-green-50 hover:text-green-800">
         Home
       </a>
+      <a href="/samples" onclick={() => (open = false)}
+        class="block px-3 py-1.5 text-sm text-gray-800 hover:bg-green-50 hover:text-green-800">
+        Samples
+      </a>
       <hr class="border-gray-200" />
       <a href="/about" onclick={() => (open = false)}
         class="block px-3 py-1.5 text-sm text-gray-800 hover:bg-green-50 hover:text-green-800">

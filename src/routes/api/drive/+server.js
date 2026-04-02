@@ -75,7 +75,7 @@ async function getAccessToken() {
   const header  = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
   const payload = Buffer.from(JSON.stringify({
     iss: creds.client_email,
-    scope: 'https://www.googleapis.com/auth/drive.readonly',
+    scope: 'https://www.googleapis.com/auth/drive',
     aud: creds.token_uri,
     iat,
     exp
@@ -191,6 +191,59 @@ export async function DELETE({ url }) {
     return new Response(null, { status: 204 });
   } catch (err) {
     console.error('[/api/drive DELETE]', err.message);
+    throw error(500, err.message);
+  }
+}
+
+// ─── POST handler — upload a file to a Drive folder ──────────────────────────
+export async function POST({ request, url }) {
+  const folderId = url.searchParams.get('folderId');
+  if (!folderId) throw error(400, 'folderId query param is required');
+
+  try {
+    const formData = await request.formData();
+    const file = formData.get('file');
+    if (!file || typeof file === 'string') throw error(400, 'No file in request');
+
+    const accessToken = await getAccessToken();
+    const buf = await file.arrayBuffer();
+    const mimeType = file.type || 'application/octet-stream';
+
+    // Multipart upload: metadata + file body
+    const boundary = `boundary${Date.now()}`;
+    const meta = JSON.stringify({ name: file.name, parents: [folderId] });
+    const metaPart = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n`;
+    const dataPart = `--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`;
+    const end      = `\r\n--${boundary}--`;
+
+    const body = new Uint8Array([
+      ...new TextEncoder().encode(metaPart),
+      ...new TextEncoder().encode(dataPart),
+      ...new Uint8Array(buf),
+      ...new TextEncoder().encode(end),
+    ]);
+
+    const res = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': `multipart/related; boundary=${boundary}`,
+        },
+        body,
+      }
+    );
+
+    if (!res.ok) {
+      const msg = await res.text();
+      throw new Error(`Drive upload failed (${res.status}): ${msg}`);
+    }
+
+    const data = await res.json();
+    return json({ ok: true, id: data.id, name: data.name });
+  } catch (err) {
+    console.error('[/api/drive POST]', err.message);
     throw error(500, err.message);
   }
 }
