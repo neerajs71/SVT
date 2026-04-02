@@ -7,6 +7,7 @@
   import { datasourceStore } from '$lib/datasource/store.svelte.js';
   import { FloatingPanel } from '$lib/components/FloatingPanel';
   import { FolderSolid, FolderOpenSolid, FileLinesOutline } from 'flowbite-svelte-icons';
+  import { SUBAPP_REGISTRY } from './subapps/index.js';
 
   const { tab } = $props();
 
@@ -503,6 +504,25 @@
     })};
   }
 
+  // ── Inner tabs (Plot + sub-apps) ─────────────────────────────────────────
+  let innerTabs      = $state([{ id: 'plot', label: 'Plot', appId: null }]);
+  let activeInnerTab = $state('plot');
+  let showSubappMenu = $state(false);
+
+  function addSubapp(appId) {
+    const def = SUBAPP_REGISTRY[appId];
+    if (!def) return;
+    const id = `${appId}_${Date.now()}`;
+    innerTabs = [...innerTabs, { id, label: def.label, appId }];
+    activeInnerTab = id;
+    showSubappMenu = false;
+  }
+
+  function closeInnerTab(id) {
+    innerTabs = innerTabs.filter(t => t.id !== id);
+    if (activeInnerTab === id) activeInnerTab = 'plot';
+  }
+
   // ── Build from files ─────────────────────────────────────────────────────
   let showBuildModal  = $state(false);
   let buildFiles      = $state([]);  // { item, curves[], loading, error }
@@ -813,8 +833,50 @@
         </div>
       </div>
 
+    <!-- ── Inner tab bar ────────────────────────────────────────────────── -->
+    <div class="flex items-center border-b border-gray-200 bg-gray-50 flex-shrink-0 overflow-x-auto">
+      {#each innerTabs as it (it.id)}
+        <button
+          onclick={() => activeInnerTab = it.id}
+          class="flex items-center gap-1 px-3 py-1 text-xs font-medium border-r border-gray-200 flex-shrink-0 whitespace-nowrap
+                 {activeInnerTab === it.id
+                   ? 'bg-white text-blue-700 border-b-2 border-b-blue-500 -mb-px'
+                   : 'text-gray-500 hover:bg-gray-100'}"
+        >
+          {it.label}
+          {#if it.appId}
+            <span onclick={(e) => { e.stopPropagation(); closeInnerTab(it.id); }}
+              class="ml-0.5 text-gray-400 hover:text-red-500 leading-none">✕</span>
+          {/if}
+        </button>
+      {/each}
+
+      <!-- Add sub-app button -->
+      <div class="relative ml-1">
+        <button
+          onclick={() => showSubappMenu = !showSubappMenu}
+          class="flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 text-gray-500
+                 hover:border-blue-400 hover:text-blue-600 text-sm leading-none font-bold flex-shrink-0"
+          title="Add workflow">+</button>
+
+        {#if showSubappMenu}
+          <div class="absolute top-8 left-0 z-50 bg-white border border-gray-200 rounded shadow-lg min-w-[180px]">
+            {#each Object.values(SUBAPP_REGISTRY) as def}
+              <button onclick={() => addSubapp(def.id)}
+                class="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 hover:text-blue-700">
+                <span class="font-medium block">{def.label}</span>
+                <span class="text-gray-400">{def.description}</span>
+              </button>
+            {/each}
+          </div>
+          <!-- Click-outside to close -->
+          <div class="fixed inset-0 z-40" onclick={() => showSubappMenu = false}></div>
+        {/if}
+      </div>
+    </div>
+
     <!-- ── Main content area ───────────────────────────────────────────── -->
-    <div class="flex-1 overflow-auto">
+    <div class="flex-1 overflow-auto" style="display:{activeInnerTab === 'plot' ? 'block' : 'none'}">
 
     {#if viewMode === 'table'}
       <!-- ── Curves Table ────────────────────────────────────────────── -->
@@ -1086,6 +1148,16 @@
 
     {/if}<!-- end chart/table toggle -->
     </div><!-- end main content -->
+
+    <!-- ── Sub-app panels ───────────────────────────────────────────────── -->
+    {#each innerTabs.filter(t => t.appId) as it (it.id)}
+      {@const SubApp = SUBAPP_REGISTRY[it.appId]?.component}
+      <div class="flex-1 overflow-hidden" style="display:{activeInnerTab === it.id ? 'flex' : 'none'}">
+        {#if SubApp}
+          <SubApp {tpl} {slotFiles} />
+        {/if}
+      </div>
+    {/each}
 
     </div><!-- end right column -->
 
