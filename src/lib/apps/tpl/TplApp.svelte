@@ -676,6 +676,20 @@
         <span class="text-sm font-semibold text-gray-700">{tpl.title ?? tab.name}</span>
         <span class="text-xs text-gray-400">{tpl.depth?.min ?? 0} – {tpl.depth?.max ?? '?'} {tpl.depth?.unit ?? ''}</span>
 
+        <!-- Depth view inputs -->
+        <div class="flex items-center gap-1 text-xs text-gray-500">
+          <span>Top</span>
+          <input type="number" step="1"
+            value={dMin()}
+            onchange={e => tpl = { ...tpl, depth: { ...tpl.depth, visibleMin: parseFloat(e.target.value) || 0 } }}
+            class="w-20 border border-gray-200 rounded px-1.5 py-0.5 text-xs text-gray-700 text-right focus:outline-none focus:border-blue-400"/>
+          <span>Bot</span>
+          <input type="number" step="1"
+            value={dMax()}
+            onchange={e => tpl = { ...tpl, depth: { ...tpl.depth, visibleMax: parseFloat(e.target.value) || 5000 } }}
+            class="w-20 border border-gray-200 rounded px-1.5 py-0.5 text-xs text-gray-700 text-right focus:outline-none focus:border-blue-400"/>
+          <span class="text-gray-400">{tpl.depth?.unit ?? 'ft'}</span>
+        </div>
         <!-- File slot assignments -->
         <div class="flex items-center gap-2 ml-2 flex-wrap">
           {#each Object.entries(tpl.fileSlots ?? {}) as [slotKey]}
