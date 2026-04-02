@@ -53,6 +53,7 @@
   // ── Parameters ───────────────────────────────────────────────────────────
   let porSlot   = $state(slots[0] ?? 'F1');
   let porCurve  = $state('NPHI');
+  let porUnits  = $state('pu');   // 'pu' (0-100) | 'frac' (0-1)
   let resCurve  = $state('ILD');
   let resSlot   = $state(slots[0] ?? 'F1');
   let rw        = $state(0.05);
@@ -78,8 +79,10 @@
     for (let i = 0; i < resData.depths.length; i++) {
       const d  = resData.depths[i];
       const Rt = resData.values[i];
-      const phi = porMap.get(d) ?? null;
-      if (phi === null || !isFinite(phi) || phi <= 0 || !isFinite(Rt) || Rt <= 0) continue;
+      let phi = porMap.get(d) ?? null;
+      if (phi === null || !isFinite(phi) || !isFinite(Rt) || Rt <= 0) continue;
+      if (porUnits === 'pu') phi = phi / 100;
+      if (phi <= 0) continue;
 
       // Sw^n = (a * Rw) / (phi^m * Rt)
       const swVal = Math.pow((a * rw) / (Math.pow(phi, m) * Rt), 1 / n);
@@ -148,6 +151,24 @@
           <datalist id="por-curves">
             {#each slotCurveOptions[porSlot] ?? [] as c}<option value={c}>{c}</option>{/each}
           </datalist>
+        </div>
+      </div>
+      <!-- Units toggle -->
+      <div>
+        <label class="block text-[0.6rem] text-gray-400 mb-0.5">Units</label>
+        <div class="flex rounded overflow-hidden border border-gray-200 text-[0.65rem] font-medium">
+          <button
+            onclick={() => porUnits = 'pu'}
+            class="flex-1 py-0.5 text-center transition-colors
+                   {porUnits === 'pu' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}">
+            PU (0–100)
+          </button>
+          <button
+            onclick={() => porUnits = 'frac'}
+            class="flex-1 py-0.5 text-center border-l border-gray-200 transition-colors
+                   {porUnits === 'frac' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}">
+            Fraction
+          </button>
         </div>
       </div>
     </div>
