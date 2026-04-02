@@ -16,6 +16,31 @@
   let deletingPath   = $state(null);   // path currently being deleted
   let deleteError    = $state('');
 
+  // Resizable sidebar
+  let sidebarWidth = $state(166);  // px, default ~10.4rem
+  let dragging = false;
+  let dragStartX = 0;
+  let dragStartWidth = 0;
+
+  function onDragStart(e) {
+    dragging = true;
+    dragStartX = e.clientX;
+    dragStartWidth = sidebarWidth;
+    window.addEventListener('pointermove', onDragMove);
+    window.addEventListener('pointerup', onDragEnd);
+    e.preventDefault();
+  }
+  function onDragMove(e) {
+    if (!dragging) return;
+    const delta = e.clientX - dragStartX;
+    sidebarWidth = Math.max(120, Math.min(500, dragStartWidth + delta));
+  }
+  function onDragEnd() {
+    dragging = false;
+    window.removeEventListener('pointermove', onDragMove);
+    window.removeEventListener('pointerup', onDragEnd);
+  }
+
   // Legacy fallback: webkitdirectory <input> (no delete support)
   function handleFiles(e) {
     datasourceStore.loadLocalFiles(Array.from(e.target.files));
@@ -87,7 +112,13 @@
 </script>
 
 {#if open}
-  <aside style="width:10.4rem" class="flex-shrink-0 h-full bg-white border-r border-gray-200 flex flex-col overflow-hidden">
+  <aside style="width:{sidebarWidth}px" class="relative flex-shrink-0 h-full bg-white border-r border-gray-200 flex flex-col overflow-hidden">
+    <!-- Drag handle -->
+    <div
+      onpointerdown={onDragStart}
+      class="absolute top-0 right-0 w-1 h-full cursor-col-resize z-10 hover:bg-blue-400 active:bg-blue-500 transition-colors"
+      title="Drag to resize"
+    ></div>
     <!-- Header band -->
     <div class="flex items-center gap-1 px-2 py-1 bg-green-50 border-b border-green-200">
       <FolderOpenSolid class="w-4 h-4 text-green-800 flex-shrink-0" />
