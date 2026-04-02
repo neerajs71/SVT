@@ -80,7 +80,7 @@
   // ── Workspace file list (for slot picker) ────────────────────────────────
   const DATA_EXTS = ['.las', '.las2', '.dlis', '.dlis1'];
 
-  // All data files in the tree (for search mode)
+  // All data files in the tree (flat, for search matching)
   const workspaceFiles = $derived.by(() => {
     const tree = datasourceStore.tree;
     if (!tree) return [];
@@ -89,16 +89,69 @@
     );
   });
 
-  // Picker: always flat list, filtered by query
-  const pickerItems = $derived.by(() => {
-    const q = slotFilter.trim().toLowerCase();
-    if (!q) return workspaceFiles;
-    return workspaceFiles.filter(f =>
-      f.name.toLowerCase().includes(q) || f.path?.toLowerCase().includes(q)
-    );
+  // Picker-local expanded state (separate from sidebar)
+  let pickerExpanded = $state(new Set());
+
+  function togglePickerFolder(path) {
+    const next = new Set(pickerExpanded);
+    next.has(path) ? next.delete(path) : next.add(path);
+    pickerExpanded = next;
+  }
+
+  // Auto-expand entire tree when picker opens
+  $effect(() => {
+    if (pickingSlot === null) return;
+    const paths = new Set();
+    function collectPaths(node, parentPath) {
+      for (const [name, child] of Object.entries(node?.children ?? {})) {
+        const path = parentPath ? `${parentPath}/${name}` : name;
+        if (child.type === 'dir') { paths.add(path); collectPaths(child, path); }
+      }
+    }
+    if (datasourceStore.tree) collectPaths(datasourceStore.tree, '');
+    pickerExpanded = paths;
   });
 
-  // Reset preview when filter changes (the item may no longer be visible)
+  // Picker items: tree structure, folders hidden/shown based on filter
+  const pickerItems = $derived.by(() => {
+    const q = slotFilter.trim().toLowerCase();
+    // Matching file paths when filter is active
+    const matchPaths = q
+      ? new Set(workspaceFiles
+          .filter(f => f.name.toLowerCase().includes(q) || f.path?.toLowerCase().includes(q))
+          .map(f => f.path))
+      : null;
+
+    function subtreeHasMatch(node, parentPath) {
+      for (const [name, child] of Object.entries(node?.children ?? {})) {
+        const path = parentPath ? `${parentPath}/${name}` : name;
+        if (child.type === 'file' && matchPaths.has(path)) return true;
+        if (child.type === 'dir' && subtreeHasMatch(child, path)) return true;
+      }
+      return false;
+    }
+
+    const result = [];
+    function walk(node, parentPath, depth) {
+      for (const [name, child] of Object.entries(node?.children ?? {})) {
+        const path = parentPath ? `${parentPath}/${name}` : name;
+        if (child.type === 'dir') {
+          if (matchPaths && !subtreeHasMatch(child, path)) continue;
+          result.push({ ...child, path, name, depth, type: 'dir' });
+          const expanded = matchPaths ? true : pickerExpanded.has(path);
+          if (expanded) walk(child, path, depth + 1);
+        } else {
+          if (!DATA_EXTS.some(ext => name.toLowerCase().endsWith(ext))) continue;
+          if (matchPaths && !matchPaths.has(path)) continue;
+          result.push({ ...child, path, name, depth, type: 'file' });
+        }
+      }
+    }
+    if (datasourceStore.tree) walk(datasourceStore.tree, '', 0);
+    return result;
+  });
+
+  // Reset preview when filter changes
   $effect(() => {
     slotFilter;
     previewItem = null;
@@ -1055,29 +1108,38 @@
               </p>
             {:else}
               {#each pickerItems as item}
-                {@const folder = item.path?.includes('/')
-                  ? item.path.substring(0, item.path.lastIndexOf('/'))
-                  : ''}
-                <button
-                  onclick={() => previewFile(item)}
-                  class="w-full text-left flex items-start gap-1.5 px-2 py-1 transition-colors
-                         {previewItem?.path === item.path
-                           ? 'bg-blue-600 text-white'
-                           : 'hover:bg-gray-100 text-gray-600'}"
-                  title={item.path ?? item.name}
-                >
-                  <FileLinesOutline class="w-3.5 h-3.5 flex-shrink-0 mt-0.5
-                    {previewItem?.path === item.path ? 'text-blue-200' : 'text-gray-400'}" />
-                  <span class="min-w-0">
-                    <span class="block text-xs truncate">{item.name}</span>
-                    {#if folder}
-                      <span class="block text-[0.6rem] truncate
-                        {previewItem?.path === item.path ? 'text-blue-200' : 'text-gray-400'}">
-                        {folder}
-                      </span>
+                {#if item.type === 'dir'}
+                  <button
+                    onclick={() => togglePickerFolder(item.path)}
+                    class="w-full text-left flex items-center gap-1 py-0.5 pr-2 hover:bg-gray-50 select-none"
+                    style="padding-left:{0.35 + item.depth * 0.65}rem"
+                  >
+                    <span class="w-2.5 flex-shrink-0 text-gray-400 text-center" style="font-size:0.5rem">
+                      {(slotFilter || pickerExpanded.has(item.path)) ? '▼' : '▶'}
+                    </span>
+                    {#if slotFilter || pickerExpanded.has(item.path)}
+                      <FolderOpenSolid class="w-3.5 h-3.5 text-yellow-500 flex-shrink-0" />
+                    {:else}
+                      <FolderSolid class="w-3.5 h-3.5 text-yellow-400 flex-shrink-0" />
                     {/if}
-                  </span>
-                </button>
+                    <span class="text-xs text-gray-700 truncate ml-0.5">{item.name}</span>
+                  </button>
+                {:else}
+                  <button
+                    onclick={() => previewFile(item)}
+                    class="w-full text-left flex items-center gap-1 py-0.5 pr-2 transition-colors
+                           {previewItem?.path === item.path
+                             ? 'bg-blue-600 text-white'
+                             : 'hover:bg-gray-100 text-gray-600'}"
+                    style="padding-left:{0.35 + item.depth * 0.65}rem"
+                    title={item.path ?? item.name}
+                  >
+                    <span class="w-2.5 flex-shrink-0"></span>
+                    <FileLinesOutline class="w-3.5 h-3.5 flex-shrink-0
+                      {previewItem?.path === item.path ? 'text-blue-200' : 'text-gray-400'}" />
+                    <span class="text-xs truncate ml-0.5">{item.name}</span>
+                  </button>
+                {/if}
               {/each}
             {/if}
           </div>
