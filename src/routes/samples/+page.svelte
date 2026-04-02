@@ -242,42 +242,31 @@
       {:else if localFiles.length === 0}
         <div class="p-4 text-xs text-gray-400">No files in static/samples/</div>
       {:else}
-        <table class="w-full text-xs">
-          <thead class="sticky top-0 bg-gray-50 border-b border-gray-200">
-            <tr>
-              <th class="text-left px-3 py-2 font-medium text-gray-600">Name</th>
-              <th class="text-right px-3 py-2 font-medium text-gray-600">Size</th>
-              <th class="px-2 py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each localFiles as f (f.name)}
-              <tr class="border-b border-gray-100 hover:bg-white group">
-                <td class="px-3 py-2 text-gray-800 font-mono truncate max-w-0 w-full">
-                  <a href={`/samples/${encodeURIComponent(f.name)}`} target="_blank"
-                     class="hover:underline text-blue-700">{f.name}</a>
-                </td>
-                <td class="px-3 py-2 text-right text-gray-500 whitespace-nowrap">{fmtSize(f.size)}</td>
-                <td class="px-2 py-1 whitespace-nowrap">
-                  <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      title="Copy to current Drive folder"
-                      onclick={() => copyToDrive(f)}
-                      disabled={localBusy || driveBusy || !currentDriveFolderId()}
-                      class="px-1.5 py-0.5 rounded text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 disabled:opacity-40"
-                    >→ Drive</button>
-                    <button
-                      title="Delete from samples"
-                      onclick={() => deleteLocalFile(f.name)}
-                      disabled={localBusy}
-                      class="px-1.5 py-0.5 rounded text-xs bg-red-50 hover:bg-red-100 text-red-700 disabled:opacity-40"
-                    >✕</button>
-                  </div>
-                </td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
+        <div class="divide-y divide-gray-100">
+          {#each localFiles as f (f.name)}
+            <div class="flex flex-col px-3 py-2 hover:bg-white gap-1">
+              <div class="flex items-center justify-between gap-2">
+                <a href={`/samples/${encodeURIComponent(f.name)}`} target="_blank"
+                   class="text-xs text-blue-700 hover:underline font-mono break-all leading-snug flex-1">
+                  {f.name}
+                </a>
+                <span class="text-xs text-gray-400 whitespace-nowrap shrink-0">{fmtSize(f.size)}</span>
+              </div>
+              <div class="flex gap-1.5">
+                <button
+                  onclick={() => copyToDrive(f)}
+                  disabled={localBusy || driveBusy || !currentDriveFolderId()}
+                  class="px-2 py-0.5 rounded text-xs bg-blue-50 active:bg-blue-200 text-blue-700 disabled:opacity-40 border border-blue-100"
+                >→ Drive</button>
+                <button
+                  onclick={() => deleteLocalFile(f.name)}
+                  disabled={localBusy}
+                  class="px-2 py-0.5 rounded text-xs bg-red-50 active:bg-red-200 text-red-700 disabled:opacity-40 border border-red-100"
+                >Delete</button>
+              </div>
+            </div>
+          {/each}
+        </div>
       {/if}
     </div>
 
@@ -340,50 +329,34 @@
           {driveError ? '' : 'This folder is empty.'}
         </div>
       {:else}
-        <table class="w-full text-xs">
-          <thead class="sticky top-0 bg-gray-50 border-b border-gray-200">
-            <tr>
-              <th class="text-left px-3 py-2 font-medium text-gray-600">Name</th>
-              <th class="px-2 py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each driveItems as item (item.id)}
-              <tr class="border-b border-gray-100 hover:bg-white group">
-                <td class="px-3 py-2 text-gray-800 font-mono truncate max-w-0 w-full">
-                  {#if item.type === 'dir'}
-                    <button onclick={() => driveNavigate(item)}
-                      class="flex items-center gap-1.5 hover:text-green-700 hover:underline text-left w-full">
-                      <span class="text-gray-400">📁</span>{item.name}
-                    </button>
-                  {:else}
-                    <span class="flex items-center gap-1.5">
-                      <span class="text-gray-400">📄</span>{item.name}
-                    </span>
-                  {/if}
-                </td>
-                <td class="px-2 py-1 whitespace-nowrap">
-                  {#if item.type === 'file'}
-                    <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        title="Copy to local samples"
-                        onclick={() => copyToLocal(item)}
-                        disabled={driveBusy || localBusy}
-                        class="px-1.5 py-0.5 rounded text-xs bg-green-50 hover:bg-green-100 text-green-700 disabled:opacity-40"
-                      >→ Samples</button>
-                      <button
-                        title="Move to Drive trash"
-                        onclick={() => deleteDriveFile(item)}
-                        disabled={driveBusy}
-                        class="px-1.5 py-0.5 rounded text-xs bg-red-50 hover:bg-red-100 text-red-700 disabled:opacity-40"
-                      >✕</button>
-                    </div>
-                  {/if}
-                </td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
+        <div class="divide-y divide-gray-100">
+          {#each driveItems as item (item.id)}
+            <div class="flex flex-col px-3 py-2 hover:bg-white gap-1">
+              {#if item.type === 'dir'}
+                <button onclick={() => driveNavigate(item)}
+                  class="flex items-center gap-1.5 text-xs text-gray-800 font-mono text-left break-all leading-snug hover:text-green-700">
+                  📁 {item.name}
+                </button>
+              {:else}
+                <span class="flex items-start gap-1.5 text-xs text-gray-800 font-mono break-all leading-snug">
+                  📄 {item.name}
+                </span>
+                <div class="flex gap-1.5">
+                  <button
+                    onclick={() => copyToLocal(item)}
+                    disabled={driveBusy || localBusy}
+                    class="px-2 py-0.5 rounded text-xs bg-green-50 active:bg-green-200 text-green-700 disabled:opacity-40 border border-green-100"
+                  >→ Samples</button>
+                  <button
+                    onclick={() => deleteDriveFile(item)}
+                    disabled={driveBusy}
+                    class="px-2 py-0.5 rounded text-xs bg-red-50 active:bg-red-200 text-red-700 disabled:opacity-40 border border-red-100"
+                  >Trash</button>
+                </div>
+              {/if}
+            </div>
+          {/each}
+        </div>
       {/if}
     </div>
 
