@@ -12,7 +12,6 @@
   let driveItems  = $state([]);   // files/folders in current Drive folder
   let driveError  = $state('');
   let driveBusy   = $state(false);
-  let driveUploadInput;
 
   /** Parse a fetch Response error into a readable string */
   async function readError(res) {
@@ -97,7 +96,6 @@
       const res = await fetch(`/api/drive${params}`);
       if (!res.ok) throw new Error(await readError(res));
       const node = await res.json();
-      // node.children is an object {name: {name, type, id, children?}}
       driveItems = Object.values(node.children ?? {}).sort((a, b) => {
         if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
         return a.name.localeCompare(b.name);
@@ -132,67 +130,6 @@
       await uploadLocalFile(file);
       showToast(`Copied "${item.name}" → samples`);
       await refreshLocal();
-    } catch (e) { driveError = e.message; }
-    finally { driveBusy = false; }
-  }
-
-  // ── Copy: local file → Drive ─────────────────────────────────────────────────
-  async function copyToDrive(localFile) {
-    const folderId = currentDriveFolderId();
-    if (!folderId) { driveError = 'Navigate into a Drive folder first'; return; }
-
-    localBusy = true;
-    try {
-      // Download the local sample file from the static server
-      const res = await fetch(`/samples/${encodeURIComponent(localFile.name)}`);
-      if (!res.ok) throw new Error(`Cannot read local file: ${res.status}`);
-      const blob = await res.blob();
-      const file = new File([blob], localFile.name, { type: blob.type });
-
-      const fd = new FormData();
-      fd.append('file', file);
-      const up = await fetch(`/api/drive?folderId=${encodeURIComponent(folderId)}`, {
-        method: 'POST', body: fd
-      });
-      if (!up.ok) throw new Error(await up.text());
-      showToast(`Uploaded "${localFile.name}" → Drive`);
-      await refreshDrive(folderId);
-    } catch (e) { localError = e.message; }
-    finally { localBusy = false; }
-  }
-
-  // ── Upload a computer file directly to Drive ──────────────────────────────────
-  async function handleDriveUpload(e) {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    const folderId = currentDriveFolderId();
-    if (!folderId) { driveError = 'Navigate into a Drive folder first'; e.target.value = ''; return; }
-
-    driveBusy = true; driveError = '';
-    try {
-      for (const f of files) {
-        const fd = new FormData();
-        fd.append('file', f);
-        const res = await fetch(`/api/drive?folderId=${encodeURIComponent(folderId)}`, {
-          method: 'POST', body: fd
-        });
-        if (!res.ok) throw new Error(await readError(res));
-      }
-      showToast(`Uploaded ${files.length} file(s) to Drive`);
-      await refreshDrive(folderId);
-    } catch (e) { driveError = e.message; }
-    finally { driveBusy = false; e.target.value = ''; }
-  }
-
-  // ── Drive: trash file ─────────────────────────────────────────────────────────
-  async function deleteDriveFile(item) {
-    if (!confirm(`Move "${item.name}" to Drive trash?`)) return;
-    driveBusy = true;
-    try {
-      const res = await fetch(`/api/drive?fileId=${encodeURIComponent(item.id)}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error(await readError(res));
-      showToast(`Trashed "${item.name}"`);
-      await refreshDrive(currentDriveFolderId());
     } catch (e) { driveError = e.message; }
     finally { driveBusy = false; }
   }
@@ -263,11 +200,6 @@
               </div>
               <div class="flex gap-1.5">
                 <button
-                  onclick={() => copyToDrive(f)}
-                  disabled={localBusy || driveBusy || !currentDriveFolderId()}
-                  class="px-2 py-0.5 rounded text-xs bg-blue-50 active:bg-blue-200 text-blue-700 disabled:opacity-40 border border-blue-100"
-                >→ Drive</button>
-                <button
                   onclick={() => deleteLocalFile(f.name)}
                   disabled={localBusy}
                   class="px-2 py-0.5 rounded text-xs bg-red-50 active:bg-red-200 text-red-700 disabled:opacity-40 border border-red-100"
@@ -281,7 +213,7 @@
 
     <!-- Footer hint -->
     <div class="px-4 py-2 text-xs text-gray-400 bg-white border-t border-gray-100 shrink-0">
-      {localFiles.length} file(s) · "→ Drive" copies to the open Drive folder
+      {localFiles.length} file(s) · upload from your device with "+ Upload"
     </div>
   </div>
 
@@ -314,13 +246,6 @@
         {/if}
         <button onclick={() => refreshDrive(currentDriveFolderId())} disabled={driveBusy}
           class="px-2 py-1 text-xs rounded bg-gray-100 hover:bg-gray-200 text-gray-700 disabled:opacity-50">Refresh</button>
-        <button
-          onclick={() => driveUploadInput?.click()}
-          disabled={driveBusy || !currentDriveFolderId()}
-          title={currentDriveFolderId() ? 'Upload to this Drive folder' : 'Navigate into a folder first'}
-          class="px-2 py-1 text-xs rounded bg-blue-700 hover:bg-blue-600 text-white disabled:opacity-50"
-        >+ Upload</button>
-        <input bind:this={driveUploadInput} type="file" multiple class="hidden" onchange={handleDriveUpload} />
       </div>
     </div>
 
