@@ -10,7 +10,7 @@
   import { SUBAPP_REGISTRY } from './subapps/index.js';
   import { tabStore } from '$lib/tabs/tabs.svelte.js';
   import { saveToHandle, downloadBlob } from '$lib/apps/shared/fileActions.js';
-  import { MEASUREMENT_TYPES, getMeasurementType } from './measurements.js';
+  import { MEASUREMENT_TYPES, getMeasurementType, getUnitByMnemonic } from './measurements.js';
 
   const { tab } = $props();
 
@@ -1330,7 +1330,11 @@
                 {@const ry = ci * rowH}
                 {@const cMin = curveDef.xMin ?? panel.xMin}
                 {@const cMax = curveDef.xMax ?? panel.xMax}
-                {@const cUnit = curveDef.unit ?? ''}
+                {@const cUnit = curveDef.unit
+                  || slotFiles[curveDef.fileSlot]?.curveUnits?.[curveDef.curveMnemonic?.toUpperCase()]
+                  || getMeasurementType(curveDef.measurementType)?.defaultUnit
+                  || getUnitByMnemonic(curveDef.curveMnemonic)
+                  || ''}
                 <!-- Layout: numbers in top ~38%, line at ~55%, label in bottom ~20% -->
                 {@const numY  = ry + Math.round(rowH * 0.38)}
                 {@const lineY = ry + Math.round(rowH * 0.56)}

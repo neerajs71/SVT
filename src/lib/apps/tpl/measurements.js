@@ -76,3 +76,55 @@ export const MEASUREMENT_TYPES = [
 export function getMeasurementType(id) {
   return MEASUREMENT_TYPES.find(m => m.id === id);
 }
+
+/**
+ * Common mnemonic prefixes → measurement type id.
+ * Used as a display fallback when no unit is explicitly set on a curve.
+ */
+const MNEMONIC_MAP = {
+  // Depth / index
+  DEPT: 'depth', MD: 'depth', TVDSS: 'depth', TVDSD: 'depth', DEPTH: 'depth',
+  // Gamma Ray
+  GR: 'gamma_ray', GRGC: 'gamma_ray', GRTO: 'gamma_ray', SGR: 'gamma_ray', CGR: 'gamma_ray', GRD: 'gamma_ray',
+  // Resistivity
+  ILD: 'resistivity', ILM: 'resistivity', MSFL: 'resistivity',
+  RT: 'resistivity', RLLD: 'resistivity', RILD: 'resistivity', RILM: 'resistivity',
+  LLD: 'resistivity', LLS: 'resistivity', RFOC: 'resistivity', RXO: 'resistivity',
+  AT10: 'resistivity', AT20: 'resistivity', AT30: 'resistivity', AT60: 'resistivity', AT90: 'resistivity',
+  // Density
+  RHOB: 'density', RHOZ: 'density', DEN: 'density', ZDEN: 'density',
+  DRHO: 'density_corr',
+  // Neutron porosity
+  NPHI: 'neutron_por', CNPHI: 'neutron_por', TNPH: 'neutron_por', DPHI: 'neutron_por',
+  // Sonic
+  DT: 'dt', DTC: 'dtc', DTCO: 'dtc', DTS: 'dts', DTSM: 'dts',
+  // Caliper
+  CALI: 'caliper', CAL: 'caliper', HCAL: 'caliper', C1: 'caliper', C2: 'caliper',
+  // SP
+  SP: 'sp',
+  // PEF
+  PE: 'pef', PEF: 'pef', PEFZ: 'pef',
+  // Porosity / Saturation / Vsh
+  PHIT: 'porosity', PHIE: 'porosity', PHID: 'porosity', PHIN: 'porosity',
+  SW: 'sw', SWT: 'sw', SWE: 'sw', SXO: 'sw',
+  VSH: 'vsh', VCL: 'vsh', VSHGR: 'vsh',
+  // Temperature / Pressure
+  TEMP: 'temperature', BHT: 'temperature',
+  PRES: 'pressure', WHP: 'pressure',
+  // Velocity
+  VP: 'velocity', VS: 'velocity',
+  // ROP
+  ROP: 'rop', ROPMS: 'rop',
+};
+
+/**
+ * Return the default unit for a curve mnemonic, inferred by name.
+ * e.g. 'GR' → 'API', 'ILD' → 'ohm·m', 'RHOB' → 'g/cc'
+ */
+export function getUnitByMnemonic(mnemonic) {
+  if (!mnemonic) return '';
+  const upper = mnemonic.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const typeId = MNEMONIC_MAP[upper];
+  if (!typeId) return '';
+  return getMeasurementType(typeId)?.defaultUnit ?? '';
+}
