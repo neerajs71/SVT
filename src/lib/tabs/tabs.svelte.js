@@ -41,6 +41,7 @@ class TabState {
       name: item.name,
       ext,
       file,
+      handle: item.handle ?? null,
       driveId: item.id ?? null,
     });
     this.activeId = item.path;
