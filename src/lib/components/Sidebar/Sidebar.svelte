@@ -2,9 +2,66 @@
   import { onMount } from 'svelte';
   import { FolderOpenSolid, FolderSolid, FileLinesOutline, CloudArrowUpOutline, DesktopPcOutline, TrashBinOutline } from 'flowbite-svelte-icons';
   import { datasourceStore } from '$lib/datasource';
+  import { ephemeralStore, FILE_TYPES } from '$lib/datasource/EphemeralStore.svelte.js';
   import { tabStore } from '$lib/tabs/tabs.svelte.js';
 
   let { open = $bindable(false) } = $props();
+
+  // ── Sidebar tab: 'local' | 'remote' | 'working' ──────────────────────────
+  let sidebarTab = $state(datasourceStore.mode);
+
+  function setTab(tab) {
+    sidebarTab = tab;
+    if (tab === 'local' && datasourceStore.mode !== 'local') datasourceStore.toggleMode();
+    if (tab === 'remote' && datasourceStore.mode !== 'remote') datasourceStore.toggleMode();
+  }
+
+  // ── Working tab state ─────────────────────────────────────────────────────
+  let newFileExt  = $state('.tpl');
+  let newFileName = $state('');
+  let showNewForm = $state(false);
+  let renamingId  = $state(null);
+  let renameVal   = $state('');
+
+  function openNewForm(ext) {
+    newFileExt  = ext;
+    const t = FILE_TYPES.find(f => f.ext === ext);
+    newFileName = t ? `new-${t.label.toLowerCase().replace(/\s+/g, '-')}${ext}` : `new${ext}`;
+    showNewForm = true;
+  }
+
+  function confirmNew() {
+    if (!newFileName.trim()) return;
+    let name = newFileName.trim();
+    if (!name.endsWith(newFileExt)) name += newFileExt;
+    const eph = ephemeralStore.create(name, newFileExt);
+    tabStore.openFile(ephemeralStore.toTabItem(eph));
+    showNewForm = false;
+    newFileName = '';
+  }
+
+  function openEph(eph) {
+    tabStore.openFile(ephemeralStore.toTabItem(eph));
+  }
+
+  function downloadEph(eph) {
+    const blob = new Blob([eph.content], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = eph.name; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function sendToSamples(eph) {
+    try {
+      const fd = new FormData();
+      fd.append('file', new File([eph.content], eph.name));
+      const res = await fetch('/api/samples', { method: 'POST', body: fd });
+      if (!res.ok) throw new Error(await res.text());
+    } catch (e) {
+      alert(`Upload failed: ${e.message}`);
+    }
+  }
 
   let fileInput;
   let tooltipItem   = $state(null);
@@ -205,8 +262,102 @@
       </div>
     {/if}
 
+    <!-- ── Working tab content ───────────────────────────────────────────── -->
+    {#if sidebarTab === 'working'}
+      <!-- New file form / type picker -->
+      {#if showNewForm}
+        <div class="border-b border-gray-200 px-2 py-2 flex flex-col gap-1.5">
+          <div class="flex items-center gap-1 flex-wrap">
+            {#each FILE_TYPES as ft}
+              <button
+                onclick={() => newFileExt = ft.ext}
+                class="text-[10px] px-1.5 py-0.5 rounded border transition-colors
+                       {newFileExt === ft.ext
+                         ? 'bg-green-700 text-white border-green-700'
+                         : 'border-gray-200 text-gray-500 hover:bg-gray-50'}"
+              >{ft.icon} {ft.ext}</button>
+            {/each}
+          </div>
+          <input
+            type="text"
+            bind:value={newFileName}
+            onkeydown={(e) => { if (e.key === 'Enter') confirmNew(); if (e.key === 'Escape') showNewForm = false; }}
+            class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-green-500"
+            placeholder="file name"
+          />
+          <div class="flex gap-1.5">
+            <button onclick={confirmNew}
+              class="flex-1 text-xs py-1 rounded bg-green-700 text-white font-semibold hover:bg-green-600">
+              Create
+            </button>
+            <button onclick={() => showNewForm = false}
+              class="text-xs px-2 py-1 rounded border border-gray-200 text-gray-500 hover:bg-gray-50">
+              Cancel
+            </button>
+          </div>
+        </div>
+      {:else}
+        <div class="border-b border-gray-200 px-2 py-1.5">
+          <button
+            onclick={() => openNewForm('.tpl')}
+            class="flex items-center gap-1.5 w-full justify-center px-2 py-1.5 rounded text-xs
+                   text-gray-600 hover:bg-green-50 hover:text-green-800 border border-dashed border-gray-200
+                   hover:border-green-300 transition-colors"
+          >
+            <span class="font-bold text-green-700">+</span>
+            <span>New file</span>
+          </button>
+        </div>
+      {/if}
+
+      <!-- File list -->
+      <div class="flex-1 overflow-y-auto text-xs">
+        {#if ephemeralStore.files.length === 0}
+          <p class="px-3 py-6 text-gray-400 text-center leading-snug">
+            No files yet.<br>Create a file to get started.
+          </p>
+        {:else}
+          {#each ephemeralStore.files as eph (eph.id)}
+            <div class="flex items-center gap-1 px-2 py-0.5 hover:bg-green-50 group">
+              {#if renamingId === eph.id}
+                <input
+                  type="text"
+                  bind:value={renameVal}
+                  class="flex-1 text-xs border border-blue-300 rounded px-1 py-0.5 focus:outline-none"
+                  onkeydown={(e) => {
+                    if (e.key === 'Enter') { ephemeralStore.rename(eph.id, renameVal); renamingId = null; }
+                    if (e.key === 'Escape') renamingId = null;
+                  }}
+                  onblur={() => renamingId = null}
+                />
+              {:else}
+                <FileLinesOutline class="w-3.5 h-3.5 text-green-600 flex-shrink-0 mr-0.5" />
+                <button
+                  class="flex-1 min-w-0 text-left truncate text-gray-800 py-0.5"
+                  onclick={() => openEph(eph)}
+                  ondblclick={() => { renamingId = eph.id; renameVal = eph.name; }}
+                  title={eph.name}
+                >{eph.name}</button>
+                <!-- Action buttons (visible on hover) -->
+                <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                  <button onclick={() => downloadEph(eph)}
+                    class="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                    title="Download">⬇</button>
+                  <button onclick={() => sendToSamples(eph)}
+                    class="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-green-600 hover:bg-green-50 text-[10px] font-bold"
+                    title="Send to Samples folder">S</button>
+                  <button onclick={() => ephemeralStore.remove(eph.id)}
+                    class="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-red-500 hover:bg-red-50"
+                    title="Delete">✕</button>
+                </div>
+              {/if}
+            </div>
+          {/each}
+        {/if}
+      </div>
+
     <!-- ── Local workspace controls (top of local tab) ─────────────────── -->
-    {#if datasourceStore.mode === 'local'}
+    {:else if sidebarTab === 'local'}
       {@const currentName = datasourceStore.tree ? Object.keys(datasourceStore.tree.children ?? {})[0] : null}
       {@const otherRecent = datasourceStore.recentHandles.filter(e => e.name !== currentName)}
 
@@ -267,8 +418,8 @@
       {/if}
     {/if}
 
-    <!-- Tree or status -->
-    <div class="flex-1 overflow-y-auto overflow-x-hidden text-xs">
+    <!-- Tree or status (local / remote only) -->
+    <div class="flex-1 overflow-y-auto overflow-x-hidden text-xs" class:hidden={sidebarTab === 'working'}>
       {#if datasourceStore.loading}
         <p class="px-3 py-4 text-gray-400 text-center leading-snug">Loading remote…</p>
       {:else if datasourceStore.error}
@@ -368,29 +519,32 @@
       {/if}
     </div>
 
-    <!-- ── Bottom tab bar: Local | Remote ──────────────────────────────── -->
+    <!-- ── Bottom tab bar: Local | Remote | Working ───────────────────── -->
     <div class="border-t border-gray-200 flex">
-      <button
-        onclick={() => datasourceStore.mode !== 'local' && datasourceStore.toggleMode()}
-        class="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold transition-colors
-               {datasourceStore.mode === 'local'
-                 ? 'bg-green-700 text-white'
-                 : 'text-gray-500 hover:bg-gray-50'}"
-        aria-label="Local files"
-      >
-        <DesktopPcOutline class="w-3.5 h-3.5 flex-shrink-0" />
+      <button onclick={() => setTab('local')}
+        class="flex-1 flex flex-col items-center justify-center py-1.5 text-[10px] font-semibold transition-colors
+               {sidebarTab === 'local' ? 'bg-green-700 text-white' : 'text-gray-500 hover:bg-gray-50'}"
+        aria-label="Local files">
+        <DesktopPcOutline class="w-3.5 h-3.5" />
         <span>Local</span>
       </button>
-      <button
-        onclick={() => datasourceStore.mode !== 'remote' && datasourceStore.toggleMode()}
-        class="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold transition-colors
-               {datasourceStore.mode === 'remote'
-                 ? 'bg-green-700 text-white'
-                 : 'text-gray-500 hover:bg-gray-50'}"
-        aria-label="Remote files"
-      >
-        <CloudArrowUpOutline class="w-3.5 h-3.5 flex-shrink-0" />
+      <button onclick={() => setTab('remote')}
+        class="flex-1 flex flex-col items-center justify-center py-1.5 text-[10px] font-semibold transition-colors
+               {sidebarTab === 'remote' ? 'bg-green-700 text-white' : 'text-gray-500 hover:bg-gray-50'}"
+        aria-label="Remote files">
+        <CloudArrowUpOutline class="w-3.5 h-3.5" />
         <span>Remote</span>
+      </button>
+      <button onclick={() => setTab('working')}
+        class="flex-1 flex flex-col items-center justify-center py-1.5 text-[10px] font-semibold transition-colors
+               {sidebarTab === 'working' ? 'bg-green-700 text-white' : 'text-gray-500 hover:bg-gray-50'}"
+        aria-label="Working files">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2" y="3" width="12" height="10" rx="1.5"/>
+          <line x1="5" y1="7" x2="11" y2="7"/><line x1="5" y1="10" x2="9" y2="10"/>
+          <path d="M5 3V2M11 3V2" stroke-linecap="round"/>
+        </svg>
+        <span>Working</span>
       </button>
     </div>
   </aside>
