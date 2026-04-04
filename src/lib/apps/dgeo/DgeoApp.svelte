@@ -2,8 +2,12 @@
   import { onMount } from 'svelte';
   import { tabStore } from '$lib/tabs/tabs.svelte.js';
   import { saveToHandle, downloadBlob } from '$lib/apps/shared/fileActions.js';
+  import Dgeo3DView from './Dgeo3DView.svelte';
 
   const { tab } = $props();
+
+  // ── View mode ──────────────────────────────────────────────────────────────
+  let viewMode = $state('2d');  // '2d' | '3d'
 
   // ── Colour palette for formations ─────────────────────────────────────────
   const FORMATION_COLOURS = [
@@ -280,6 +284,19 @@
     <div class="px-3 py-2 border-b border-gray-200">
       <div class="text-xs font-bold text-gray-700 uppercase tracking-wide">Geological Cross-Section</div>
       <div class="text-[0.6rem] text-gray-400 truncate mt-0.5">{tab.name}</div>
+      <!-- 2D / 3D toggle -->
+      <div class="flex gap-0.5 mt-1.5">
+        {#each [['2d','2D'],['3d','3D']] as [v, label]}
+          <button
+            onclick={() => viewMode = v}
+            class="flex-1 text-[10px] font-semibold py-0.5 rounded transition-colors
+                   {viewMode === v
+                     ? 'bg-blue-600 text-white'
+                     : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}">
+            {label}
+          </button>
+        {/each}
+      </div>
     </div>
 
     <!-- Tools -->
@@ -367,8 +384,21 @@
     </div>
   </div>
 
-  <!-- ── Right: SVG canvas ──────────────────────────────────────────────── -->
-  <div class="flex-1 overflow-auto bg-white flex flex-col">
+  <!-- ── Right: canvas area ───────────────────────────────────────────── -->
+  <div class="flex-1 overflow-auto bg-white flex flex-col" class:overflow-hidden={viewMode === '3d'}>
+
+    <!-- 3D block view -->
+    {#if viewMode === '3d'}
+      <Dgeo3DView
+        horizons={sortedHorizons}
+        domX={domX}
+        domY={domY}
+        activeId={activeId}
+      />
+    {/if}
+
+    <!-- 2D SVG canvas (hidden in 3D mode) -->
+    <div class="contents" class:hidden={viewMode === '3d'}>
 
     <!-- Domain controls -->
     <div class="flex items-center gap-4 px-4 py-1.5 border-b border-gray-100 bg-gray-50 text-xs text-gray-500 flex-shrink-0">
@@ -530,5 +560,6 @@
         <rect x={PAD} y={PAD/2} width={CHART_W} height={CHART_H} fill="none" stroke="#9ca3af" stroke-width="1"/>
       </svg>
     </div>
+    </div> <!-- end 2D wrapper -->
   </div>
 </div>
