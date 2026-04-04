@@ -13,7 +13,6 @@
   let summary     = $state(null);   // processCurves() output
   let logView     = $state(null);   // buildLasTracks() output
   let rawBuffer   = $state(null);   // kept for download
-  let fileSize    = $state(0);
 
   let activeSection = $state('overview');
   let chart         = $state(null);  // null = closed
@@ -27,12 +26,10 @@
       let buffer;
       if (tab.file) {
         buffer = await tab.file.arrayBuffer();
-        fileSize = tab.file.size;
       } else if (tab.driveId) {
         const res = await fetch(`/api/drive?fileId=${encodeURIComponent(tab.driveId)}`);
         if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
         buffer = await (await res.blob()).arrayBuffer();
-        fileSize = buffer.byteLength;
       } else {
         throw new Error('No file source available.');
       }
