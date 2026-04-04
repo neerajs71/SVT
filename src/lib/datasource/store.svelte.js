@@ -65,6 +65,8 @@ class DatasourceState {
   loading       = $state(false);
   error         = $state(null);
   recentHandles = $state([]);        // [{ name, handle, savedAt }]
+  deepFetching  = $state(false);     // true while deepFetch() is running
+  _fetchedIds   = new Set();         // Drive folder IDs already fetched (plain, non-reactive)
 
   /** Call from onMount in Sidebar to populate recent workspaces list. */
   async initRecentWorkspaces() {
@@ -90,6 +92,7 @@ class DatasourceState {
     this.tree = null;
     this.expanded = new Set();
     this.error = null;
+    this._fetchedIds = new Set();
 
     if (newMode === 'remote') {
       this.loading = true;
@@ -141,7 +144,7 @@ class DatasourceState {
         remote.fetchFolder(id)
           .then(data => {
             const n = getNodeByPath(this.tree, path);
-            if (n) n.children = data.children;
+            if (n) { n.children = data.children; this._fetchedIds.add(id); }
             this.tree = { ...this.tree };
           })
           .catch(err => console.error('[store] lazy-load failed:', err));
@@ -152,34 +155,44 @@ class DatasourceState {
 
   /**
    * Recursively pre-fetch all un-loaded remote sub-folders so that
-   * file-picker UIs (e.g. TplApp slot picker) can see all files without
-   * the user first browsing to each folder in the sidebar.
-   * No-op in local mode.
+   * file-picker UIs can see all files without the user first expanding
+   * each folder in the sidebar. No-op in local mode.
+   * Sets deepFetching=true while running; idempotent (skips already-fetched IDs).
    */
   async deepFetch() {
-    if (this.mode !== 'remote' || !this.tree) return;
-    await this._deepFetchNode(this.tree, '');
-    this.tree = { ...this.tree }; // trigger reactivity
+    if (this.mode !== 'remote' || !this.tree || this.deepFetching) return;
+    this.deepFetching = true;
+    try {
+      await this._deepFetchNode(this.tree);
+    } finally {
+      this.deepFetching = false;
+    }
   }
 
-  async _deepFetchNode(node, path) {
+  async _deepFetchNode(node) {
     const promises = [];
-    for (const [name, child] of Object.entries(node?.children ?? {})) {
+    for (const child of Object.values(node?.children ?? {})) {
       if (child.type !== 'dir' || !child.id) continue;
-      const childPath = path ? `${path}/${name}` : name;
+      if (this._fetchedIds.has(child.id)) {
+        // Already fetched — just recurse into existing children
+        if (Object.keys(child.children).length > 0) {
+          promises.push(this._deepFetchNode(child));
+        }
+        continue;
+      }
+      this._fetchedIds.add(child.id); // mark before async to prevent duplicate fetches
       if (Object.keys(child.children).length === 0) {
-        // Empty children — may not have been fetched yet; fetch now
         promises.push(
           remote.fetchFolder(child.id)
             .then(data => {
               child.children = data.children;
-              return this._deepFetchNode(child, childPath);
+              this.tree = { ...this.tree }; // notify reactivity
+              return this._deepFetchNode(child);
             })
-            .catch(e => console.error('[deepFetch]', childPath, e))
+            .catch(e => console.error('[deepFetch]', child.id, e))
         );
       } else {
-        // Already populated — just recurse
-        promises.push(this._deepFetchNode(child, childPath));
+        promises.push(this._deepFetchNode(child));
       }
     }
     await Promise.all(promises);

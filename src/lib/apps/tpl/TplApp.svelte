@@ -130,10 +130,11 @@
     pickerExpanded = next;
   }
 
-  // When the picker opens: pre-load all remote sub-folders then auto-expand
+  // When the picker opens: pre-load all remote sub-folders (idempotent, guarded)
+  // then auto-expand the picker tree. All datasourceStore reads are async so
+  // they don't create reactive dependencies that would re-trigger this effect.
   $effect(() => {
     if (pickingSlot === null) return;
-    // In remote mode, deep-fetch all un-loaded folders first so every file is visible
     datasourceStore.deepFetch().then(() => {
       const paths = new Set();
       function collectPaths(node, parentPath) {
@@ -1325,8 +1326,10 @@
             <div onpointerdown={onPickerPanelDragStart}
               class="absolute top-0 right-0 w-1 h-full cursor-col-resize z-10 hover:bg-blue-400 active:bg-blue-500 transition-colors">
             </div>
-            {#if datasourceStore.loading}
-              <p class="text-xs text-gray-400 p-3 text-center">Loading…</p>
+            {#if datasourceStore.loading || datasourceStore.deepFetching}
+              <p class="text-xs text-gray-400 p-3 text-center">
+                {datasourceStore.deepFetching ? 'Loading all files…' : 'Loading…'}
+              </p>
             {:else if !datasourceStore.tree}
               <p class="text-xs text-gray-400 p-3 leading-snug">
                 No workspace open.<br>
