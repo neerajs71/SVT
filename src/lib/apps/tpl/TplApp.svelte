@@ -675,12 +675,126 @@
     startEditCurve(newCurve);
   }
 
-  // ── Template editing ─────────────────────────────────────────────────────
+  // ── Panel management ─────────────────────────────────────────────────────
+  function addPanel() {
+    const n = (tpl.panels?.length ?? 0) + 1;
+    const id = `P${n}`;
+    const newPanel = { id, title: `Panel ${n}`, width: 120, xMin: 0, xMax: 150, gridType: 'linear', color: '#ffffff', numGridLines: 4 };
+    tpl = { ...tpl, panels: [...(tpl.panels ?? []), newPanel] };
+    startEditPanel(newPanel);
+  }
+
   function startEditPanel(panel) { editingPanel = { ...panel }; }
   function saveEditPanel() {
     tpl = { ...tpl, panels: tpl.panels.map(p => p.id === editingPanel.id ? { ...editingPanel } : p) };
     editingPanel = null;
   }
+  function deletePanel() {
+    const id = editingPanel.id;
+    const used = (tpl.curveDefinitions ?? []).some(c => c.trackId === id);
+    if (used) {
+      alert(`Panel "${editingPanel.title}" is used by ${(tpl.curveDefinitions ?? []).filter(c => c.trackId === id).length} curve(s). Reassign or delete them first.`);
+      return;
+    }
+    tpl = { ...tpl, panels: tpl.panels.filter(p => p.id !== id) };
+    editingPanel = null;
+  }
+
+  // ── Prebuilt templates ────────────────────────────────────────────────────
+  let showTemplates = $state(false);
+
+  const PREBUILT_TEMPLATES = [
+    {
+      id: 'blank', label: 'Blank', icon: '📄', desc: 'Empty template — add panels and curves manually',
+      tpl: {
+        title: 'New Template', fileSlots: { F1: null },
+        indexCurve: { fileSlot: 'F1', curveMnemonic: 'DEPT', unit: 'ft' },
+        depth: { min: 0, max: 5000, unit: 'ft', scale: '1:200', visibleMin: 0, visibleMax: 5000 },
+        panels: [], curveDefinitions: [],
+      },
+    },
+    {
+      id: 'basic_gr', label: 'Basic GR', icon: '📊', desc: '1 panel: GR (0–150)',
+      tpl: {
+        title: 'Basic GR', fileSlots: { F1: null },
+        indexCurve: { fileSlot: 'F1', curveMnemonic: 'DEPT', unit: 'ft' },
+        depth: { min: 0, max: 5000, unit: 'ft', scale: '1:200', visibleMin: 0, visibleMax: 5000 },
+        panels: [
+          { id: 'P1', title: 'GR', width: 120, xMin: 0, xMax: 150, gridType: 'linear', color: '#ffffff', numGridLines: 3 },
+        ],
+        curveDefinitions: [
+          { id: 'c1', curveMnemonic: 'GR', trackId: 'P1', fileSlot: 'F1', color: '#16a34a', line: { thickness: 1.2, style: 'solid' } },
+        ],
+      },
+    },
+    {
+      id: 'gr_res', label: 'GR + Resistivity', icon: '📈', desc: '2 panels: GR | ILD/ILM (log scale)',
+      tpl: {
+        title: 'GR + Resistivity', fileSlots: { F1: null },
+        indexCurve: { fileSlot: 'F1', curveMnemonic: 'DEPT', unit: 'ft' },
+        depth: { min: 0, max: 5000, unit: 'ft', scale: '1:200', visibleMin: 0, visibleMax: 5000 },
+        panels: [
+          { id: 'P1', title: 'GR', width: 110, xMin: 0, xMax: 150, gridType: 'linear', color: '#ffffff', numGridLines: 3 },
+          { id: 'P2', title: 'Resistivity', width: 130, xMin: 0.2, xMax: 2000, gridType: 'logarithmic', color: '#ffffff', numGridLines: 4 },
+        ],
+        curveDefinitions: [
+          { id: 'c1', curveMnemonic: 'GR',  trackId: 'P1', fileSlot: 'F1', color: '#16a34a', line: { thickness: 1.2, style: 'solid' } },
+          { id: 'c2', curveMnemonic: 'ILD', trackId: 'P2', fileSlot: 'F1', color: '#dc2626', line: { thickness: 1.2, style: 'solid' } },
+          { id: 'c3', curveMnemonic: 'ILM', trackId: 'P2', fileSlot: 'F1', color: '#ea580c', line: { thickness: 1.0, style: 'dashed' } },
+        ],
+      },
+    },
+    {
+      id: 'triple_combo', label: 'Triple Combo', icon: '🧱', desc: '3 panels: GR | RHOB+NPHI | ILD',
+      tpl: {
+        title: 'Triple Combo', fileSlots: { F1: null },
+        indexCurve: { fileSlot: 'F1', curveMnemonic: 'DEPT', unit: 'ft' },
+        depth: { min: 0, max: 5000, unit: 'ft', scale: '1:200', visibleMin: 0, visibleMax: 5000 },
+        panels: [
+          { id: 'P1', title: 'GR',              width: 110, xMin: 0,    xMax: 150,  gridType: 'linear',      color: '#ffffff', numGridLines: 3 },
+          { id: 'P2', title: 'Density/Porosity', width: 130, xMin: 1.95, xMax: 2.95, gridType: 'linear',      color: '#ffffff', numGridLines: 4 },
+          { id: 'P3', title: 'Resistivity',      width: 120, xMin: 0.2,  xMax: 2000, gridType: 'logarithmic', color: '#ffffff', numGridLines: 4 },
+        ],
+        curveDefinitions: [
+          { id: 'c1', curveMnemonic: 'GR',   trackId: 'P1', fileSlot: 'F1', color: '#16a34a', line: { thickness: 1.2, style: 'solid' } },
+          { id: 'c2', curveMnemonic: 'RHOB', trackId: 'P2', fileSlot: 'F1', color: '#dc2626', line: { thickness: 1.2, style: 'solid' } },
+          { id: 'c3', curveMnemonic: 'NPHI', trackId: 'P2', fileSlot: 'F1', color: '#2563eb', line: { thickness: 1.2, style: 'dashed' } },
+          { id: 'c4', curveMnemonic: 'ILD',  trackId: 'P3', fileSlot: 'F1', color: '#7c3aed', line: { thickness: 1.2, style: 'solid' } },
+        ],
+      },
+    },
+    {
+      id: 'quick_look', label: 'Quick Look', icon: '🔍', desc: '4 panels: GR | RHOB+NPHI | DT | ILD',
+      tpl: {
+        title: 'Quick Look', fileSlots: { F1: null },
+        indexCurve: { fileSlot: 'F1', curveMnemonic: 'DEPT', unit: 'ft' },
+        depth: { min: 0, max: 5000, unit: 'ft', scale: '1:200', visibleMin: 0, visibleMax: 5000 },
+        panels: [
+          { id: 'P1', title: 'GR',          width: 100, xMin: 0,    xMax: 150,  gridType: 'linear',      color: '#ffffff', numGridLines: 3 },
+          { id: 'P2', title: 'Density/Por', width: 120, xMin: 1.95, xMax: 2.95, gridType: 'linear',      color: '#ffffff', numGridLines: 4 },
+          { id: 'P3', title: 'Sonic',       width: 100, xMin: 40,   xMax: 140,  gridType: 'linear',      color: '#ffffff', numGridLines: 3 },
+          { id: 'P4', title: 'Resistivity', width: 120, xMin: 0.2,  xMax: 2000, gridType: 'logarithmic', color: '#ffffff', numGridLines: 4 },
+        ],
+        curveDefinitions: [
+          { id: 'c1', curveMnemonic: 'GR',   trackId: 'P1', fileSlot: 'F1', color: '#16a34a', line: { thickness: 1.2, style: 'solid' } },
+          { id: 'c2', curveMnemonic: 'RHOB', trackId: 'P2', fileSlot: 'F1', color: '#dc2626', line: { thickness: 1.2, style: 'solid' } },
+          { id: 'c3', curveMnemonic: 'NPHI', trackId: 'P2', fileSlot: 'F1', color: '#2563eb', line: { thickness: 1.2, style: 'dashed' } },
+          { id: 'c4', curveMnemonic: 'DT',   trackId: 'P3', fileSlot: 'F1', color: '#0891b2', line: { thickness: 1.2, style: 'solid' } },
+          { id: 'c5', curveMnemonic: 'ILD',  trackId: 'P4', fileSlot: 'F1', color: '#7c3aed', line: { thickness: 1.2, style: 'solid' } },
+        ],
+      },
+    },
+  ];
+
+  function applyTemplate(preset) {
+    const fresh = JSON.parse(JSON.stringify(preset.tpl));
+    // Preserve the current title
+    fresh.title = tpl?.title ?? fresh.title;
+    tpl = fresh;
+    showTemplates = false;
+  }
+
+  // ── Template editing (panel) ──────────────────────────────────────────────
 
   function startEditCurve(curve) {
     const panel = (tpl.panels ?? []).find(p => p.id === curve.trackId);
@@ -813,6 +927,30 @@
           </svg>
         </button>
         <span class="tb-tip">Add Curve</span>
+      </div>
+
+      <!-- Add panel -->
+      <div class="tb-item group">
+        <button class="tb-btn" onclick={addPanel} aria-label="Add panel">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="2" width="5" height="12" rx="1"/>
+            <rect x="9" y="2" width="5" height="12" rx="1" stroke-dasharray="2 1.5"/>
+            <line x1="11.5" y1="6" x2="11.5" y2="10"/><line x1="9.5" y1="8" x2="13.5" y2="8"/>
+          </svg>
+        </button>
+        <span class="tb-tip">Add Panel</span>
+      </div>
+
+      <!-- Templates -->
+      <div class="tb-item group">
+        <button class="tb-btn" class:tb-active={showTemplates}
+          onclick={() => showTemplates = !showTemplates} aria-label="Prebuilt templates">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="2" width="5" height="5" rx="0.75"/><rect x="9" y="2" width="5" height="5" rx="0.75"/>
+            <rect x="2" y="9" width="5" height="5" rx="0.75"/><rect x="9" y="9" width="5" height="5" rx="0.75"/>
+          </svg>
+        </button>
+        <span class="tb-tip">Templates</span>
       </div>
 
       <!-- Build from files -->
@@ -1463,6 +1601,37 @@
     {/snippet}
   </FloatingPanel>
 
+  <!-- ── Templates picker ─────────────────────────────────────────────── -->
+  {#if showTemplates}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div role="button" tabindex="-1" class="fixed inset-0 z-[9990] bg-black/20" onclick={() => showTemplates = false}></div>
+    <div class="fixed z-[9991] bg-white border border-gray-200 rounded-xl shadow-2xl overflow-hidden"
+      style="top:50%;left:50%;transform:translate(-50%,-50%);width:min(420px,calc(100vw - 24px));max-height:80vh;overflow-y:auto">
+      <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+        <span class="text-sm font-semibold text-gray-800">Prebuilt Templates</span>
+        <button onclick={() => showTemplates = false} class="text-gray-400 hover:text-gray-600 text-lg leading-none">✕</button>
+      </div>
+      <div class="p-3 flex flex-col gap-2">
+        {#each PREBUILT_TEMPLATES as preset}
+          <button
+            onclick={() => applyTemplate(preset)}
+            class="flex items-start gap-3 w-full text-left px-3 py-2.5 rounded-lg border border-gray-100
+                   hover:bg-green-50 hover:border-green-200 transition-colors group"
+          >
+            <span class="text-2xl leading-none mt-0.5">{preset.icon}</span>
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-semibold text-gray-800 group-hover:text-green-800">{preset.label}</div>
+              <div class="text-xs text-gray-500 mt-0.5">{preset.desc}</div>
+            </div>
+          </button>
+        {/each}
+      </div>
+      <p class="px-4 py-2 text-[10px] text-gray-400 border-t border-gray-100">
+        Applying a template will replace the current panels and curves. File slot assignments are kept.
+      </p>
+    </div>
+  {/if}
+
   <!-- ── Panel Editor FloatingPanel ───────────────────────────────────── -->
   <FloatingPanel
     title="Edit Panel"
@@ -1512,10 +1681,17 @@
                 class="w-full text-xs border border-gray-200 rounded px-2 py-1"/>
             </div>
           </div>
-          <button onclick={saveEditPanel}
-            class="mt-1 text-xs bg-blue-600 text-white rounded px-3 py-1.5 hover:bg-blue-700 font-medium">
-            Apply
-          </button>
+          <div class="mt-1 flex gap-1.5">
+            <button onclick={saveEditPanel}
+              class="flex-1 text-xs bg-blue-600 text-white rounded px-3 py-1.5 hover:bg-blue-700 font-medium">
+              Apply
+            </button>
+            <button onclick={deletePanel}
+              class="text-xs border border-red-200 text-red-500 rounded px-2 py-1.5 hover:bg-red-50 font-medium"
+              title="Delete panel (must have no curves)">
+              Delete
+            </button>
+          </div>
         </div>
       {/if}
     {/snippet}
