@@ -744,12 +744,14 @@
         saveErr = e.message;
       }
     } else {
+      // iOS / Drive — trigger download but keep dirty flag:
+      // the source file hasn't changed, the user just has a local copy.
       downloadBlob(tab.name, json, 'application/json');
-      _loadedHash = JSON.stringify(tpl);
     }
   }
 
   function downloadTpl() {
+    // Always downloads current tpl; never clears dirty (download ≠ save to source).
     downloadBlob(tab.name, JSON.stringify(tpl, null, 2), 'application/json');
   }
 
@@ -1116,10 +1118,19 @@
                      ? 'border-2 border-orange-300 bg-orange-50/20'
                      : 'border border-gray-200 bg-gray-50 focus:border-blue-400'}"
         ></textarea>
-        <div class="flex gap-2 justify-end flex-shrink-0">
+        <div class="flex gap-2 justify-end flex-shrink-0 flex-wrap">
           <button onclick={() => { rawTextFocused = false; viewMode = 'chart'; }}
             class="text-xs border border-gray-200 rounded px-3 py-1.5 hover:bg-gray-50">
             Cancel
+          </button>
+          <!-- Download current state — works on iOS, keeps dirty flag -->
+          <button onclick={downloadTpl}
+            class="text-xs rounded px-3 py-1.5 font-medium transition-colors
+                   {dirty
+                     ? 'bg-orange-500 hover:bg-orange-600 text-white'
+                     : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}"
+            title="Download current template (including unsaved changes)">
+            ⬇ Download{dirty ? ' (unsaved)' : ''}
           </button>
           <button onclick={applyRawText}
             class="text-xs bg-blue-600 text-white rounded px-3 py-1.5 hover:bg-blue-700 font-medium"
