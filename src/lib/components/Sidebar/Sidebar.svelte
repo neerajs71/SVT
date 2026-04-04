@@ -225,7 +225,7 @@
           {@const isPending  = pendingDelete  === item.path}
           {@const isDeleting = deletingPath   === item.path}
           <div
-            class="group w-full flex items-center py-0.5 pr-1 hover:bg-green-50 select-none
+            class="w-full flex items-center py-0.5 pr-1 hover:bg-green-50 select-none
                    {isPending  ? 'bg-red-50 hover:bg-red-50' : ''}
                    {isDeleting ? 'opacity-40 pointer-events-none' : ''}"
             style="padding-left: {0.25 + item.depth * 0.75}rem"
@@ -251,18 +251,18 @@
               {#if item.type === 'dir' && datasourceStore.mode === 'local'}
                 <button
                   onclick={(e) => openCreateMenu(e, item)}
-                  class="flex-shrink-0 w-4 opacity-0 group-hover:opacity-100 p-0.5 rounded
-                         text-gray-300 hover:text-green-600 hover:bg-green-50 transition-opacity mr-0.5 font-bold leading-none"
+                  class="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded
+                         text-green-600 hover:bg-green-100 active:bg-green-200 font-bold text-sm leading-none mr-0.5"
                   title="Create file or folder here"
                 >+</button>
               {:else}
-                <span class="w-4 flex-shrink-0 mr-0.5"></span>
+                <span class="w-5 flex-shrink-0 mr-0.5"></span>
               {/if}
-              <!-- Trash icon — appears on row hover -->
+              <!-- Trash icon -->
               <button
                 onclick={(e) => requestDelete(e, item)}
-                class="flex-shrink-0 w-4 opacity-0 group-hover:opacity-100 p-0.5 rounded
-                       text-gray-300 hover:text-red-500 hover:bg-red-50 transition-opacity mr-0.5"
+                class="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded
+                       text-gray-400 hover:text-red-500 hover:bg-red-50 active:bg-red-100 mr-0.5"
                 title="{datasourceStore.mode === 'remote' ? 'Move to trash' : 'Remove from workspace'}"
               >
                 <TrashBinOutline class="w-3 h-3" />
