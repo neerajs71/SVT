@@ -47,6 +47,16 @@
       saving = false;
     }
   }
+
+  function download() {
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = tab.name;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 </script>
 
 <svelte:window onkeydown={(e) => {
@@ -80,9 +90,13 @@
           {saving ? 'Saving…' : 'Save'}
         </button>
       {:else}
-        <span class="text-xs text-gray-300" title="Read-only: file handle not available (Drive or iOS)">
-          Read-only
-        </span>
+        <button
+          onclick={download}
+          class="text-xs px-2 py-0.5 rounded border border-gray-300 text-gray-500 hover:bg-gray-100 active:bg-gray-200"
+          title="Download edited file to your device"
+        >
+          Download
+        </button>
       {/if}
     </div>
 
