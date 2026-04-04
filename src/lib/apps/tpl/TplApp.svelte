@@ -845,10 +845,13 @@
         <button class="tb-btn" class:tb-active={dirty} onclick={saveTpl} aria-label="Save TPL">
           {#if dirty}<span class="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-orange-400 pointer-events-none"></span>{/if}
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M3 12h10M8 3v7M5 7l3 3 3-3"/>
+            <!-- floppy disk -->
+            <rect x="2" y="2" width="12" height="12" rx="1.5"/>
+            <rect x="5" y="2" width="6" height="4" rx="0.5" fill="currentColor" stroke="none"/>
+            <rect x="4.5" y="9" width="7" height="5" rx="0.75"/>
           </svg>
         </button>
-        <span class="tb-tip">{tab.handle ? 'Save to disk' : 'Download'}</span>
+        <span class="tb-tip">{tab.handle ? 'Save to disk' : 'Save'}</span>
       </div>
 
       <!-- Download copy -->
