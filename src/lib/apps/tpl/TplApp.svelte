@@ -39,11 +39,17 @@
   let editingCurve = $state(null);
 
   // ── Layout constants ─────────────────────────────────────────────────────
-  const DEPTH_W  = 64;
-  const CHART_H  = 600;
-  const HEADER_H = 64;
-  const XAXIS_H  = 28;
-  const TOTAL_H  = HEADER_H + CHART_H + XAXIS_H;
+  const DEPTH_W    = 64;
+  const CHART_H    = 600;
+  const CURVE_ROW_H = 22;   // header px per curve row
+  const XAXIS_H    = 28;
+  // Header grows to fit the tallest panel (max curves across all panels)
+  const HEADER_H = $derived.by(() => {
+    if (!tpl) return 44;
+    const maxN = Math.max(1, ...Object.values(panelCurves).map(cs => cs.length));
+    return Math.max(44, maxN * CURVE_ROW_H);
+  });
+  const TOTAL_H = $derived(HEADER_H + CHART_H + XAXIS_H);
 
   // ── Load TPL ─────────────────────────────────────────────────────────────
   onMount(async () => {
@@ -414,15 +420,15 @@
   // ── Per-panel helpers ────────────────────────────────────────────────────
   function isLog(panel) { return panel.gridType === 'logarithmic'; }
 
-  function xToPixel(panel, value) {
+  function xToPixel(panel, value, xMin = panel.xMin, xMax = panel.xMax) {
     const w = panel.width;
     if (isLog(panel)) {
-      const lMin = Math.log10(Math.max(panel.xMin, 1e-10));
-      const lMax = Math.log10(Math.max(panel.xMax, 1e-10));
+      const lMin = Math.log10(Math.max(xMin, 1e-10));
+      const lMax = Math.log10(Math.max(xMax, 1e-10));
       const lv   = Math.log10(Math.max(value, 1e-10));
       return ((lv - lMin) / (lMax - lMin || 1)) * w;
     }
-    return ((value - panel.xMin) / ((panel.xMax - panel.xMin) || 1)) * w;
+    return ((value - xMin) / ((xMax - xMin) || 1)) * w;
   }
 
   function gridLines(panel) {
@@ -501,7 +507,9 @@
       const d = depths[i], v = values[i];
       if (!isFinite(d) || !isFinite(v) || d < dMn || d > dMx) continue;
       const py = sy(d);
-      const px = Math.max(0, Math.min(panel.width, xToPixel(panel, v)));
+      const cMin = curveDef.xMin ?? panel.xMin;
+      const cMax = curveDef.xMax ?? panel.xMax;
+      const px = Math.max(0, Math.min(panel.width, xToPixel(panel, v, cMin, cMax)));
       pts.push(`${px.toFixed(1)},${py.toFixed(1)}`);
     }
     return pts.join(' ');
@@ -737,6 +745,7 @@
       fileSlot: firstSlot,
       color: '#374151',
       line: { thickness: 1.2, style: 'solid' },
+      xMin: 0, xMax: 150, unit: '',
     };
     tpl = { ...tpl, curveDefinitions: [...(tpl.curveDefinitions ?? []), newCurve] };
     startEditCurve(newCurve);
@@ -753,10 +762,11 @@
     const panel = (tpl.panels ?? []).find(p => p.id === curve.trackId);
     editingCurve = {
       ...curve,
-      line:       { ...curve.line },
-      scaleMin:   panel?.xMin  ?? 0,
-      scaleMax:   panel?.xMax  ?? 150,
-      scaleType:  panel?.gridType ?? 'linear',
+      line:      { ...curve.line },
+      scaleMin:  curve.xMin ?? panel?.xMin ?? 0,
+      scaleMax:  curve.xMax ?? panel?.xMax ?? 150,
+      scaleType: panel?.gridType ?? 'linear',
+      unit:      curve.unit ?? '',
     };
   }
   function saveEditCurve() {
@@ -764,12 +774,12 @@
     tpl = {
       ...tpl,
       curveDefinitions: tpl.curveDefinitions.map(c =>
-        c.id === editingCurve.id ? { ...curveOnly } : c
+        c.id === editingCurve.id
+          ? { ...curveOnly, xMin: parseFloat(scaleMin) || 0, xMax: parseFloat(scaleMax) || 150 }
+          : c
       ),
       panels: (tpl.panels ?? []).map(p =>
-        p.id === editingCurve.trackId
-          ? { ...p, xMin: parseFloat(scaleMin) || 0, xMax: parseFloat(scaleMax) || 150, gridType: scaleType }
-          : p
+        p.id === editingCurve.trackId ? { ...p, gridType: scaleType } : p
       ),
     };
     editingCurve = null;
@@ -1234,40 +1244,46 @@
             {/if}
           {/each}
 
-          <!-- Panel header: title + curve chips -->
+          <!-- Panel header: one row per curve, stacked -->
           <rect x={px} y="0" width={panel.width} height={HEADER_H} fill="#f8fafc"/>
           <rect x={px} y="0" width={panel.width} height={HEADER_H}
             fill="none" stroke="#d1d5db" stroke-width="0.8"/>
 
-          <!-- Panel title (clickable to edit) -->
-          <text x={px + panel.width / 2} y="14" text-anchor="middle"
-            font-size="10" font-weight="bold" fill="#374151"
-            style="cursor:pointer"
-            onclick={() => startEditPanel(panel)}>
-            {panel.title}
-          </text>
+          {#if curves.length === 0}
+            <!-- Empty panel: show title clickable -->
+            <text x={px + panel.width / 2} y={HEADER_H / 2 + 4} text-anchor="middle"
+              font-size="9" fill="#9ca3af" style="cursor:pointer"
+              onclick={() => startEditPanel(panel)}>{panel.title}</text>
+          {:else}
+            {@const rowH = HEADER_H / curves.length}
+            {#each curves as curveDef, ci}
+              {@const ry = ci * rowH}
+              {@const cMin = curveDef.xMin ?? panel.xMin}
+              {@const cMax = curveDef.xMax ?? panel.xMax}
+              {@const cUnit = curveDef.unit ?? ''}
 
-          <!-- Curve chips in header -->
-          {#each curves as curveDef, ci}
-            {@const chipX = px + 4 + ci * 68}
-            {#if chipX + 64 <= px + panel.width}
-              <!-- swatch -->
-              <rect x={chipX} y="20" width="10" height="3"
-                fill={curveDef.color ?? '#374151'}
-                rx="1"/>
-              <text x={chipX + 13} y="24" font-size="8" fill="#374151"
+              <!-- Scale: min left, max right -->
+              <text x={px + 3} y={ry + 9} font-size="7.5" fill="#6b7280">{fmtNum(cMin)}</text>
+              <text x={px + panel.width - 3} y={ry + 9} text-anchor="end" font-size="7.5" fill="#6b7280">{fmtNum(cMax)}</text>
+
+              <!-- Colored curve line -->
+              <line x1={px} y1={ry + 13} x2={px + panel.width} y2={ry + 13}
+                stroke={curveDef.color ?? '#374151'} stroke-width="1.5"/>
+
+              <!-- Curve name + unit (clickable to edit) -->
+              <text x={px + panel.width / 2} y={ry + rowH - 4}
+                text-anchor="middle" font-size="8" fill="#374151"
                 style="cursor:pointer"
                 onclick={() => startEditCurve(curveDef)}>
-                {curveDef.curveMnemonic}
+                {curveDef.curveMnemonic}{cUnit ? ` (${cUnit})` : ''}
               </text>
-            {/if}
-          {/each}
 
-          <!-- X-scale range labels -->
-          <text x={px + 3} y={HEADER_H - 4} font-size="8" fill="#6b7280">{fmtNum(panel.xMin)}</text>
-          <text x={px + panel.width - 3} y={HEADER_H - 4} text-anchor="end" font-size="8" fill="#6b7280">{fmtNum(panel.xMax)}</text>
-          {#if isLog(panel)}
-            <text x={px + panel.width / 2} y={HEADER_H - 4} text-anchor="middle" font-size="7" fill="#9ca3af">LOG</text>
+              <!-- Row divider (between curves) -->
+              {#if ci < curves.length - 1}
+                <line x1={px} y1={ry + rowH} x2={px + panel.width} y2={ry + rowH}
+                  stroke="#d1d5db" stroke-width="0.5"/>
+              {/if}
+            {/each}
           {/if}
 
           <!-- X-axis labels (below chart) -->
@@ -1684,9 +1700,9 @@
               </select>
             </div>
           </div>
-          <!-- Panel scale (shared by all curves on this panel) -->
+          <!-- Curve scale (per-curve) -->
           <div class="border-t border-gray-100 pt-2 mt-1">
-            <p class="text-[0.6rem] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Panel Scale</p>
+            <p class="text-[0.6rem] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Curve Scale</p>
             <div class="grid grid-cols-2 gap-2 mb-2">
               <div>
                 <label class="block text-xs text-gray-500 mb-0.5">Min</label>
@@ -1699,13 +1715,21 @@
                   class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400"/>
               </div>
             </div>
-            <div>
-              <label class="block text-xs text-gray-500 mb-0.5">Type</label>
-              <select bind:value={editingCurve.scaleType}
-                class="w-full text-xs border border-gray-200 rounded px-2 py-1">
-                <option value="linear">Linear</option>
-                <option value="logarithmic">Logarithmic</option>
-              </select>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-xs text-gray-500 mb-0.5">Unit</label>
+                <input type="text" bind:value={editingCurve.unit}
+                  class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400"
+                  placeholder="e.g. API, ohm·m"/>
+              </div>
+              <div>
+                <label class="block text-xs text-gray-500 mb-0.5">Type</label>
+                <select bind:value={editingCurve.scaleType}
+                  class="w-full text-xs border border-gray-200 rounded px-2 py-1">
+                  <option value="linear">Linear</option>
+                  <option value="logarithmic">Logarithmic</option>
+                </select>
+              </div>
             </div>
           </div>
           <div class="flex gap-1.5 pt-1">
