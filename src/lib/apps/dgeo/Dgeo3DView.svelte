@@ -1,145 +1,75 @@
 <script>
-  import { T, Canvas } from '@threlte/core';
-  import { OrbitControls } from '@threlte/extras';
-  import * as THREE from 'three';
+  import { Canvas } from '@threlte/core';
+  import Dgeo3DScene from './Dgeo3DScene.svelte';
 
-  let { horizons = [], domX, domY, activeId = null } = $props();
+  let {
+    horizons      = [],
+    domX,
+    domY,
+    onUpdateRails = null,
+  } = $props();
 
-  // ── World scaling ──────────────────────────────────────────────────────────
-  // Domain mapped to a normalised world box: WX wide, WY deep
-  const WX = 10;
-  const WY = 7;
+  let strikeKm      = $state(5);
+  let editHorizonId = $state(null);
+  let editRailIdx   = $state(null);
+  let resetKey      = $state(0);
 
-  let strikeKm = $state(5);    // extrusion along strike (same units as domX)
-  const strikeW = $derived((strikeKm / (domX.max - domX.min)) * WX);
+  function resetView() { resetKey++; }
 
-  function nx(x) { return (x - domX.min) / (domX.max - domX.min) * WX; }
-  function ny(y) { return -(y - domY.min) / (domY.max - domY.min) * WY; }  // negative = deeper
+  // ── Rail management for selected horizon ───────────────────────────────────
+  const editHorizon = $derived(horizons.find(h => h.id === editHorizonId) ?? null);
 
-  // Sorted shallowest → deepest
-  const sorted = $derived(
-    [...horizons].sort((a, b) => {
-      const avg = h => h.points.length ? h.points.reduce((s, p) => s + p.y, 0) / h.points.length : 0;
-      return avg(a) - avg(b);
-    })
-  );
+  const editRailsSorted = $derived.by(() => {
+    if (!editHorizon) return [];
+    if (editHorizon.rails && editHorizon.rails.length >= 2) {
+      return [...editHorizon.rails].sort((a, b) => a.z - b.z);
+    }
+    // Fallback: two rails at z=0 and z=strikeKm mirroring the 2D profile
+    const pts = editHorizon.points ?? [];
+    return [
+      { z: 0,        points: pts },
+      { z: strikeKm, points: pts },
+    ];
+  });
 
-  // ── Geometry builders ──────────────────────────────────────────────────────
-
-  function extrudeShape(upperPts, lowerPts, sw) {
-    const uS = [...upperPts].sort((a, b) => a.x - b.x);
-    const lS = [...lowerPts].sort((a, b) => a.x - b.x);
-    if (!uS.length || !lS.length) return null;
-
-    const shape = new THREE.Shape();
-    shape.moveTo(nx(domX.min), ny(uS[0].y));
-    for (const p of uS) shape.lineTo(nx(p.x), ny(p.y));
-    shape.lineTo(nx(domX.max), ny(uS[uS.length - 1].y));
-    shape.lineTo(nx(domX.max), ny(lS[lS.length - 1].y));
-    for (let i = lS.length - 1; i >= 0; i--) shape.lineTo(nx(lS[i].x), ny(lS[i].y));
-    shape.lineTo(nx(domX.min), ny(lS[0].y));
-    shape.closePath();
-
-    return new THREE.ExtrudeGeometry(shape, { depth: sw, bevelEnabled: false });
+  function addRail() {
+    if (!editHorizon || !onUpdateRails) return;
+    const rails = editRailsSorted;
+    // Insert midpoint between last two rails
+    let newZ;
+    if (rails.length >= 2) {
+      newZ = (rails[rails.length - 2].z + rails[rails.length - 1].z) / 2;
+    } else {
+      newZ = strikeKm / 2;
+    }
+    // Copy points from nearest existing rail
+    const nearestRail = rails.reduce((best, r) =>
+      Math.abs(r.z - newZ) < Math.abs(best.z - newZ) ? r : best, rails[0]);
+    const newRails = [...rails, { z: newZ, points: nearestRail?.points ?? [] }]
+      .sort((a, b) => a.z - b.z);
+    onUpdateRails(editHorizonId, newRails);
+    editRailIdx = newRails.findIndex(r => r.z === newZ);
   }
 
-  // Formation layers (reactive — dispose old geometries automatically)
-  const formations = $derived.by(() => {
-    const sh = sorted;
-    const sw = strikeW;
-    const layers = [];
+  function removeRail(idx) {
+    if (!editHorizon || !onUpdateRails || editRailsSorted.length <= 2) return;
+    const newRails = editRailsSorted.filter((_, i) => i !== idx);
+    onUpdateRails(editHorizonId, newRails);
+    editRailIdx = Math.min(editRailIdx ?? 0, newRails.length - 1);
+  }
 
-    if (sh.length > 0) {
-      const geo = extrudeShape(
-        [{ x: domX.min, y: domY.min }, { x: domX.max, y: domY.min }],
-        sh[0].points, sw
-      );
-      if (geo) layers.push({ geo, color: '#e8f5e9', opacity: 0.45 });
-    }
-    for (let i = 0; i < sh.length - 1; i++) {
-      const geo = extrudeShape(sh[i].points, sh[i + 1].points, sw);
-      if (geo) layers.push({ geo, color: sh[i + 1].colour, opacity: 0.88 });
-    }
-    if (sh.length > 0) {
-      const geo = extrudeShape(
-        sh[sh.length - 1].points,
-        [{ x: domX.min, y: domY.max }, { x: domX.max, y: domY.max }],
-        sw
-      );
-      if (geo) layers.push({ geo, color: '#6d4c41', opacity: 0.90 });
-    }
-    return layers;
-  });
-
+  // Sync editHorizonId when horizons list changes (deleted horizon)
   $effect(() => {
-    const snapshot = formations;
-    return () => { for (const f of snapshot) f.geo?.dispose(); };
-  });
-
-  // Horizon line geometries (front and back faces)
-  const horizonLines = $derived.by(() => {
-    const sh = sorted;
-    const sw = strikeW;
-    const lines = [];
-    for (const h of sh) {
-      const pts = [...h.points].sort((a, b) => a.x - b.x);
-      if (pts.length < 2) continue;
-      const isActive = h.id === activeId;
-      for (const z of [0, sw]) {
-        const geo = new THREE.BufferGeometry().setFromPoints(
-          pts.map(p => new THREE.Vector3(nx(p.x), ny(p.y), z))
-        );
-        lines.push({ geo, color: h.colour, active: isActive });
-      }
+    if (editHorizonId && !horizons.find(h => h.id === editHorizonId)) {
+      editHorizonId = null;
+      editRailIdx   = null;
     }
-    return lines;
   });
-
-  $effect(() => {
-    const snapshot = horizonLines;
-    return () => { for (const l of snapshot) l.geo?.dispose(); };
-  });
-
-  // Bounding box frame
-  const frameGeo = $derived.by(() => {
-    const sw = strikeW;
-    const V = (x, y, z) => new THREE.Vector3(x, y, z);
-    const c = [
-      V(0,0,0), V(WX,0,0), V(WX,-WY,0), V(0,-WY,0),
-      V(0,0,sw), V(WX,0,sw), V(WX,-WY,sw), V(0,-WY,sw),
-    ];
-    const idx = [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
-    const pts = [];
-    for (const [a, b] of idx) pts.push(c[a], c[b]);
-    return new THREE.BufferGeometry().setFromPoints(pts);
-  });
-  $effect(() => { const g = frameGeo; return () => g?.dispose(); });
-
-  // Floor grid
-  const gridGeo = $derived.by(() => {
-    const sw = strikeW;
-    const y = -WY;
-    const pts = [];
-    for (let i = 0; i <= 5; i++) {
-      const xv = (i / 5) * WX;
-      const zv = (i / 5) * sw;
-      pts.push(new THREE.Vector3(xv, y, 0), new THREE.Vector3(xv, y, sw));
-      pts.push(new THREE.Vector3(0, y, zv), new THREE.Vector3(WX, y, zv));
-    }
-    return new THREE.BufferGeometry().setFromPoints(pts);
-  });
-  $effect(() => { const g = gridGeo; return () => g?.dispose(); });
-
-  // Camera & controls
-  const camTarget  = $derived([WX / 2, -WY / 2, strikeW / 2] );
-  const camPos     = $derived([WX * 1.8, WY * 0.6, strikeW + WX * 0.6]);
-
-  let resetKey = $state(0);
-  function resetView() { resetKey++; }
 </script>
 
 <div class="flex flex-col h-full">
-  <!-- Top controls bar -->
+
+  <!-- ── Top controls ──────────────────────────────────────────────────────── -->
   <div class="flex items-center flex-wrap gap-3 px-3 py-1.5 border-b border-gray-100 bg-gray-50 text-xs text-gray-600 flex-shrink-0">
     <span class="font-semibold text-gray-700">3D Block View</span>
 
@@ -150,70 +80,81 @@
       <span class="font-mono w-9 text-gray-600">{strikeKm} km</span>
     </label>
 
+    <!-- Horizon to edit -->
+    <label class="flex items-center gap-1.5">
+      <span class="text-gray-500">Edit:</span>
+      <select bind:value={editHorizonId}
+        class="border border-gray-200 rounded px-1 py-0 text-xs text-gray-700 bg-white">
+        <option value={null}>— none —</option>
+        {#each horizons as h (h.id)}
+          <option value={h.id}>{h.name}</option>
+        {/each}
+      </select>
+    </label>
+
     <button onclick={resetView}
       class="px-2 py-0.5 border border-gray-200 rounded hover:bg-gray-100">
       ⟲ Reset
     </button>
 
     <span class="ml-auto text-gray-400 hidden sm:block text-[10px]">
-      Drag to orbit · Scroll to zoom · Right-drag to pan
+      Click surface to select · Drag sphere to edit · Scroll to zoom
     </span>
   </div>
 
-  <!-- Threlte canvas -->
+  <!-- ── Rail strip (visible when a horizon is selected) ──────────────────── -->
+  {#if editHorizonId}
+    <div class="flex items-center gap-1.5 px-3 py-1 border-b border-gray-100 bg-white text-xs flex-shrink-0 overflow-x-auto">
+      <span class="text-gray-400 flex-shrink-0 mr-0.5">Rails:</span>
+
+      {#each editRailsSorted as rail, ri}
+        <button
+          onclick={() => (editRailIdx = ri)}
+          class="px-2 py-0.5 rounded border text-[10px] font-mono flex-shrink-0 transition-colors
+                 {editRailIdx === ri
+                   ? 'bg-blue-600 text-white border-blue-600'
+                   : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-blue-400'}">
+          Z={rail.z.toFixed(1)}
+        </button>
+      {/each}
+
+      <!-- Add rail -->
+      <button
+        onclick={addRail}
+        class="px-2 py-0.5 rounded border border-dashed border-gray-300 text-gray-400
+               hover:border-blue-400 hover:text-blue-600 text-[10px] flex-shrink-0">
+        + Rail
+      </button>
+
+      <!-- Remove active rail (min 2 rails) -->
+      {#if editRailIdx !== null && editRailsSorted.length > 2}
+        <button
+          onclick={() => removeRail(editRailIdx)}
+          class="px-2 py-0.5 rounded border border-gray-200 text-red-400
+                 hover:border-red-400 text-[10px] flex-shrink-0">
+          × Remove
+        </button>
+      {/if}
+
+      <span class="ml-auto text-[10px] text-gray-400 flex-shrink-0">
+        {editRailIdx !== null ? `Editing rail ${editRailIdx + 1} / ${editRailsSorted.length}` : 'Click a rail to edit'}
+      </span>
+    </div>
+  {/if}
+
+  <!-- ── Threlte canvas ────────────────────────────────────────────────────── -->
   <div class="flex-1 overflow-hidden touch-none">
     {#key resetKey}
       <Canvas>
-
-        <!-- Camera + orbit controls -->
-        <T.PerspectiveCamera
-          makeDefault
-          fov={45}
-          near={0.01}
-          far={200}
-          position={camPos}
-        >
-          <OrbitControls
-            target={camTarget}
-            enableDamping
-            dampingFactor={0.07}
-          />
-        </T.PerspectiveCamera>
-
-        <!-- Lights -->
-        <T.AmbientLight intensity={0.7} />
-        <T.DirectionalLight position={[14, 10, -8]} intensity={0.55} />
-        <T.DirectionalLight position={[-8, 4, 14]} intensity={0.25} />
-
-        <!-- Formation meshes -->
-        {#each formations as f (f.geo.uuid)}
-          <T.Mesh geometry={f.geo}>
-            <T.MeshLambertMaterial
-              color={f.color}
-              transparent={true}
-              opacity={f.opacity}
-              side={THREE.FrontSide}
-            />
-          </T.Mesh>
-        {/each}
-
-        <!-- Horizon lines on front and back faces -->
-        {#each horizonLines as l (l.geo.uuid)}
-          <T is={THREE.Line} geometry={l.geo}>
-            <T.LineBasicMaterial color={l.color} />
-          </T>
-        {/each}
-
-        <!-- Bounding box frame -->
-        <T is={THREE.LineSegments} geometry={frameGeo}>
-          <T.LineBasicMaterial color={0x1e293b} transparent={true} opacity={0.65} />
-        </T>
-
-        <!-- Floor grid -->
-        <T is={THREE.LineSegments} geometry={gridGeo}>
-          <T.LineBasicMaterial color={0x94a3b8} transparent={true} opacity={0.22} />
-        </T>
-
+        <Dgeo3DScene
+          {horizons}
+          {domX}
+          {domY}
+          {strikeKm}
+          bind:editHorizonId
+          bind:editRailIdx
+          {onUpdateRails}
+        />
       </Canvas>
     {/key}
   </div>

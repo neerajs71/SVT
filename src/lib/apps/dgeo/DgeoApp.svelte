@@ -94,6 +94,7 @@
         name:   h.name ?? 'Horizon',
         colour: h.colour ?? FORMATION_COLOURS[0],
         points: h.points ?? [],
+        rails:  h.rails  ?? null,
       }));
       if (data.domain) {
         domX = data.domain.x ?? domX;
@@ -129,8 +130,17 @@
       domain:  { x: domX, y: domY },
       horizons: horizons.map(h => ({
         id: h.id, name: h.name, colour: h.colour, points: h.points,
+        ...(h.rails ? { rails: h.rails } : {}),
       })),
     }, null, 2);
+  }
+
+  // ── Rail editing callback (from 3D view) ───────────────────────────────────
+  function onUpdateRails(horizonId, newRails) {
+    horizons = horizons.map(h =>
+      h.id === horizonId ? { ...h, rails: newRails } : h
+    );
+    dirty = true;
   }
 
   async function saveFile() {
@@ -393,7 +403,7 @@
         horizons={sortedHorizons}
         domX={domX}
         domY={domY}
-        activeId={activeId}
+        {onUpdateRails}
       />
     {/if}
 
