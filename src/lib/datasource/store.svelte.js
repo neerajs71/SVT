@@ -150,6 +150,41 @@ class DatasourceState {
     this.expanded = next;
   }
 
+  /**
+   * Recursively pre-fetch all un-loaded remote sub-folders so that
+   * file-picker UIs (e.g. TplApp slot picker) can see all files without
+   * the user first browsing to each folder in the sidebar.
+   * No-op in local mode.
+   */
+  async deepFetch() {
+    if (this.mode !== 'remote' || !this.tree) return;
+    await this._deepFetchNode(this.tree, '');
+    this.tree = { ...this.tree }; // trigger reactivity
+  }
+
+  async _deepFetchNode(node, path) {
+    const promises = [];
+    for (const [name, child] of Object.entries(node?.children ?? {})) {
+      if (child.type !== 'dir' || !child.id) continue;
+      const childPath = path ? `${path}/${name}` : name;
+      if (Object.keys(child.children).length === 0) {
+        // Empty children — may not have been fetched yet; fetch now
+        promises.push(
+          remote.fetchFolder(child.id)
+            .then(data => {
+              child.children = data.children;
+              return this._deepFetchNode(child, childPath);
+            })
+            .catch(e => console.error('[deepFetch]', childPath, e))
+        );
+      } else {
+        // Already populated — just recurse
+        promises.push(this._deepFetchNode(child, childPath));
+      }
+    }
+    await Promise.all(promises);
+  }
+
   async deleteItem(path, id) {
     const parts = path.split('/');
     const name  = parts[parts.length - 1];

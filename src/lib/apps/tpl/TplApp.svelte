@@ -130,18 +130,21 @@
     pickerExpanded = next;
   }
 
-  // Auto-expand entire tree when picker opens
+  // When the picker opens: pre-load all remote sub-folders then auto-expand
   $effect(() => {
     if (pickingSlot === null) return;
-    const paths = new Set();
-    function collectPaths(node, parentPath) {
-      for (const [name, child] of Object.entries(node?.children ?? {})) {
-        const path = parentPath ? `${parentPath}/${name}` : name;
-        if (child.type === 'dir') { paths.add(path); collectPaths(child, path); }
+    // In remote mode, deep-fetch all un-loaded folders first so every file is visible
+    datasourceStore.deepFetch().then(() => {
+      const paths = new Set();
+      function collectPaths(node, parentPath) {
+        for (const [name, child] of Object.entries(node?.children ?? {})) {
+          const path = parentPath ? `${parentPath}/${name}` : name;
+          if (child.type === 'dir') { paths.add(path); collectPaths(child, path); }
+        }
       }
-    }
-    if (datasourceStore.tree) collectPaths(datasourceStore.tree, '');
-    pickerExpanded = paths;
+      if (datasourceStore.tree) collectPaths(datasourceStore.tree, '');
+      pickerExpanded = paths;
+    });
   });
 
   // Picker items: tree structure, always pruned to data files only, filtered when query typed
