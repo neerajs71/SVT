@@ -71,6 +71,8 @@
     if (e.key === 'Escape') cancelCreate();
   }
 
+  let recentOpen = $state(false);
+
   onMount(() => datasourceStore.initRecentWorkspaces());
 
   // Resizable sidebar
@@ -321,37 +323,68 @@
       </Tooltip>
     </div>
 
-    <!-- Bottom row 2: Recent workspaces + Open Folder (local only) -->
+    <!-- Bottom: local workspace controls -->
     {#if datasourceStore.mode === 'local'}
-      {#if datasourceStore.recentHandles.length > 0}
-        <div class="border-t border-gray-200 px-2 pt-1.5 pb-0.5">
-          <p class="text-[0.6rem] font-semibold text-gray-400 uppercase tracking-wide mb-1 px-1">Recent</p>
-          {#each datasourceStore.recentHandles as entry}
-            <button
-              onclick={() => datasourceStore.reopenWorkspace(entry)}
-              class="flex items-center gap-1.5 w-full px-1.5 py-1 rounded text-xs text-gray-600
-                     hover:bg-green-50 hover:text-green-800 truncate"
-              title={entry.name}
-            >
-              <FolderSolid class="w-3 h-3 text-yellow-400 flex-shrink-0" />
-              <span class="truncate">{entry.name}</span>
-            </button>
-          {/each}
+      {@const currentName = datasourceStore.tree ? Object.keys(datasourceStore.tree.children ?? {})[0] : null}
+      {@const otherRecent = datasourceStore.recentHandles.filter(e => e.name !== currentName)}
+
+      <!-- Current workspace row (when loaded) -->
+      {#if currentName}
+        <div class="border-t border-gray-200 px-2 py-1.5 flex items-center gap-1.5">
+          <FolderOpenSolid class="w-3.5 h-3.5 text-yellow-500 flex-shrink-0" />
+          <span class="flex-1 text-xs text-gray-700 font-medium truncate" title={currentName}>{currentName}</span>
+          <button
+            onclick={openFolder}
+            class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-gray-200 text-gray-500
+                   hover:bg-green-50 hover:text-green-700 hover:border-green-300 transition-colors"
+            title="Change workspace"
+          >Change</button>
         </div>
       {/if}
-      <div class="border-t border-gray-200 px-2 py-1.5 flex justify-center">
-        <button
-          id="btn-open-dir"
-          onclick={openFolder}
-          class="flex items-center gap-1.5 w-full justify-center px-2 py-1 rounded text-xs
-                 text-gray-600 hover:bg-green-50 hover:text-green-800"
-          aria-label="Open local directory"
-        >
-          <FolderOpenSolid class="w-3.5 h-3.5 flex-shrink-0" />
-          <span>Open Folder</span>
-        </button>
-        <Tooltip triggeredBy="#btn-open-dir" placement="top">Open a local directory</Tooltip>
-      </div>
+
+      <!-- Recent workspaces (collapsible) -->
+      {#if otherRecent.length > 0}
+        <div class="border-t border-gray-200">
+          <button
+            onclick={() => recentOpen = !recentOpen}
+            class="w-full flex items-center gap-1.5 px-2 py-1.5 text-[10px] font-semibold
+                   text-gray-400 uppercase tracking-wide hover:bg-gray-50 transition-colors"
+          >
+            <span class="flex-1 text-left">Recent</span>
+            <span style="font-size:0.55rem">{recentOpen ? '▼' : '▶'}</span>
+          </button>
+          {#if recentOpen}
+            <div class="pb-1">
+              {#each otherRecent as entry}
+                <button
+                  onclick={() => datasourceStore.reopenWorkspace(entry)}
+                  class="flex items-center gap-1.5 w-full px-3 py-1.5 text-xs text-gray-600
+                         hover:bg-green-50 hover:text-green-800 transition-colors"
+                  title={entry.name}
+                >
+                  <FolderSolid class="w-3 h-3 text-yellow-400 flex-shrink-0" />
+                  <span class="truncate">{entry.name}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
+
+      <!-- Open Folder (shown when no workspace loaded) -->
+      {#if !currentName}
+        <div class="border-t border-gray-200 px-2 py-1.5">
+          <button
+            onclick={openFolder}
+            class="flex items-center gap-1.5 w-full justify-center px-2 py-1.5 rounded text-xs
+                   text-gray-600 hover:bg-green-50 hover:text-green-800 border border-dashed border-gray-200
+                   hover:border-green-300 transition-colors"
+          >
+            <FolderOpenSolid class="w-3.5 h-3.5 flex-shrink-0" />
+            <span>Open Folder</span>
+          </button>
+        </div>
+      {/if}
     {/if}
   </aside>
 
