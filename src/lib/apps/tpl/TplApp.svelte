@@ -509,31 +509,14 @@
   // ── View mode ────────────────────────────────────────────────────────────
   let viewMode     = $state('chart'); // 'chart' | 'table' | 'text'
   let rawText      = $state('');
-  let rawTextError = $state('');
-  let rawTextFocused = $state(false); // true while user is actively typing in the textarea
 
-  // Keep rawText in sync with tpl in real time UNLESS the user is actively
-  // editing the textarea — this way GUI changes always reflect immediately.
+  // Keep rawText in sync with tpl in real time — read-only view, always current.
   $effect(() => {
-    if (!rawTextFocused && tpl) {
-      rawText = JSON.stringify(tpl, null, 2);
-      rawTextError = '';
-    }
+    if (tpl) rawText = JSON.stringify(tpl, null, 2);
   });
 
   function enterTextMode() {
     viewMode = 'text';
-    // rawText is already live via the $effect above — no snapshot needed
-  }
-
-  function applyRawText() {
-    try {
-      tpl = JSON.parse(rawText);
-      rawTextError = '';
-      viewMode = 'chart';
-    } catch (e) {
-      rawTextError = e.message;
-    }
   }
   let tableSortCol = $state('curveMnemonic');
   let tableSortAsc = $state(true);
@@ -1094,34 +1077,21 @@
       <div class="flex flex-col h-full p-2 gap-2">
         <!-- Status bar -->
         <div class="flex items-center gap-2 flex-shrink-0 text-[10px]">
-          {#if rawTextFocused}
-            <span class="text-amber-600 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">editing — live sync paused</span>
-          {:else}
-            <span class="text-green-700 bg-green-50 border border-green-200 rounded px-1.5 py-0.5">● live</span>
-          {/if}
+          <span class="text-green-700 bg-green-50 border border-green-200 rounded px-1.5 py-0.5">● live</span>
           {#if dirty}
             <span class="text-orange-500 bg-orange-50 border border-orange-200 rounded px-1.5 py-0.5 font-medium">● unsaved changes</span>
           {/if}
-          {#if rawTextError}
-            <span class="text-red-600 font-mono truncate">{rawTextError}</span>
-          {/if}
         </div>
         <textarea
-          bind:value={rawText}
-          onfocus={() => rawTextFocused = true}
-          onblur={() => rawTextFocused = false}
+          value={rawText}
+          readonly
           spellcheck="false"
-          class="flex-1 w-full font-mono text-xs rounded p-2 resize-none focus:outline-none
-                 {rawTextFocused
-                   ? 'border border-amber-300 bg-amber-50/30 focus:border-amber-400'
-                   : dirty
-                     ? 'border-2 border-orange-300 bg-orange-50/20'
-                     : 'border border-gray-200 bg-gray-50 focus:border-blue-400'}"
+          class="flex-1 w-full font-mono text-xs rounded p-2 resize-none focus:outline-none border border-gray-200 bg-gray-50 text-gray-700"
         ></textarea>
         <div class="flex gap-2 justify-end flex-shrink-0 flex-wrap">
-          <button onclick={() => { rawTextFocused = false; viewMode = 'chart'; }}
+          <button onclick={() => viewMode = 'chart'}
             class="text-xs border border-gray-200 rounded px-3 py-1.5 hover:bg-gray-50">
-            Cancel
+            Close
           </button>
           <!-- Download current state — works on iOS, keeps dirty flag -->
           <button onclick={downloadTpl}
@@ -1131,11 +1101,6 @@
                      : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}"
             title="Download current template (including unsaved changes)">
             ⬇ Download{dirty ? ' (unsaved)' : ''}
-          </button>
-          <button onclick={applyRawText}
-            class="text-xs bg-blue-600 text-white rounded px-3 py-1.5 hover:bg-blue-700 font-medium"
-            title="Parse JSON and apply back to the template">
-            Apply
           </button>
         </div>
       </div>

@@ -32,8 +32,8 @@
 
   function onMove(e) {
     if (!dragging) return;
-    posX = e.clientX - offX;
-    posY = e.clientY - offY;
+    posX = Math.max(0, Math.min(e.clientX - offX, window.innerWidth - width - 8));
+    posY = Math.max(0, e.clientY - offY);
   }
 
   function stopDrag() {
@@ -46,7 +46,7 @@
 {#if visible}
   <div
     class="absolute rounded-2xl bg-white shadow-2xl border border-gray-200/90 flex flex-col overflow-hidden select-none {dragging ? 'cursor-grabbing' : ''}"
-    style="width:{width}px; left:{posX}px; top:{posY}px; z-index:50; max-height:80vh; backdrop-filter:blur(4px);"
+    style="width:min({width}px, calc(100vw - 16px)); left:{posX}px; top:{posY}px; z-index:50; max-height:80vh; backdrop-filter:blur(4px);"
   >
     <!-- Draggable header -->
     <div
