@@ -358,11 +358,25 @@
     const next = { ...slotFiles };
     delete next[slotKey];
     slotFiles = next;
-    // Clear from tpl too so dirty flag reflects the change
-    tpl = { ...tpl, fileSlots: {
-      ...tpl.fileSlots,
-      [slotKey]: null,
-    }};
+    tpl = { ...tpl, fileSlots: { ...tpl.fileSlots, [slotKey]: null } };
+  }
+
+  function addSlot() {
+    const existing = Object.keys(tpl.fileSlots ?? {});
+    // Find next available Fn key
+    let n = existing.length + 1;
+    while (existing.includes(`F${n}`)) n++;
+    tpl = { ...tpl, fileSlots: { ...tpl.fileSlots, [`F${n}`]: null } };
+  }
+
+  function removeSlot(slotKey) {
+    // Only remove if no curves reference it
+    const inUse = (tpl.curveDefinitions ?? []).some(c => c.fileSlot === slotKey);
+    if (inUse) return;
+    const { [slotKey]: _, ...restSlots } = tpl.fileSlots ?? {};
+    const { [slotKey]: __, ...restFiles } = slotFiles;
+    slotFiles = restFiles;
+    tpl = { ...tpl, fileSlots: restSlots };
   }
 
   // ── Auto-reconnect slot files from the sidebar tree on load ──────────────
@@ -1008,27 +1022,35 @@
         <!-- File slot assignments -->
         <div class="flex items-center gap-2 ml-2 flex-wrap">
           {#each Object.entries(tpl.fileSlots ?? {}) as [slotKey]}
+            {@const slotInUse = (tpl.curveDefinitions ?? []).some(c => c.fileSlot === slotKey)}
             <div class="flex items-center gap-1">
               <span class="text-xs text-gray-500 font-mono">{slotKey}:</span>
               {#if slotFiles[slotKey]}
                 {@const sf = slotFiles[slotKey]}
-                {@const tipText = sf.lfId
-                  ? `${sf.name}\nLogical file: ${sf.lfId}`
-                  : sf.name}
+                {@const tipText = sf.lfId ? `${sf.name}\nLogical file: ${sf.lfId}` : sf.name}
                 <span class="text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded px-2 py-0.5 max-w-[140px] truncate"
                   title={tipText}>
                   {sf.lfId ? `${sf.wellName} / ${sf.lfId}` : sf.wellName}
                 </span>
                 <button onclick={() => clearSlot(slotKey)}
-                  class="text-xs text-gray-400 hover:text-red-500 leading-none">✕</button>
+                  class="text-xs text-gray-400 hover:text-red-500 leading-none" title="Clear file">✕</button>
               {:else}
                 <button onclick={() => (pickingSlot = slotKey)}
                   class="text-xs bg-white border border-dashed border-gray-300 text-gray-500 rounded px-2 py-0.5 hover:border-blue-400 hover:text-blue-600">
                   Assign file…
                 </button>
+                {#if !slotInUse}
+                  <button onclick={() => removeSlot(slotKey)}
+                    class="text-xs text-gray-300 hover:text-red-500 leading-none" title="Remove slot">✕</button>
+                {/if}
               {/if}
             </div>
           {/each}
+          <!-- Add new slot -->
+          <button onclick={addSlot}
+            class="text-xs border border-dashed border-gray-300 text-gray-400 rounded px-2 py-0.5
+                   hover:border-green-400 hover:text-green-600 font-medium transition-colors"
+            title="Add file slot">+ slot</button>
         </div>
       </div>
 
