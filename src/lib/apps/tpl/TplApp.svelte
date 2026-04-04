@@ -10,6 +10,7 @@
   import { SUBAPP_REGISTRY } from './subapps/index.js';
   import { tabStore } from '$lib/tabs/tabs.svelte.js';
   import { saveToHandle, downloadBlob } from '$lib/apps/shared/fileActions.js';
+  import { MEASUREMENT_TYPES, getMeasurementType } from './measurements.js';
 
   const { tab } = $props();
 
@@ -305,26 +306,44 @@
       path: previewItem.path ?? null,
       id:   previewItem.id   ?? null,
     };
+
+    // Build mnemonic → unit lookup from the file
+    const curveUnits = {};
     if (previewData.type === 'las') {
+      for (const c of (previewData.las?.curves ?? [])) {
+        if (c.mnem) curveUnits[c.mnem.toUpperCase()] = c.unit ?? '';
+      }
       slotFiles = { ...slotFiles, [pickingSlot]: {
-        name: previewItem.name,
-        wellName: previewData.wellName,
-        las: previewData.las,
+        name: previewItem.name, wellName: previewData.wellName,
+        las: previewData.las, curveUnits,
       }};
     } else {
       af.lfId = previewData.selectedLf?.id ?? null;
+      for (const c of (previewData.curves ?? [])) {
+        if (c.mnem) curveUnits[c.mnem.toUpperCase()] = c.unit ?? '';
+      }
       slotFiles = { ...slotFiles, [pickingSlot]: {
-        name: previewItem.name,
-        wellName: previewData.wellName,
-        lfId: af.lfId ?? 'LF-1',
-        dlis: previewData._parsed,
+        name: previewItem.name, wellName: previewData.wellName,
+        lfId: af.lfId ?? 'LF-1', dlis: previewData._parsed, curveUnits,
       }};
     }
-    // Persist file reference into tpl so it's included in save/download
-    tpl = { ...tpl, fileSlots: {
-      ...tpl.fileSlots,
-      [pickingSlot]: { ...(tpl.fileSlots?.[pickingSlot] ?? {}), assignedFile: af },
-    }};
+
+    // Auto-populate unit on curves in this slot that have no unit set yet
+    const updatedDefs = (tpl.curveDefinitions ?? []).map(c => {
+      if (c.fileSlot !== pickingSlot || c.unit) return c;
+      const fileUnit = curveUnits[c.curveMnemonic?.toUpperCase()] ?? '';
+      return fileUnit ? { ...c, unit: fileUnit } : c;
+    });
+
+    // Persist file reference + updated curve units
+    tpl = {
+      ...tpl,
+      curveDefinitions: updatedDefs,
+      fileSlots: {
+        ...tpl.fileSlots,
+        [pickingSlot]: { ...(tpl.fileSlots?.[pickingSlot] ?? {}), assignedFile: af },
+      },
+    };
     closePicker();
   }
 
@@ -370,19 +389,26 @@
         } else continue;
 
         const isDlis = /\.dlis\d?$/i.test(item.name);
+        const curveUnits = {};
         if (isDlis) {
           const parsed = await parseDLISFile(buf);
           const lfs = extractLogicalFiles(parsed);
           const lf = lfs.find(l => l.id === af.lfId) ?? lfs[0];
           if (!lf) continue;
+          for (const c of (lf.channels ?? [])) {
+            if (c.name) curveUnits[c.name.toUpperCase()] = c.units ?? '';
+          }
           slotFiles = { ...slotFiles, [slotKey]: {
             name: item.name, wellName: lf.wellName ?? item.name,
-            lfId: lf.id, dlis: parsed,
+            lfId: lf.id, dlis: parsed, curveUnits,
           }};
         } else {
           const las = parseLAS(new TextDecoder().decode(buf));
+          for (const c of (las.curves ?? [])) {
+            if (c.mnem) curveUnits[c.mnem.toUpperCase()] = c.unit ?? '';
+          }
           slotFiles = { ...slotFiles, [slotKey]: {
-            name: item.name, wellName: getLasWellName(las, item.name), las,
+            name: item.name, wellName: getLasWellName(las, item.name), las, curveUnits,
           }};
         }
       } catch (e) {
@@ -765,13 +791,15 @@
     const panel = (tpl.panels ?? []).find(p => p.id === curve.trackId);
     editingCurve = {
       ...curve,
-      line:      { ...curve.line },
-      scaleMin:  curve.xMin ?? panel?.xMin ?? 0,
-      scaleMax:  curve.xMax ?? panel?.xMax ?? 150,
-      scaleType: panel?.gridType ?? 'linear',
-      unit:      curve.unit ?? '',
+      line:            { ...curve.line },
+      scaleMin:        curve.xMin ?? panel?.xMin ?? 0,
+      scaleMax:        curve.xMax ?? panel?.xMax ?? 150,
+      scaleType:       panel?.gridType ?? 'linear',
+      unit:            curve.unit ?? '',
+      measurementType: curve.measurementType ?? '',
     };
   }
+
   function saveEditCurve() {
     const { scaleMin, scaleMax, scaleType, ...curveOnly } = editingCurve;
     tpl = {
@@ -786,6 +814,16 @@
       ),
     };
     editingCurve = null;
+  }
+
+  /** When user picks a measurement type, auto-fill unit + scale defaults. */
+  function applyMeasurementType(typeId) {
+    const mt = getMeasurementType(typeId);
+    if (!mt) return;
+    editingCurve.unit      = mt.defaultUnit;
+    editingCurve.scaleMin  = mt.defaultMin;
+    editingCurve.scaleMax  = mt.defaultMax;
+    editingCurve.scaleType = mt.scaleType;
   }
   function deleteCurve() {
     tpl = { ...tpl, curveDefinitions: tpl.curveDefinitions.filter(c => c.id !== editingCurve.id) };
@@ -1724,9 +1762,47 @@
               </select>
             </div>
           </div>
-          <!-- Curve scale (per-curve) -->
+          <!-- Measurement type + scale -->
           <div class="border-t border-gray-100 pt-2 mt-1">
-            <p class="text-[0.6rem] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Curve Scale</p>
+            <p class="text-[0.6rem] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Measurement</p>
+
+            <!-- Measurement type selector -->
+            <div class="mb-2">
+              <label class="block text-xs text-gray-500 mb-0.5">Type</label>
+              <select
+                value={editingCurve.measurementType ?? ''}
+                onchange={(e) => {
+                  editingCurve.measurementType = e.currentTarget.value;
+                  applyMeasurementType(e.currentTarget.value);
+                }}
+                class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400"
+              >
+                <option value="">— select —</option>
+                {#each MEASUREMENT_TYPES as mt}
+                  <option value={mt.id}>{mt.name}</option>
+                {/each}
+              </select>
+            </div>
+
+            <!-- Unit: constrained dropdown if type selected, free text if Custom/none -->
+            <div class="mb-2">
+              <label class="block text-xs text-gray-500 mb-0.5">Unit</label>
+              {#if getMeasurementType(editingCurve.measurementType)?.units?.length}
+                {@const mt = getMeasurementType(editingCurve.measurementType)}
+                <select bind:value={editingCurve.unit}
+                  class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400">
+                  {#each mt.units as u}
+                    <option value={u}>{u}</option>
+                  {/each}
+                </select>
+              {:else}
+                <input type="text" bind:value={editingCurve.unit}
+                  class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400"
+                  placeholder="e.g. API, ohm·m, g/cc"/>
+              {/if}
+            </div>
+
+            <!-- Min / Max -->
             <div class="grid grid-cols-2 gap-2 mb-2">
               <div>
                 <label class="block text-xs text-gray-500 mb-0.5">Min</label>
@@ -1739,21 +1815,15 @@
                   class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400"/>
               </div>
             </div>
-            <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="block text-xs text-gray-500 mb-0.5">Unit</label>
-                <input type="text" bind:value={editingCurve.unit}
-                  class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400"
-                  placeholder="e.g. API, ohm·m"/>
-              </div>
-              <div>
-                <label class="block text-xs text-gray-500 mb-0.5">Type</label>
-                <select bind:value={editingCurve.scaleType}
-                  class="w-full text-xs border border-gray-200 rounded px-2 py-1">
-                  <option value="linear">Linear</option>
-                  <option value="logarithmic">Logarithmic</option>
-                </select>
-              </div>
+
+            <!-- Scale type -->
+            <div>
+              <label class="block text-xs text-gray-500 mb-0.5">Scale</label>
+              <select bind:value={editingCurve.scaleType}
+                class="w-full text-xs border border-gray-200 rounded px-2 py-1">
+                <option value="linear">Linear</option>
+                <option value="logarithmic">Logarithmic</option>
+              </select>
             </div>
           </div>
           <div class="flex gap-1.5 pt-1">
