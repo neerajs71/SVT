@@ -41,13 +41,16 @@
   // ── Layout constants ─────────────────────────────────────────────────────
   const DEPTH_W    = 64;
   const CHART_H    = 600;
-  const CURVE_ROW_H = 22;   // header px per curve row
+  const CURVE_ROW_H = 28;   // header px per curve row (enough for numbers + line + label)
+  const TOGGLE_H    = 10;   // collapse toggle bar height
   const XAXIS_H    = 28;
-  // Header grows to fit the tallest panel (max curves across all panels)
+  let headerCollapsed = $state(false);
+  // Header grows to fit the tallest panel; collapses to just the toggle bar
   const HEADER_H = $derived.by(() => {
+    if (headerCollapsed) return TOGGLE_H;
     if (!tpl) return 44;
     const maxN = Math.max(1, ...Object.values(panelCurves).map(cs => cs.length));
-    return Math.max(44, maxN * CURVE_ROW_H);
+    return Math.max(44, maxN * CURVE_ROW_H) + TOGGLE_H;
   });
   const TOTAL_H = $derived(HEADER_H + CHART_H + XAXIS_H);
 
@@ -1191,9 +1194,15 @@
         {/each}
 
         <!-- Depth axis label -->
-        <text x={DEPTH_W / 2} y={HEADER_H / 2 + 4} text-anchor="middle" font-size="9" fill="#374151" font-weight="bold">
-          {tpl.indexCurve?.curveMnemonic ?? 'DEPTH'}
-        </text>
+        {#if !headerCollapsed}
+          {@const depthLabelY = (HEADER_H - TOGGLE_H) / 2 + 3}
+          <text x={DEPTH_W / 2} y={depthLabelY} text-anchor="middle" font-size="9" fill="#374151" font-weight="bold">
+            {tpl.indexCurve?.curveMnemonic ?? 'DEPTH'}
+          </text>
+          <text x={DEPTH_W / 2} y={depthLabelY + 10} text-anchor="middle" font-size="8" fill="#9ca3af">
+            {tpl.depth?.unit ?? ''}
+          </text>
+        {/if}
         <text x={DEPTH_W / 2} y={HEADER_H / 2 + 14} text-anchor="middle" font-size="8" fill="#9ca3af">
           {tpl.depth?.unit ?? ''}
         </text>
@@ -1244,46 +1253,52 @@
             {/if}
           {/each}
 
-          <!-- Panel header: one row per curve, stacked -->
-          <rect x={px} y="0" width={panel.width} height={HEADER_H} fill="#f8fafc"/>
-          <rect x={px} y="0" width={panel.width} height={HEADER_H}
+          <!-- Panel header: one row per curve, stacked (excludes toggle bar) -->
+          {@const curveAreaH = HEADER_H - TOGGLE_H}
+          <rect x={px} y="0" width={panel.width} height={curveAreaH} fill="#f8fafc"/>
+          <rect x={px} y="0" width={panel.width} height={curveAreaH}
             fill="none" stroke="#d1d5db" stroke-width="0.8"/>
 
-          {#if curves.length === 0}
-            <!-- Empty panel: show title clickable -->
-            <text x={px + panel.width / 2} y={HEADER_H / 2 + 4} text-anchor="middle"
-              font-size="9" fill="#9ca3af" style="cursor:pointer"
-              onclick={() => startEditPanel(panel)}>{panel.title}</text>
-          {:else}
-            {@const rowH = HEADER_H / curves.length}
-            {#each curves as curveDef, ci}
-              {@const ry = ci * rowH}
-              {@const cMin = curveDef.xMin ?? panel.xMin}
-              {@const cMax = curveDef.xMax ?? panel.xMax}
-              {@const cUnit = curveDef.unit ?? ''}
+          {#if !headerCollapsed}
+            {#if curves.length === 0}
+              <text x={px + panel.width / 2} y={curveAreaH / 2 + 4} text-anchor="middle"
+                font-size="9" fill="#9ca3af" style="cursor:pointer"
+                onclick={() => startEditPanel(panel)}>{panel.title}</text>
+            {:else}
+              {@const rowH = curveAreaH / curves.length}
+              {#each curves as curveDef, ci}
+                {@const ry = ci * rowH}
+                {@const cMin = curveDef.xMin ?? panel.xMin}
+                {@const cMax = curveDef.xMax ?? panel.xMax}
+                {@const cUnit = curveDef.unit ?? ''}
+                <!-- Layout: numbers in top ~38%, line at ~55%, label in bottom ~20% -->
+                {@const numY  = ry + Math.round(rowH * 0.38)}
+                {@const lineY = ry + Math.round(rowH * 0.56)}
+                {@const lblY  = ry + Math.round(rowH * 0.82)}
 
-              <!-- Scale: min left, max right -->
-              <text x={px + 3} y={ry + 9} font-size="7.5" fill="#6b7280">{fmtNum(cMin)}</text>
-              <text x={px + panel.width - 3} y={ry + 9} text-anchor="end" font-size="7.5" fill="#6b7280">{fmtNum(cMax)}</text>
+                <!-- Scale numbers: min left, max right — above the colored line -->
+                <text x={px + 3} y={numY} font-size="7.5" fill="#6b7280">{fmtNum(cMin)}</text>
+                <text x={px + panel.width - 3} y={numY} text-anchor="end" font-size="7.5" fill="#6b7280">{fmtNum(cMax)}</text>
 
-              <!-- Colored curve line -->
-              <line x1={px} y1={ry + 13} x2={px + panel.width} y2={ry + 13}
-                stroke={curveDef.color ?? '#374151'} stroke-width="1.5"/>
+                <!-- Colored curve line — between numbers and label -->
+                <line x1={px} y1={lineY} x2={px + panel.width} y2={lineY}
+                  stroke={curveDef.color ?? '#374151'} stroke-width="1.5"/>
 
-              <!-- Curve name + unit (clickable to edit) -->
-              <text x={px + panel.width / 2} y={ry + rowH - 4}
-                text-anchor="middle" font-size="8" fill="#374151"
-                style="cursor:pointer"
-                onclick={() => startEditCurve(curveDef)}>
-                {curveDef.curveMnemonic}{cUnit ? ` (${cUnit})` : ''}
-              </text>
+                <!-- Curve name (unit) centered below line — clickable to edit -->
+                <text x={px + panel.width / 2} y={lblY}
+                  text-anchor="middle" font-size="8" fill="#374151"
+                  style="cursor:pointer"
+                  onclick={() => startEditCurve(curveDef)}>
+                  {curveDef.curveMnemonic}{cUnit ? ` (${cUnit})` : ''}
+                </text>
 
-              <!-- Row divider (between curves) -->
-              {#if ci < curves.length - 1}
-                <line x1={px} y1={ry + rowH} x2={px + panel.width} y2={ry + rowH}
-                  stroke="#d1d5db" stroke-width="0.5"/>
-              {/if}
-            {/each}
+                <!-- Row divider between curves -->
+                {#if ci < curves.length - 1}
+                  <line x1={px} y1={ry + rowH} x2={px + panel.width} y2={ry + rowH}
+                    stroke="#d1d5db" stroke-width="0.5"/>
+                {/if}
+              {/each}
+            {/if}
           {/if}
 
           <!-- X-axis labels (below chart) -->
@@ -1295,6 +1310,15 @@
           {/each}
 
         {/each}
+
+        <!-- ── Header collapse toggle bar (full width) ──────────────── -->
+        <rect x="0" y={HEADER_H - TOGGLE_H} width={totalSvgW} height={TOGGLE_H}
+          fill="#e2e8f0" style="cursor:pointer"
+          onclick={() => headerCollapsed = !headerCollapsed}/>
+        <text x={totalSvgW / 2} y={HEADER_H - 2}
+          text-anchor="middle" font-size="7" fill="#94a3b8" style="pointer-events:none">
+          {headerCollapsed ? '▼ expand scale' : '▲ collapse scale'}
+        </text>
 
         <!-- Hover crosshair -->
         {#if hoverDepth !== null}
