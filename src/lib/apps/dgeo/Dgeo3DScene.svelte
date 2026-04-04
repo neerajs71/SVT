@@ -207,6 +207,34 @@
   // Camera
   const camTarget = $derived([WX / 2, -WY / 2, strikeW / 2]);
   const camPos    = $derived([WX * 1.8, WY * 0.6, strikeW + WX * 0.6]);
+
+  // ── Slice-plane indicator (like pyenthu Slider.svelte) ─────────────────────
+  // Blue rectangle at active rail's Z position, visible even when not dragging
+  const slicePlaneGeo = $derived.by(() => {
+    if (!activeRail) return null;
+    const z = nz_km(activeRail.z);
+    const pts = [
+      new THREE.Vector3(0,  0,  z),
+      new THREE.Vector3(WX, 0,  z),
+      new THREE.Vector3(WX, -WY, z),
+      new THREE.Vector3(0,  -WY, z),
+      new THREE.Vector3(0,  0,  z),
+    ];
+    return new THREE.BufferGeometry().setFromPoints(pts);
+  });
+  $effect(() => { const g = slicePlaneGeo; return () => g?.dispose(); });
+
+  // Semi-transparent fill for the slice plane
+  const sliceFillGeo = $derived.by(() => {
+    if (!activeRail) return null;
+    const z = nz_km(activeRail.z);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(
+      new Float32Array([0,0,z, WX,0,z, WX,-WY,z, 0,-WY,z]), 3));
+    geo.setIndex([0,1,2, 0,2,3]);
+    return geo;
+  });
+  $effect(() => { const g = sliceFillGeo; return () => g?.dispose(); });
 </script>
 
 <!-- Camera -->
@@ -277,6 +305,24 @@
       side={THREE.DoubleSide}
     />
   </T.Mesh>
+{/if}
+
+<!-- ── Active-rail slice plane (like pyenthu Slider) ──────────────────────── -->
+{#if sliceFillGeo}
+  <T.Mesh geometry={sliceFillGeo}>
+    <T.MeshBasicMaterial
+      color="#3b82f6"
+      transparent={true}
+      opacity={0.07}
+      side={THREE.DoubleSide}
+      depthWrite={false}
+    />
+  </T.Mesh>
+{/if}
+{#if slicePlaneGeo}
+  <T is={THREE.Line} geometry={slicePlaneGeo}>
+    <T.LineBasicMaterial color="#2563eb" transparent={true} opacity={0.85} />
+  </T>
 {/if}
 
 <!-- ── Block wireframe ─────────────────────────────────────────────────────── -->
