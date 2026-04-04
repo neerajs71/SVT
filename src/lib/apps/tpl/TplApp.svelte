@@ -510,11 +510,20 @@
   let viewMode     = $state('chart'); // 'chart' | 'table' | 'text'
   let rawText      = $state('');
   let rawTextError = $state('');
+  let rawTextFocused = $state(false); // true while user is actively typing in the textarea
+
+  // Keep rawText in sync with tpl in real time UNLESS the user is actively
+  // editing the textarea — this way GUI changes always reflect immediately.
+  $effect(() => {
+    if (!rawTextFocused && tpl) {
+      rawText = JSON.stringify(tpl, null, 2);
+      rawTextError = '';
+    }
+  });
 
   function enterTextMode() {
-    rawText = JSON.stringify(tpl, null, 2);
-    rawTextError = '';
     viewMode = 'text';
+    // rawText is already live via the $effect above — no snapshot needed
   }
 
   function applyRawText() {
@@ -1081,21 +1090,40 @@
     {:else if viewMode === 'text'}
       <!-- ── Source / text editor ───────────────────────────────────── -->
       <div class="flex flex-col h-full p-2 gap-2">
-        {#if rawTextError}
-          <div class="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1 font-mono">{rawTextError}</div>
-        {/if}
+        <!-- Status bar -->
+        <div class="flex items-center gap-2 flex-shrink-0 text-[10px]">
+          {#if rawTextFocused}
+            <span class="text-amber-600 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">editing — live sync paused</span>
+          {:else}
+            <span class="text-green-700 bg-green-50 border border-green-200 rounded px-1.5 py-0.5">● live</span>
+          {/if}
+          {#if dirty}
+            <span class="text-orange-500 bg-orange-50 border border-orange-200 rounded px-1.5 py-0.5 font-medium">● unsaved changes</span>
+          {/if}
+          {#if rawTextError}
+            <span class="text-red-600 font-mono truncate">{rawTextError}</span>
+          {/if}
+        </div>
         <textarea
           bind:value={rawText}
+          onfocus={() => rawTextFocused = true}
+          onblur={() => rawTextFocused = false}
           spellcheck="false"
-          class="flex-1 w-full font-mono text-xs border border-gray-200 rounded p-2 resize-none focus:outline-none focus:border-blue-400 bg-gray-50"
+          class="flex-1 w-full font-mono text-xs rounded p-2 resize-none focus:outline-none
+                 {rawTextFocused
+                   ? 'border border-amber-300 bg-amber-50/30 focus:border-amber-400'
+                   : dirty
+                     ? 'border-2 border-orange-300 bg-orange-50/20'
+                     : 'border border-gray-200 bg-gray-50 focus:border-blue-400'}"
         ></textarea>
         <div class="flex gap-2 justify-end flex-shrink-0">
-          <button onclick={() => viewMode = 'chart'}
+          <button onclick={() => { rawTextFocused = false; viewMode = 'chart'; }}
             class="text-xs border border-gray-200 rounded px-3 py-1.5 hover:bg-gray-50">
             Cancel
           </button>
           <button onclick={applyRawText}
-            class="text-xs bg-blue-600 text-white rounded px-3 py-1.5 hover:bg-blue-700 font-medium">
+            class="text-xs bg-blue-600 text-white rounded px-3 py-1.5 hover:bg-blue-700 font-medium"
+            title="Parse JSON and apply back to the template">
             Apply
           </button>
         </div>
