@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { parseTpl, extractLasCurve, getLasWellName, collectFiles } from './parser.js';
   import { parseLAS } from '$lib/apps/las/parser.js';
   import { processCurves } from '$lib/apps/las/utils.js';
@@ -135,7 +135,10 @@
   // they don't create reactive dependencies that would re-trigger this effect.
   $effect(() => {
     if (pickingSlot === null) return;
-    datasourceStore.deepFetch().then(() => {
+    // untrack prevents the effect subscribing to deepFetching/mode/tree which
+    // are read synchronously inside deepFetch() before its first await —
+    // without untrack those subscriptions would cause an infinite re-run loop.
+    untrack(() => datasourceStore.deepFetch()).then(() => {
       const paths = new Set();
       function collectPaths(node, parentPath) {
         for (const [name, child] of Object.entries(node?.children ?? {})) {
