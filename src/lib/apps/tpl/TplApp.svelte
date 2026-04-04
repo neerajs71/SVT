@@ -64,6 +64,7 @@
       }
       tpl = parseTpl(text);
       _loadedHash = JSON.stringify(tpl);
+      autoReconnectSlots();
     } catch (e) {
       error = e.name === 'AbortError' ? 'Timed out — please retry' : (e.message ?? String(e));
     } finally {
@@ -290,6 +291,11 @@
   // ── Assign the currently previewed file to the active slot ───────────────
   function assignPreview() {
     if (!previewItem || !previewData || previewData.error) return;
+    const af = {
+      name: previewItem.name,
+      path: previewItem.path ?? null,
+      id:   previewItem.id   ?? null,
+    };
     if (previewData.type === 'las') {
       slotFiles = { ...slotFiles, [pickingSlot]: {
         name: previewItem.name,
@@ -297,13 +303,19 @@
         las: previewData.las,
       }};
     } else {
+      af.lfId = previewData.selectedLf?.id ?? null;
       slotFiles = { ...slotFiles, [pickingSlot]: {
         name: previewItem.name,
         wellName: previewData.wellName,
-        lfId: previewData.selectedLf?.id ?? 'LF-1',
+        lfId: af.lfId ?? 'LF-1',
         dlis: previewData._parsed,
       }};
     }
+    // Persist file reference into tpl so it's included in save/download
+    tpl = { ...tpl, fileSlots: {
+      ...tpl.fileSlots,
+      [pickingSlot]: { ...(tpl.fileSlots?.[pickingSlot] ?? {}), assignedFile: af },
+    }};
     closePicker();
   }
 
@@ -318,6 +330,56 @@
     const next = { ...slotFiles };
     delete next[slotKey];
     slotFiles = next;
+    // Clear from tpl too so dirty flag reflects the change
+    tpl = { ...tpl, fileSlots: {
+      ...tpl.fileSlots,
+      [slotKey]: null,
+    }};
+  }
+
+  // ── Auto-reconnect slot files from the sidebar tree on load ──────────────
+  async function autoReconnectSlots() {
+    if (!tpl?.fileSlots || !datasourceStore.tree) return;
+    const allFiles = collectFiles(datasourceStore.tree);
+    for (const [slotKey, slot] of Object.entries(tpl.fileSlots)) {
+      const af = slot?.assignedFile;
+      if (!af || slotFiles[slotKey]) continue;
+      const item = allFiles.find(f =>
+        (af.id && f.id === af.id) ||
+        (af.path && f.path === af.path) ||
+        f.name === af.name
+      );
+      if (!item) continue;
+      try {
+        let buf;
+        if (item.file) {
+          buf = await item.file.arrayBuffer();
+        } else if (item.id) {
+          const res = await fetch(`/api/drive?fileId=${encodeURIComponent(item.id)}`);
+          if (!res.ok) continue;
+          buf = await res.arrayBuffer();
+        } else continue;
+
+        const isDlis = /\.dlis\d?$/i.test(item.name);
+        if (isDlis) {
+          const parsed = await parseDLISFile(buf);
+          const lfs = extractLogicalFiles(parsed);
+          const lf = lfs.find(l => l.id === af.lfId) ?? lfs[0];
+          if (!lf) continue;
+          slotFiles = { ...slotFiles, [slotKey]: {
+            name: item.name, wellName: lf.wellName ?? item.name,
+            lfId: lf.id, dlis: parsed,
+          }};
+        } else {
+          const las = parseLAS(new TextDecoder().decode(buf));
+          slotFiles = { ...slotFiles, [slotKey]: {
+            name: item.name, wellName: getLasWellName(las, item.name), las,
+          }};
+        }
+      } catch (e) {
+        console.warn(`Auto-reconnect slot ${slotKey}:`, e);
+      }
+    }
   }
 
   // ── Derived: curves grouped by panel ────────────────────────────────────
