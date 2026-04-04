@@ -4,6 +4,13 @@ import { RemoteDataSource } from './RemoteDataSource.js';
 const local = new LocalDataSource();
 const remote = new RemoteDataSource();
 
+// ── File templates for new-file creation ─────────────────────────────────────
+const TEMPLATES = {
+  '.wflow': JSON.stringify({ version: '1.0', nodes: [], wires: [] }, null, 2),
+  '.dgeo':  JSON.stringify({ version: '1.0', domain: { x: { min: 0, max: 10 }, y: { min: 0, max: 5000 } }, horizons: [] }, null, 2),
+  '.tpl':   JSON.stringify({ title: 'New Template', depth: { min: 0, max: 5000, unit: 'm' }, panels: [], curveDefinitions: [], fileSlots: {} }, null, 2),
+};
+
 // ── IndexedDB helpers — persist FileSystemDirectoryHandles across sessions ───
 const IDB_DB    = 'svtc-workspaces';
 const IDB_STORE = 'handles';
@@ -179,6 +186,57 @@ class DatasourceState {
     if (this.expanded.has(path)) {
       const next = new Set(this.expanded);
       next.delete(path);
+      this.expanded = next;
+    }
+  }
+
+  /**
+   * Create a new file or folder inside a directory that was opened via
+   * the File System Access API (has a handle). Local mode only.
+   *
+   * @param {string} parentPath  — path of the parent dir in the tree
+   * @param {string} name        — new file/folder name
+   * @param {boolean} isDir      — true = directory, false = file
+   * @param {string} [ext]       — file extension (used to pick template content)
+   */
+  async createItem(parentPath, name, isDir, ext = '') {
+    const node = getNodeByPath(this.tree, parentPath);
+    if (!node?.handle) throw new Error('Directory handle not available — open the folder via "Open Folder" first');
+
+    let childHandle;
+    if (isDir) {
+      childHandle = await node.handle.getDirectoryHandle(name, { create: true });
+    } else {
+      childHandle = await node.handle.getFileHandle(name, { create: true });
+      const content = TEMPLATES[ext] ?? '';
+      if (content) {
+        const writable = await childHandle.createWritable();
+        await writable.write(content);
+        await writable.close();
+      }
+    }
+
+    // Insert new node into the tree (immutable update)
+    const newChild = isDir
+      ? { name, type: 'dir', handle: childHandle, children: {} }
+      : { name, type: 'file', handle: childHandle, file: null };
+
+    const insert = (treeNode, parts) => {
+      if (parts.length === 1) {
+        return { ...treeNode, children: { ...treeNode.children, [name]: newChild } };
+      }
+      const [head, ...tail] = parts;
+      return {
+        ...treeNode,
+        children: { ...treeNode.children, [head]: insert(treeNode.children[head], tail) }
+      };
+    };
+    this.tree = insert(this.tree, parentPath.split('/'));
+
+    // Auto-expand the parent
+    if (!this.expanded.has(parentPath)) {
+      const next = new Set(this.expanded);
+      next.add(parentPath);
       this.expanded = next;
     }
   }

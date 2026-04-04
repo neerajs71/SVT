@@ -13,9 +13,63 @@
   let tooltipY      = $state(0);
 
   // Delete state
-  let pendingDelete  = $state(null);   // path awaiting confirmation
-  let deletingPath   = $state(null);   // path currently being deleted
+  let pendingDelete  = $state(null);
+  let deletingPath   = $state(null);
   let deleteError    = $state('');
+
+  // Create state
+  const CREATE_OPTIONS = [
+    { label: 'New Folder',       type: 'dir',  ext: '',       icon: '📁', default: 'new-folder'    },
+    { label: 'Blank File',       type: 'file', ext: '.txt',   icon: '📄', default: 'untitled.txt'  },
+    { label: 'Workflow',         type: 'file', ext: '.wflow', icon: '🔗', default: 'workflow.wflow' },
+    { label: 'Geological',       type: 'file', ext: '.dgeo',  icon: '🗺', default: 'geology.dgeo'  },
+    { label: 'Plot Template',    type: 'file', ext: '.tpl',   icon: '📊', default: 'template.tpl'  },
+  ];
+  let creating     = $state(null);  // null | { path, step:'menu'|'naming', type, ext, name }
+  let createBusy   = $state(false);
+  let createError  = $state('');
+  let createMenuX  = $state(0);
+  let createMenuY  = $state(0);
+  let nameInputEl;
+
+  function openCreateMenu(e, item) {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    createMenuX = rect.right + 6;
+    createMenuY = rect.top;
+    creating = { path: item.path, step: 'menu', type: null, ext: null, name: '' };
+    createError = '';
+  }
+
+  function selectCreateType(opt) {
+    creating = { ...creating, step: 'naming', type: opt.type, ext: opt.ext, name: opt.default };
+    // focus input on next tick
+    setTimeout(() => nameInputEl?.focus(), 30);
+  }
+
+  async function confirmCreate() {
+    if (!creating || !creating.name.trim()) return;
+    createBusy = true; createError = '';
+    try {
+      await datasourceStore.createItem(creating.path, creating.name.trim(), creating.type === 'dir', creating.ext);
+      creating = null;
+    } catch (e) {
+      createError = e.message;
+    } finally {
+      createBusy = false;
+    }
+  }
+
+  function cancelCreate(e) {
+    e?.stopPropagation();
+    creating = null;
+    createError = '';
+  }
+
+  function handleCreateKeydown(e) {
+    if (e.key === 'Enter')  confirmCreate();
+    if (e.key === 'Escape') cancelCreate();
+  }
 
   onMount(() => datasourceStore.initRecentWorkspaces());
 
@@ -191,6 +245,17 @@
                 title="Cancel"
               >✕</button>
             {:else}
+              <!-- + button (folders only, local mode) -->
+              {#if item.type === 'dir' && datasourceStore.mode === 'local'}
+                <button
+                  onclick={(e) => openCreateMenu(e, item)}
+                  class="flex-shrink-0 w-4 opacity-0 group-hover:opacity-100 p-0.5 rounded
+                         text-gray-300 hover:text-green-600 hover:bg-green-50 transition-opacity mr-0.5 font-bold leading-none"
+                  title="Create file or folder here"
+                >+</button>
+              {:else}
+                <span class="w-4 flex-shrink-0 mr-0.5"></span>
+              {/if}
               <!-- Trash icon — appears on row hover -->
               <button
                 onclick={(e) => requestDelete(e, item)}
@@ -296,6 +361,70 @@
       class="px-2 py-1 text-xs bg-gray-900 text-white rounded whitespace-nowrap pointer-events-none shadow-lg"
     >
       {tooltipItem.name}
+    </div>
+  {/if}
+
+  <!-- Create file/folder popup -->
+  {#if creating}
+    <!-- Backdrop -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div
+      role="button"
+      tabindex="-1"
+      class="fixed inset-0 z-[9998]"
+      onclick={cancelCreate}
+    ></div>
+
+    <div
+      style="position:fixed; left:{createMenuX}px; top:{createMenuY}px; z-index:9999;"
+      class="bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden text-xs min-w-[170px]"
+    >
+      {#if creating.step === 'menu'}
+        <!-- Type picker -->
+        <div class="px-2 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-100">
+          Create in <span class="text-gray-700 font-bold">{creating.path.split('/').pop()}</span>
+        </div>
+        {#each CREATE_OPTIONS as opt}
+          <button
+            onclick={() => selectCreateType(opt)}
+            class="w-full text-left flex items-center gap-2 px-3 py-2 hover:bg-green-50 hover:text-green-800 transition-colors"
+          >
+            <span>{opt.icon}</span>
+            <span>{opt.label}</span>
+            {#if opt.ext}<span class="ml-auto text-[9px] text-gray-400">{opt.ext}</span>{/if}
+          </button>
+        {/each}
+
+      {:else}
+        <!-- Name input -->
+        <div class="px-2 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-100">
+          {creating.type === 'dir' ? '📁' : '📄'} Name
+        </div>
+        <div class="p-2 flex flex-col gap-1.5">
+          <input
+            bind:this={nameInputEl}
+            type="text"
+            class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-green-500"
+            bind:value={creating.name}
+            onkeydown={handleCreateKeydown}
+            placeholder="file name"
+          />
+          {#if createError}
+            <p class="text-red-600 text-[10px] leading-snug">{createError}</p>
+          {/if}
+          <div class="flex gap-1.5">
+            <button
+              onclick={confirmCreate}
+              disabled={createBusy || !creating.name.trim()}
+              class="flex-1 py-1 rounded bg-green-700 text-white text-[11px] font-semibold hover:bg-green-600 disabled:opacity-50"
+            >{createBusy ? '…' : 'Create'}</button>
+            <button
+              onclick={cancelCreate}
+              class="px-2 py-1 rounded border border-gray-200 text-gray-500 text-[11px] hover:bg-gray-50"
+            >Cancel</button>
+          </div>
+        </div>
+      {/if}
     </div>
   {/if}
 {:else}
