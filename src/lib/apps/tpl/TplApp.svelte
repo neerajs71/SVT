@@ -1,5 +1,5 @@
 <script>
-  import { onMount, untrack } from 'svelte';
+  import { onMount } from 'svelte';
   import { parseTpl, extractLasCurve, getLasWellName, collectFiles } from './parser.js';
   import { parseLAS } from '$lib/apps/las/parser.js';
   import { processCurves } from '$lib/apps/las/utils.js';
@@ -130,15 +130,13 @@
     pickerExpanded = next;
   }
 
-  // When the picker opens: pre-load all remote sub-folders (idempotent, guarded)
-  // then auto-expand the picker tree. All datasourceStore reads are async so
-  // they don't create reactive dependencies that would re-trigger this effect.
+  // When the picker opens: pre-load all remote sub-folders then auto-expand.
+  // deepFetch() is self-contained — it uses untrack() internally so calling it
+  // here does not subscribe this effect to deepFetching / mode / tree.
+  // The only reactive dependency of this effect is pickingSlot.
   $effect(() => {
     if (pickingSlot === null) return;
-    // untrack prevents the effect subscribing to deepFetching/mode/tree which
-    // are read synchronously inside deepFetch() before its first await —
-    // without untrack those subscriptions would cause an infinite re-run loop.
-    untrack(() => datasourceStore.deepFetch()).then(() => {
+    datasourceStore.deepFetch().then(() => {
       const paths = new Set();
       function collectPaths(node, parentPath) {
         for (const [name, child] of Object.entries(node?.children ?? {})) {
