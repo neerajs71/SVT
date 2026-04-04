@@ -1,3 +1,4 @@
+import { untrack } from 'svelte';
 import { LocalDataSource, flatten } from './LocalDataSource.js';
 import { RemoteDataSource } from './RemoteDataSource.js';
 
@@ -65,6 +66,9 @@ class DatasourceState {
   loading       = $state(false);
   error         = $state(null);
   recentHandles = $state([]);        // [{ name, handle, savedAt }]
+  deepFetching  = $state(false);     // reactive UI flag — true while deepFetch() is in flight
+  _deepFetching = false;             // non-reactive guard — prevents re-entrancy without creating effect deps
+  _fetchedIds   = new Set();         // Drive folder IDs already fetched (plain, non-reactive)
 
   /** Call from onMount in Sidebar to populate recent workspaces list. */
   async initRecentWorkspaces() {
@@ -90,6 +94,7 @@ class DatasourceState {
     this.tree = null;
     this.expanded = new Set();
     this.error = null;
+    this._fetchedIds = new Set();
 
     if (newMode === 'remote') {
       this.loading = true;
@@ -104,6 +109,7 @@ class DatasourceState {
   async loadLocalFolder(dirHandle) {
     this.loading = true;
     this.error = null;
+    this._fetchedIds = new Set(); // clear stale remote IDs on workspace change
     try {
       const tree = await local.buildTreeFromHandle(dirHandle);
       this.tree = { name: '', type: 'dir', children: { [dirHandle.name]: tree } };
@@ -122,6 +128,7 @@ class DatasourceState {
 
   loadLocalFiles(files) {
     if (!files || !files.length) return;
+    this._fetchedIds = new Set(); // clear stale remote IDs on workspace change
     this.tree = local.buildTree(files);
     this.expanded = new Set([files[0].webkitRelativePath.split('/')[0]]);
     this.error = null;
@@ -141,13 +148,74 @@ class DatasourceState {
         remote.fetchFolder(id)
           .then(data => {
             const n = getNodeByPath(this.tree, path);
-            if (n) n.children = data.children;
+            if (n) { n.children = data.children; this._fetchedIds.add(id); }
             this.tree = { ...this.tree };
           })
           .catch(err => console.error('[store] lazy-load failed:', err));
       }
     }
     this.expanded = next;
+  }
+
+  /**
+   * Recursively pre-fetch all un-loaded remote sub-folders so that
+   * file-picker UIs can see all files without the user first expanding
+   * each folder in the sidebar. No-op in local mode.
+   *
+   * Safe to call from inside Svelte $effect — uses untrack() internally so
+   * callers never accidentally subscribe to this.mode / this.tree /
+   * this.deepFetching. Re-entrant calls are dropped via a plain (non-reactive)
+   * _deepFetching guard. Folder IDs are deduplicated via _fetchedIds.
+   */
+  async deepFetch() {
+    // Read reactive state inside untrack so this method never creates reactive
+    // subscriptions in the caller's reactive context ($effect / $derived).
+    const { mode, tree, guard } = untrack(() => ({
+      mode: this.mode,
+      tree: this.tree,
+      guard: this._deepFetching,
+    }));
+    if (mode !== 'remote' || !tree || guard) return;
+
+    // Use plain boolean as the re-entrancy guard — not $state — so flipping it
+    // never triggers reactive invalidations that would re-run caller effects.
+    this._deepFetching = true;
+    this.deepFetching  = true;   // reactive flag for UI only
+    try {
+      await this._deepFetchNode(tree);
+    } finally {
+      this._deepFetching = false;
+      this.deepFetching  = false;
+    }
+  }
+
+  async _deepFetchNode(node) {
+    const promises = [];
+    for (const child of Object.values(node?.children ?? {})) {
+      if (child.type !== 'dir' || !child.id) continue;
+      if (this._fetchedIds.has(child.id)) {
+        // Already fetched — recurse into existing children if any
+        if (Object.keys(child.children).length > 0) {
+          promises.push(this._deepFetchNode(child));
+        }
+        continue;
+      }
+      this._fetchedIds.add(child.id); // mark before await to prevent duplicate parallel fetches
+      if (Object.keys(child.children).length === 0) {
+        promises.push(
+          remote.fetchFolder(child.id)
+            .then(data => {
+              child.children = data.children;   // mutates reactive proxy — Svelte 5 tracks this
+              this.tree = { ...this.tree };      // bump root ref to ensure all derived values re-evaluate
+              return this._deepFetchNode(child);
+            })
+            .catch(e => console.error('[deepFetch]', child.id, e))
+        );
+      } else {
+        promises.push(this._deepFetchNode(child));
+      }
+    }
+    await Promise.all(promises);
   }
 
   async deleteItem(path, id) {
@@ -201,7 +269,7 @@ class DatasourceState {
    */
   async createItem(parentPath, name, isDir, ext = '') {
     const node = getNodeByPath(this.tree, parentPath);
-    if (!node?.handle) throw new Error('Directory handle not available — open the folder via "Open Folder" first');
+    if (!node?.handle) throw new Error('File creation requires Chrome or Edge on desktop — not supported on this browser');
 
     let childHandle;
     if (isDir) {

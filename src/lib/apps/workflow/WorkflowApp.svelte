@@ -11,6 +11,8 @@
   import { NODE_TYPES } from './nodes/registry.js';
   import NodeCanvas  from './components/NodeCanvas.svelte';
   import NodePalette from './components/NodePalette.svelte';
+  import { tabStore } from '$lib/tabs/tabs.svelte.js';
+  import { saveToHandle, downloadBlob } from '$lib/apps/shared/fileActions.js';
 
   const { tab } = $props();
 
@@ -23,6 +25,12 @@
   let errors  = $state(new Map());
   let running = $state(false);
   let runError = $state('');
+
+  // ── Dirty tracking ────────────────────────────────────────────────────────────
+  let _loadedJson = $state('');
+  const _currentJson = $derived(serialiseWorkflow(nodes, wires));
+  const dirty = $derived(_currentJson !== _loadedJson);
+  $effect(() => { tabStore.setDirty(tab.id, dirty); });
 
   // ── File slot data (from open LAS/DLIS tabs) ──────────────────────────────────
   // Populated when user assigns files to CurveSource nodes.
@@ -46,21 +54,30 @@
       const wf = parseWorkflow(text);
       nodes = wf.nodes ?? [];
       wires = wf.wires ?? [];
+      _loadedJson = serialiseWorkflow(nodes, wires);
     } catch (e) {
       runError = `Load error: ${e.message}`;
     }
   }
 
-  // ── Save ──────────────────────────────────────────────────────────────────────
-  function save() {
-    const json = serialiseWorkflow(nodes, wires);
-    const blob = new Blob([json], { type: 'application/json' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = tab?.name ?? 'workflow.wflow';
-    a.click();
-    URL.revokeObjectURL(url);
+  // ── Save / Download ───────────────────────────────────────────────────────────
+  let saveError = $state('');
+  async function save() {
+    const json = _currentJson;
+    if (tab.handle) {
+      try {
+        await saveToHandle(tab.handle, json);
+        _loadedJson = json;
+      } catch (e) {
+        saveError = e.message;
+      }
+    } else {
+      downloadBlob(tab?.name ?? 'workflow.wflow', json, 'application/json');
+    }
+  }
+
+  function download() {
+    downloadBlob(tab?.name ?? 'workflow.wflow', _currentJson, 'application/json');
   }
 
   // ── Execute pipeline ──────────────────────────────────────────────────────────
@@ -111,12 +128,16 @@
   onMount(loadFile);
 </script>
 
+<svelte:window onkeydown={(e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); save(); }
+}} />
+
 <div class="flex flex-col h-full overflow-hidden bg-gray-950">
 
   <!-- ── Toolbar ── -->
   <div class="flex items-center gap-2 px-3 py-2 bg-gray-900 border-b border-gray-700 shrink-0">
     <span class="text-xs font-bold text-gray-300 mr-2 truncate max-w-[160px]">
-      {tab?.name ?? 'Workflow'}
+      {#if dirty}<span class="text-orange-400 mr-1">●</span>{/if}{tab?.name ?? 'Workflow'}
     </span>
 
     <button
@@ -129,8 +150,16 @@
 
     <button
       onclick={save}
+      class="px-2 py-1 text-xs rounded transition-colors
+             {dirty ? 'bg-blue-700 hover:bg-blue-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-200'}"
+      title={tab.handle ? 'Save to disk (Ctrl+S)' : 'Download file'}
+    >{tab.handle ? '💾 Save' : '↓ Save'}</button>
+
+    <button
+      onclick={download}
       class="px-2 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors"
-    >↓ Save</button>
+      title="Download current workflow"
+    >⬇ Download</button>
 
     <button
       onclick={fitView}
@@ -147,7 +176,12 @@
       {nodes.length} nodes · {wires.length} wires
     </span>
 
-    <!-- Error badge -->
+    <!-- Error badges -->
+    {#if saveError}
+      <span class="text-[10px] text-red-400 bg-red-950 px-2 py-0.5 rounded max-w-xs truncate cursor-pointer" title={saveError} onclick={() => saveError = ''}>
+        💾 {saveError}
+      </span>
+    {/if}
     {#if runError}
       <span class="text-[10px] text-red-400 bg-red-950 px-2 py-0.5 rounded max-w-xs truncate" title={runError}>
         ⚠ {runError}

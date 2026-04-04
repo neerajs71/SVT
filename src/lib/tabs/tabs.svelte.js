@@ -41,7 +41,9 @@ class TabState {
       name: item.name,
       ext,
       file,
+      handle: item.handle ?? null,
       driveId: item.id ?? null,
+      dirty: false,
     });
     this.activeId = item.path;
   }
@@ -60,6 +62,11 @@ class TabState {
 
   setActive(id) {
     this.activeId = id;
+  }
+
+  setDirty(id, dirty) {
+    const tab = this.tabs.find(t => t.id === id);
+    if (tab) tab.dirty = dirty;
   }
 }
 

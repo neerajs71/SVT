@@ -8,6 +8,9 @@
   import { FloatingPanel } from '$lib/components/FloatingPanel';
   import { FolderSolid, FolderOpenSolid, FileLinesOutline } from 'flowbite-svelte-icons';
   import { SUBAPP_REGISTRY } from './subapps/index.js';
+  import { tabStore } from '$lib/tabs/tabs.svelte.js';
+  import { saveToHandle, downloadBlob } from '$lib/apps/shared/fileActions.js';
+  import { MEASUREMENT_TYPES, getMeasurementType, getUnitByMnemonic } from './measurements.js';
 
   const { tab } = $props();
 
@@ -15,6 +18,10 @@
   let tpl      = $state(null);
   let loading  = $state(true);
   let error    = $state('');
+  let saveErr  = $state('');
+  let _loadedHash = $state('');
+  const dirty  = $derived(tpl ? JSON.stringify(tpl) !== _loadedHash : false);
+  $effect(() => { tabStore.setDirty(tab.id, dirty); });
 
   // slot key → { name, wellName, las }
   let slotFiles = $state({});
@@ -33,11 +40,20 @@
   let editingCurve = $state(null);
 
   // ── Layout constants ─────────────────────────────────────────────────────
-  const DEPTH_W  = 64;
-  const CHART_H  = 600;
-  const HEADER_H = 64;
-  const XAXIS_H  = 28;
-  const TOTAL_H  = HEADER_H + CHART_H + XAXIS_H;
+  const DEPTH_W    = 64;
+  const CHART_H    = 600;
+  const CURVE_ROW_H = 28;   // header px per curve row (enough for numbers + line + label)
+  const TOGGLE_H    = 10;   // collapse toggle bar height
+  const XAXIS_H    = 28;
+  let headerCollapsed = $state(false);
+  // Header grows to fit the tallest panel; collapses to just the toggle bar
+  const HEADER_H = $derived.by(() => {
+    if (headerCollapsed) return TOGGLE_H;
+    if (!tpl) return 44;
+    const maxN = Math.max(1, ...Object.values(panelCurves).map(cs => cs.length));
+    return Math.max(44, maxN * CURVE_ROW_H) + TOGGLE_H;
+  });
+  const TOTAL_H = $derived(HEADER_H + CHART_H + XAXIS_H);
 
   // ── Load TPL ─────────────────────────────────────────────────────────────
   onMount(async () => {
@@ -57,6 +73,8 @@
         throw new Error('No file source');
       }
       tpl = parseTpl(text);
+      _loadedHash = JSON.stringify(tpl);
+      autoReconnectSlots();
     } catch (e) {
       error = e.name === 'AbortError' ? 'Timed out — please retry' : (e.message ?? String(e));
     } finally {
@@ -71,6 +89,7 @@
       const res = await fetch('/samples/basic_log.tpl');
       if (!res.ok) throw new Error('Sample not found');
       tpl = parseTpl(await res.text());
+      _loadedHash = JSON.stringify(tpl);
     } catch (e) {
       error = e.message ?? String(e);
     } finally {
@@ -94,7 +113,7 @@
   let pickerExpanded = $state(new Set());
 
   // Resizable left panel in picker
-  let pickerPanelW = $state(192);  // px
+  let pickerPanelW = $state(140);  // px
   let pickerPanelDragging = false;
   let pickerPanelDragStartX = 0;
   let pickerPanelDragStartW = 0;
@@ -108,7 +127,7 @@
   }
   function onPickerPanelDragMove(e) {
     if (!pickerPanelDragging) return;
-    pickerPanelW = Math.max(120, Math.min(400, pickerPanelDragStartW + (e.clientX - pickerPanelDragStartX)));
+    pickerPanelW = Math.max(80, Math.min(200, pickerPanelDragStartW + (e.clientX - pickerPanelDragStartX)));
   }
   function onPickerPanelDragEnd() {
     pickerPanelDragging = false;
@@ -122,18 +141,23 @@
     pickerExpanded = next;
   }
 
-  // Auto-expand entire tree when picker opens
+  // When the picker opens: pre-load all remote sub-folders then auto-expand.
+  // deepFetch() is self-contained — it uses untrack() internally so calling it
+  // here does not subscribe this effect to deepFetching / mode / tree.
+  // The only reactive dependency of this effect is pickingSlot.
   $effect(() => {
     if (pickingSlot === null) return;
-    const paths = new Set();
-    function collectPaths(node, parentPath) {
-      for (const [name, child] of Object.entries(node?.children ?? {})) {
-        const path = parentPath ? `${parentPath}/${name}` : name;
-        if (child.type === 'dir') { paths.add(path); collectPaths(child, path); }
+    datasourceStore.deepFetch().then(() => {
+      const paths = new Set();
+      function collectPaths(node, parentPath) {
+        for (const [name, child] of Object.entries(node?.children ?? {})) {
+          const path = parentPath ? `${parentPath}/${name}` : name;
+          if (child.type === 'dir') { paths.add(path); collectPaths(child, path); }
+        }
       }
-    }
-    if (datasourceStore.tree) collectPaths(datasourceStore.tree, '');
-    pickerExpanded = paths;
+      if (datasourceStore.tree) collectPaths(datasourceStore.tree, '');
+      pickerExpanded = paths;
+    });
   });
 
   // Picker items: tree structure, always pruned to data files only, filtered when query typed
@@ -277,20 +301,49 @@
   // ── Assign the currently previewed file to the active slot ───────────────
   function assignPreview() {
     if (!previewItem || !previewData || previewData.error) return;
+    const af = {
+      name: previewItem.name,
+      path: previewItem.path ?? null,
+      id:   previewItem.id   ?? null,
+    };
+
+    // Build mnemonic → unit lookup from the file
+    const curveUnits = {};
     if (previewData.type === 'las') {
+      for (const c of (previewData.las?.curves ?? [])) {
+        if (c.mnem) curveUnits[c.mnem.toUpperCase()] = c.unit ?? '';
+      }
       slotFiles = { ...slotFiles, [pickingSlot]: {
-        name: previewItem.name,
-        wellName: previewData.wellName,
-        las: previewData.las,
+        name: previewItem.name, wellName: previewData.wellName,
+        las: previewData.las, curveUnits,
       }};
     } else {
+      af.lfId = previewData.selectedLf?.id ?? null;
+      for (const c of (previewData.curves ?? [])) {
+        if (c.mnem) curveUnits[c.mnem.toUpperCase()] = c.unit ?? '';
+      }
       slotFiles = { ...slotFiles, [pickingSlot]: {
-        name: previewItem.name,
-        wellName: previewData.wellName,
-        lfId: previewData.selectedLf?.id ?? 'LF-1',
-        dlis: previewData._parsed,
+        name: previewItem.name, wellName: previewData.wellName,
+        lfId: af.lfId ?? 'LF-1', dlis: previewData._parsed, curveUnits,
       }};
     }
+
+    // Auto-populate unit on curves in this slot that have no unit set yet
+    const updatedDefs = (tpl.curveDefinitions ?? []).map(c => {
+      if (c.fileSlot !== pickingSlot || c.unit) return c;
+      const fileUnit = curveUnits[c.curveMnemonic?.toUpperCase()] ?? '';
+      return fileUnit ? { ...c, unit: fileUnit } : c;
+    });
+
+    // Persist file reference + updated curve units
+    tpl = {
+      ...tpl,
+      curveDefinitions: updatedDefs,
+      fileSlots: {
+        ...tpl.fileSlots,
+        [pickingSlot]: { ...(tpl.fileSlots?.[pickingSlot] ?? {}), assignedFile: af },
+      },
+    };
     closePicker();
   }
 
@@ -305,6 +358,77 @@
     const next = { ...slotFiles };
     delete next[slotKey];
     slotFiles = next;
+    tpl = { ...tpl, fileSlots: { ...tpl.fileSlots, [slotKey]: null } };
+  }
+
+  function addSlot() {
+    const existing = Object.keys(tpl.fileSlots ?? {});
+    // Find next available Fn key
+    let n = existing.length + 1;
+    while (existing.includes(`F${n}`)) n++;
+    tpl = { ...tpl, fileSlots: { ...tpl.fileSlots, [`F${n}`]: null } };
+  }
+
+  function removeSlot(slotKey) {
+    // Only remove if no curves reference it
+    const inUse = (tpl.curveDefinitions ?? []).some(c => c.fileSlot === slotKey);
+    if (inUse) return;
+    const { [slotKey]: _, ...restSlots } = tpl.fileSlots ?? {};
+    const { [slotKey]: __, ...restFiles } = slotFiles;
+    slotFiles = restFiles;
+    tpl = { ...tpl, fileSlots: restSlots };
+  }
+
+  // ── Auto-reconnect slot files from the sidebar tree on load ──────────────
+  async function autoReconnectSlots() {
+    if (!tpl?.fileSlots || !datasourceStore.tree) return;
+    const allFiles = collectFiles(datasourceStore.tree);
+    for (const [slotKey, slot] of Object.entries(tpl.fileSlots)) {
+      const af = slot?.assignedFile;
+      if (!af || slotFiles[slotKey]) continue;
+      const item = allFiles.find(f =>
+        (af.id && f.id === af.id) ||
+        (af.path && f.path === af.path) ||
+        f.name === af.name
+      );
+      if (!item) continue;
+      try {
+        let buf;
+        if (item.file) {
+          buf = await item.file.arrayBuffer();
+        } else if (item.id) {
+          const res = await fetch(`/api/drive?fileId=${encodeURIComponent(item.id)}`);
+          if (!res.ok) continue;
+          buf = await res.arrayBuffer();
+        } else continue;
+
+        const isDlis = /\.dlis\d?$/i.test(item.name);
+        const curveUnits = {};
+        if (isDlis) {
+          const parsed = await parseDLISFile(buf);
+          const lfs = extractLogicalFiles(parsed);
+          const lf = lfs.find(l => l.id === af.lfId) ?? lfs[0];
+          if (!lf) continue;
+          for (const c of (lf.channels ?? [])) {
+            if (c.name) curveUnits[c.name.toUpperCase()] = c.units ?? '';
+          }
+          slotFiles = { ...slotFiles, [slotKey]: {
+            name: item.name, wellName: lf.wellName ?? item.name,
+            lfId: lf.id, dlis: parsed, curveUnits,
+          }};
+        } else {
+          const las = parseLAS(new TextDecoder().decode(buf));
+          for (const c of (las.curves ?? [])) {
+            if (c.mnem) curveUnits[c.mnem.toUpperCase()] = c.unit ?? '';
+          }
+          slotFiles = { ...slotFiles, [slotKey]: {
+            name: item.name, wellName: getLasWellName(las, item.name), las, curveUnits,
+          }};
+        }
+      } catch (e) {
+        console.warn(`Auto-reconnect slot ${slotKey}:`, e);
+      }
+    }
   }
 
   // ── Derived: curves grouped by panel ────────────────────────────────────
@@ -339,15 +463,15 @@
   // ── Per-panel helpers ────────────────────────────────────────────────────
   function isLog(panel) { return panel.gridType === 'logarithmic'; }
 
-  function xToPixel(panel, value) {
+  function xToPixel(panel, value, xMin = panel.xMin, xMax = panel.xMax) {
     const w = panel.width;
     if (isLog(panel)) {
-      const lMin = Math.log10(Math.max(panel.xMin, 1e-10));
-      const lMax = Math.log10(Math.max(panel.xMax, 1e-10));
+      const lMin = Math.log10(Math.max(xMin, 1e-10));
+      const lMax = Math.log10(Math.max(xMax, 1e-10));
       const lv   = Math.log10(Math.max(value, 1e-10));
       return ((lv - lMin) / (lMax - lMin || 1)) * w;
     }
-    return ((value - panel.xMin) / ((panel.xMax - panel.xMin) || 1)) * w;
+    return ((value - xMin) / ((xMax - xMin) || 1)) * w;
   }
 
   function gridLines(panel) {
@@ -426,7 +550,9 @@
       const d = depths[i], v = values[i];
       if (!isFinite(d) || !isFinite(v) || d < dMn || d > dMx) continue;
       const py = sy(d);
-      const px = Math.max(0, Math.min(panel.width, xToPixel(panel, v)));
+      const cMin = curveDef.xMin ?? panel.xMin;
+      const cMax = curveDef.xMax ?? panel.xMax;
+      const px = Math.max(0, Math.min(panel.width, xToPixel(panel, v, cMin, cMax)));
       pts.push(`${px.toFixed(1)},${py.toFixed(1)}`);
     }
     return pts.join(' ');
@@ -496,22 +622,14 @@
   // ── View mode ────────────────────────────────────────────────────────────
   let viewMode     = $state('chart'); // 'chart' | 'table' | 'text'
   let rawText      = $state('');
-  let rawTextError = $state('');
+
+  // Keep rawText in sync with tpl in real time — read-only view, always current.
+  $effect(() => {
+    if (tpl) rawText = JSON.stringify(tpl, null, 2);
+  });
 
   function enterTextMode() {
-    rawText = JSON.stringify(tpl, null, 2);
-    rawTextError = '';
     viewMode = 'text';
-  }
-
-  function applyRawText() {
-    try {
-      tpl = JSON.parse(rawText);
-      rawTextError = '';
-      viewMode = 'chart';
-    } catch (e) {
-      rawTextError = e.message;
-    }
   }
   let tableSortCol = $state('curveMnemonic');
   let tableSortAsc = $state(true);
@@ -670,6 +788,7 @@
       fileSlot: firstSlot,
       color: '#374151',
       line: { thickness: 1.2, style: 'solid' },
+      xMin: 0, xMax: 150, unit: '',
     };
     tpl = { ...tpl, curveDefinitions: [...(tpl.curveDefinitions ?? []), newCurve] };
     startEditCurve(newCurve);
@@ -800,39 +919,61 @@
     const panel = (tpl.panels ?? []).find(p => p.id === curve.trackId);
     editingCurve = {
       ...curve,
-      line:       { ...curve.line },
-      scaleMin:   panel?.xMin  ?? 0,
-      scaleMax:   panel?.xMax  ?? 150,
-      scaleType:  panel?.gridType ?? 'linear',
+      line:            { ...curve.line },
+      scaleMin:        curve.xMin ?? panel?.xMin ?? 0,
+      scaleMax:        curve.xMax ?? panel?.xMax ?? 150,
+      scaleType:       panel?.gridType ?? 'linear',
+      unit:            curve.unit ?? '',
+      measurementType: curve.measurementType ?? '',
     };
   }
+
   function saveEditCurve() {
     const { scaleMin, scaleMax, scaleType, ...curveOnly } = editingCurve;
     tpl = {
       ...tpl,
       curveDefinitions: tpl.curveDefinitions.map(c =>
-        c.id === editingCurve.id ? { ...curveOnly } : c
+        c.id === editingCurve.id
+          ? { ...curveOnly, xMin: parseFloat(scaleMin) || 0, xMax: parseFloat(scaleMax) || 150 }
+          : c
       ),
       panels: (tpl.panels ?? []).map(p =>
-        p.id === editingCurve.trackId
-          ? { ...p, xMin: parseFloat(scaleMin) || 0, xMax: parseFloat(scaleMax) || 150, gridType: scaleType }
-          : p
+        p.id === editingCurve.trackId ? { ...p, gridType: scaleType } : p
       ),
     };
     editingCurve = null;
+  }
+
+  /** When user picks a measurement type, auto-fill unit + scale defaults. */
+  function applyMeasurementType(typeId) {
+    const mt = getMeasurementType(typeId);
+    if (!mt) return;
+    editingCurve.unit      = mt.defaultUnit;
+    editingCurve.scaleMin  = mt.defaultMin;
+    editingCurve.scaleMax  = mt.defaultMax;
+    editingCurve.scaleType = mt.scaleType;
   }
   function deleteCurve() {
     tpl = { ...tpl, curveDefinitions: tpl.curveDefinitions.filter(c => c.id !== editingCurve.id) };
     editingCurve = null;
   }
 
-  function saveTpl() {
-    const blob = new Blob([JSON.stringify(tpl, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = tab.name;
-    document.body.appendChild(a); a.click();
-    document.body.removeChild(a); URL.revokeObjectURL(url);
+  async function saveTpl() {
+    if (!tab.handle) {
+      saveErr = 'Saving to disk is not available on this device. Use the Download button to save a copy.';
+      return;
+    }
+    const json = JSON.stringify(tpl, null, 2);
+    try {
+      await saveToHandle(tab.handle, json);
+      _loadedHash = JSON.stringify(tpl);
+    } catch (e) {
+      saveErr = e.message;
+    }
+  }
+
+  function downloadTpl() {
+    downloadBlob(tab.name, JSON.stringify(tpl, null, 2), 'application/json');
   }
 
   // Panel x offset (cumulative)
@@ -840,6 +981,17 @@
     return DEPTH_W + panels.slice(0, idx).reduce((s, p) => s + p.width, 0);
   }
 </script>
+
+<svelte:window onkeydown={(e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveTpl(); }
+}} />
+
+{#if saveErr}
+  <div class="px-3 py-1 bg-red-50 border-b border-red-200 text-xs text-red-600 flex items-center gap-2">
+    <span class="flex-1">{saveErr}</span>
+    <button onclick={() => saveErr = ''} class="text-red-400 hover:text-red-600">✕</button>
+  </div>
+{/if}
 
 {#if loading}
   <div class="flex items-center justify-center h-48 text-gray-400 text-sm">Loading template…</div>
@@ -869,12 +1021,26 @@
 
       <!-- Save -->
       <div class="tb-item group">
-        <button class="tb-btn" onclick={saveTpl} aria-label="Save TPL">
+        <button class="tb-btn" class:tb-active={dirty} onclick={saveTpl} aria-label="Save TPL">
+          {#if dirty}<span class="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-orange-400 pointer-events-none"></span>{/if}
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M3 12h10M8 3v7M5 7l3 3 3-3"/>
+            <!-- floppy disk -->
+            <rect x="2" y="2" width="12" height="12" rx="1.5"/>
+            <rect x="5" y="2" width="6" height="4" rx="0.5" fill="currentColor" stroke="none"/>
+            <rect x="4.5" y="9" width="7" height="5" rx="0.75"/>
           </svg>
         </button>
-        <span class="tb-tip">Save</span>
+        <span class="tb-tip">{tab.handle ? 'Save to disk' : 'Save'}</span>
+      </div>
+
+      <!-- Download copy -->
+      <div class="tb-item group">
+        <button class="tb-btn" onclick={downloadTpl} aria-label="Download copy">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M3 14h10M8 2v8M5 7l3 4 3-4"/>
+          </svg>
+        </button>
+        <span class="tb-tip">Download copy</span>
       </div>
 
       <div class="tb-sep"></div>
@@ -994,27 +1160,35 @@
         <!-- File slot assignments -->
         <div class="flex items-center gap-2 ml-2 flex-wrap">
           {#each Object.entries(tpl.fileSlots ?? {}) as [slotKey]}
+            {@const slotInUse = (tpl.curveDefinitions ?? []).some(c => c.fileSlot === slotKey)}
             <div class="flex items-center gap-1">
               <span class="text-xs text-gray-500 font-mono">{slotKey}:</span>
               {#if slotFiles[slotKey]}
                 {@const sf = slotFiles[slotKey]}
-                {@const tipText = sf.lfId
-                  ? `${sf.name}\nLogical file: ${sf.lfId}`
-                  : sf.name}
+                {@const tipText = sf.lfId ? `${sf.name}\nLogical file: ${sf.lfId}` : sf.name}
                 <span class="text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded px-2 py-0.5 max-w-[140px] truncate"
                   title={tipText}>
                   {sf.lfId ? `${sf.wellName} / ${sf.lfId}` : sf.wellName}
                 </span>
                 <button onclick={() => clearSlot(slotKey)}
-                  class="text-xs text-gray-400 hover:text-red-500 leading-none">✕</button>
+                  class="text-xs text-gray-400 hover:text-red-500 leading-none" title="Clear file">✕</button>
               {:else}
                 <button onclick={() => (pickingSlot = slotKey)}
                   class="text-xs bg-white border border-dashed border-gray-300 text-gray-500 rounded px-2 py-0.5 hover:border-blue-400 hover:text-blue-600">
                   Assign file…
                 </button>
+                {#if !slotInUse}
+                  <button onclick={() => removeSlot(slotKey)}
+                    class="text-xs text-gray-300 hover:text-red-500 leading-none" title="Remove slot">✕</button>
+                {/if}
               {/if}
             </div>
           {/each}
+          <!-- Add new slot -->
+          <button onclick={addSlot}
+            class="text-xs border border-dashed border-gray-300 text-gray-400 rounded px-2 py-0.5
+                   hover:border-green-400 hover:text-green-600 font-medium transition-colors"
+            title="Add file slot">+ slot</button>
         </div>
       </div>
 
@@ -1174,22 +1348,23 @@
     {:else if viewMode === 'text'}
       <!-- ── Source / text editor ───────────────────────────────────── -->
       <div class="flex flex-col h-full p-2 gap-2">
-        {#if rawTextError}
-          <div class="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1 font-mono">{rawTextError}</div>
-        {/if}
+        <!-- Status bar -->
+        <div class="flex items-center gap-2 flex-shrink-0 text-[10px]">
+          <span class="text-green-700 bg-green-50 border border-green-200 rounded px-1.5 py-0.5">● live</span>
+          {#if dirty}
+            <span class="text-orange-500 bg-orange-50 border border-orange-200 rounded px-1.5 py-0.5 font-medium">● unsaved changes</span>
+          {/if}
+        </div>
         <textarea
-          bind:value={rawText}
+          value={rawText}
+          readonly
           spellcheck="false"
-          class="flex-1 w-full font-mono text-xs border border-gray-200 rounded p-2 resize-none focus:outline-none focus:border-blue-400 bg-gray-50"
+          class="flex-1 w-full font-mono text-xs rounded p-2 resize-none focus:outline-none border border-gray-200 bg-gray-50 text-gray-700"
         ></textarea>
-        <div class="flex gap-2 justify-end flex-shrink-0">
+        <div class="flex gap-2 justify-end flex-shrink-0 flex-wrap">
           <button onclick={() => viewMode = 'chart'}
             class="text-xs border border-gray-200 rounded px-3 py-1.5 hover:bg-gray-50">
-            Cancel
-          </button>
-          <button onclick={applyRawText}
-            class="text-xs bg-blue-600 text-white rounded px-3 py-1.5 hover:bg-blue-700 font-medium">
-            Apply
+            Close
           </button>
         </div>
       </div>
@@ -1217,9 +1392,15 @@
         {/each}
 
         <!-- Depth axis label -->
-        <text x={DEPTH_W / 2} y={HEADER_H / 2 + 4} text-anchor="middle" font-size="9" fill="#374151" font-weight="bold">
-          {tpl.indexCurve?.curveMnemonic ?? 'DEPTH'}
-        </text>
+        {#if !headerCollapsed}
+          {@const depthLabelY = (HEADER_H - TOGGLE_H) / 2 + 3}
+          <text x={DEPTH_W / 2} y={depthLabelY} text-anchor="middle" font-size="9" fill="#374151" font-weight="bold">
+            {tpl.indexCurve?.curveMnemonic ?? 'DEPTH'}
+          </text>
+          <text x={DEPTH_W / 2} y={depthLabelY + 10} text-anchor="middle" font-size="8" fill="#9ca3af">
+            {tpl.depth?.unit ?? ''}
+          </text>
+        {/if}
         <text x={DEPTH_W / 2} y={HEADER_H / 2 + 14} text-anchor="middle" font-size="8" fill="#9ca3af">
           {tpl.depth?.unit ?? ''}
         </text>
@@ -1270,40 +1451,56 @@
             {/if}
           {/each}
 
-          <!-- Panel header: title + curve chips -->
-          <rect x={px} y="0" width={panel.width} height={HEADER_H} fill="#f8fafc"/>
-          <rect x={px} y="0" width={panel.width} height={HEADER_H}
+          <!-- Panel header: one row per curve, stacked (excludes toggle bar) -->
+          {@const curveAreaH = HEADER_H - TOGGLE_H}
+          <rect x={px} y="0" width={panel.width} height={curveAreaH} fill="#f8fafc"/>
+          <rect x={px} y="0" width={panel.width} height={curveAreaH}
             fill="none" stroke="#d1d5db" stroke-width="0.8"/>
 
-          <!-- Panel title (clickable to edit) -->
-          <text x={px + panel.width / 2} y="14" text-anchor="middle"
-            font-size="10" font-weight="bold" fill="#374151"
-            style="cursor:pointer"
-            onclick={() => startEditPanel(panel)}>
-            {panel.title}
-          </text>
+          {#if !headerCollapsed}
+            {#if curves.length === 0}
+              <text x={px + panel.width / 2} y={curveAreaH / 2 + 4} text-anchor="middle"
+                font-size="9" fill="#9ca3af" style="cursor:pointer"
+                onclick={() => startEditPanel(panel)}>{panel.title}</text>
+            {:else}
+              {@const rowH = curveAreaH / curves.length}
+              {#each curves as curveDef, ci}
+                {@const ry = ci * rowH}
+                {@const cMin = curveDef.xMin ?? panel.xMin}
+                {@const cMax = curveDef.xMax ?? panel.xMax}
+                {@const cUnit = curveDef.unit
+                  || slotFiles[curveDef.fileSlot]?.curveUnits?.[curveDef.curveMnemonic?.toUpperCase()]
+                  || getMeasurementType(curveDef.measurementType)?.defaultUnit
+                  || getUnitByMnemonic(curveDef.curveMnemonic)
+                  || ''}
+                <!-- Layout: numbers in top ~38%, line at ~55%, label in bottom ~20% -->
+                {@const numY  = ry + Math.round(rowH * 0.38)}
+                {@const lineY = ry + Math.round(rowH * 0.56)}
+                {@const lblY  = ry + Math.round(rowH * 0.82)}
 
-          <!-- Curve chips in header -->
-          {#each curves as curveDef, ci}
-            {@const chipX = px + 4 + ci * 68}
-            {#if chipX + 64 <= px + panel.width}
-              <!-- swatch -->
-              <rect x={chipX} y="20" width="10" height="3"
-                fill={curveDef.color ?? '#374151'}
-                rx="1"/>
-              <text x={chipX + 13} y="24" font-size="8" fill="#374151"
-                style="cursor:pointer"
-                onclick={() => startEditCurve(curveDef)}>
-                {curveDef.curveMnemonic}
-              </text>
+                <!-- Scale numbers: min left, max right — above the colored line -->
+                <text x={px + 3} y={numY} font-size="7.5" fill="#6b7280">{fmtNum(cMin)}</text>
+                <text x={px + panel.width - 3} y={numY} text-anchor="end" font-size="7.5" fill="#6b7280">{fmtNum(cMax)}</text>
+
+                <!-- Colored curve line — between numbers and label -->
+                <line x1={px} y1={lineY} x2={px + panel.width} y2={lineY}
+                  stroke={curveDef.color ?? '#374151'} stroke-width="1.5"/>
+
+                <!-- Curve name (unit) centered below line — clickable to edit -->
+                <text x={px + panel.width / 2} y={lblY}
+                  text-anchor="middle" font-size="8" fill="#374151"
+                  style="cursor:pointer"
+                  onclick={() => startEditCurve(curveDef)}>
+                  {curveDef.curveMnemonic}{cUnit ? ` (${cUnit})` : ''}
+                </text>
+
+                <!-- Row divider between curves -->
+                {#if ci < curves.length - 1}
+                  <line x1={px} y1={ry + rowH} x2={px + panel.width} y2={ry + rowH}
+                    stroke="#d1d5db" stroke-width="0.5"/>
+                {/if}
+              {/each}
             {/if}
-          {/each}
-
-          <!-- X-scale range labels -->
-          <text x={px + 3} y={HEADER_H - 4} font-size="8" fill="#6b7280">{fmtNum(panel.xMin)}</text>
-          <text x={px + panel.width - 3} y={HEADER_H - 4} text-anchor="end" font-size="8" fill="#6b7280">{fmtNum(panel.xMax)}</text>
-          {#if isLog(panel)}
-            <text x={px + panel.width / 2} y={HEADER_H - 4} text-anchor="middle" font-size="7" fill="#9ca3af">LOG</text>
           {/if}
 
           <!-- X-axis labels (below chart) -->
@@ -1315,6 +1512,15 @@
           {/each}
 
         {/each}
+
+        <!-- ── Header collapse toggle bar (full width) ──────────────── -->
+        <rect x="0" y={HEADER_H - TOGGLE_H} width={totalSvgW} height={TOGGLE_H}
+          fill="#e2e8f0" style="cursor:pointer"
+          onclick={() => headerCollapsed = !headerCollapsed}/>
+        <text x={totalSvgW / 2} y={HEADER_H - 2}
+          text-anchor="middle" font-size="7" fill="#94a3b8" style="pointer-events:none">
+          {headerCollapsed ? '▼ expand scale' : '▲ collapse scale'}
+        </text>
 
         <!-- Hover crosshair -->
         {#if hoverDepth !== null}
@@ -1394,8 +1600,8 @@
     title="Assign file to {pickingSlot}"
     visible={pickingSlot !== null}
     onClose={closePicker}
-    width={580}
-    x={60}
+    width={340}
+    x={8}
     y={60}
   >
     {#snippet children()}
@@ -1420,8 +1626,10 @@
             <div onpointerdown={onPickerPanelDragStart}
               class="absolute top-0 right-0 w-1 h-full cursor-col-resize z-10 hover:bg-blue-400 active:bg-blue-500 transition-colors">
             </div>
-            {#if datasourceStore.loading}
-              <p class="text-xs text-gray-400 p-3 text-center">Loading…</p>
+            {#if datasourceStore.loading || datasourceStore.deepFetching}
+              <p class="text-xs text-gray-400 p-3 text-center">
+                {datasourceStore.deepFetching ? 'Loading all files…' : 'Loading…'}
+              </p>
             {:else if !datasourceStore.tree}
               <p class="text-xs text-gray-400 p-3 leading-snug">
                 No workspace open.<br>
@@ -1756,9 +1964,47 @@
               </select>
             </div>
           </div>
-          <!-- Panel scale (shared by all curves on this panel) -->
+          <!-- Measurement type + scale -->
           <div class="border-t border-gray-100 pt-2 mt-1">
-            <p class="text-[0.6rem] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Panel Scale</p>
+            <p class="text-[0.6rem] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Measurement</p>
+
+            <!-- Measurement type selector -->
+            <div class="mb-2">
+              <label class="block text-xs text-gray-500 mb-0.5">Type</label>
+              <select
+                value={editingCurve.measurementType ?? ''}
+                onchange={(e) => {
+                  editingCurve.measurementType = e.currentTarget.value;
+                  applyMeasurementType(e.currentTarget.value);
+                }}
+                class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400"
+              >
+                <option value="">— select —</option>
+                {#each MEASUREMENT_TYPES as mt}
+                  <option value={mt.id}>{mt.name}</option>
+                {/each}
+              </select>
+            </div>
+
+            <!-- Unit: constrained dropdown if type selected, free text if Custom/none -->
+            <div class="mb-2">
+              <label class="block text-xs text-gray-500 mb-0.5">Unit</label>
+              {#if getMeasurementType(editingCurve.measurementType)?.units?.length}
+                {@const mt = getMeasurementType(editingCurve.measurementType)}
+                <select bind:value={editingCurve.unit}
+                  class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400">
+                  {#each mt.units as u}
+                    <option value={u}>{u}</option>
+                  {/each}
+                </select>
+              {:else}
+                <input type="text" bind:value={editingCurve.unit}
+                  class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400"
+                  placeholder="e.g. API, ohm·m, g/cc"/>
+              {/if}
+            </div>
+
+            <!-- Min / Max -->
             <div class="grid grid-cols-2 gap-2 mb-2">
               <div>
                 <label class="block text-xs text-gray-500 mb-0.5">Min</label>
@@ -1771,8 +2017,10 @@
                   class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400"/>
               </div>
             </div>
+
+            <!-- Scale type -->
             <div>
-              <label class="block text-xs text-gray-500 mb-0.5">Type</label>
+              <label class="block text-xs text-gray-500 mb-0.5">Scale</label>
               <select bind:value={editingCurve.scaleType}
                 class="w-full text-xs border border-gray-200 rounded px-2 py-1">
                 <option value="linear">Linear</option>
