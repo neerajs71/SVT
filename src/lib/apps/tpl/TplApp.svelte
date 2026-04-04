@@ -780,23 +780,20 @@
   }
 
   async function saveTpl() {
+    if (!tab.handle) {
+      saveErr = 'Saving to disk is not available on this device. Use the Download button to save a copy.';
+      return;
+    }
     const json = JSON.stringify(tpl, null, 2);
-    if (tab.handle) {
-      try {
-        await saveToHandle(tab.handle, json);
-        _loadedHash = JSON.stringify(tpl);
-      } catch (e) {
-        saveErr = e.message;
-      }
-    } else {
-      // iOS / Drive — trigger download but keep dirty flag:
-      // the source file hasn't changed, the user just has a local copy.
-      downloadBlob(tab.name, json, 'application/json');
+    try {
+      await saveToHandle(tab.handle, json);
+      _loadedHash = JSON.stringify(tpl);
+    } catch (e) {
+      saveErr = e.message;
     }
   }
 
   function downloadTpl() {
-    // Always downloads current tpl; never clears dirty (download ≠ save to source).
     downloadBlob(tab.name, JSON.stringify(tpl, null, 2), 'application/json');
   }
 
@@ -1154,15 +1151,6 @@
           <button onclick={() => viewMode = 'chart'}
             class="text-xs border border-gray-200 rounded px-3 py-1.5 hover:bg-gray-50">
             Close
-          </button>
-          <!-- Download current state — works on iOS, keeps dirty flag -->
-          <button onclick={downloadTpl}
-            class="text-xs rounded px-3 py-1.5 font-medium transition-colors
-                   {dirty
-                     ? 'bg-orange-500 hover:bg-orange-600 text-white'
-                     : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}"
-            title="Download current template (including unsaved changes)">
-            ⬇ Download{dirty ? ' (unsaved)' : ''}
           </button>
         </div>
       </div>
