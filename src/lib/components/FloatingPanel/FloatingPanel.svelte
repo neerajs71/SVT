@@ -19,7 +19,11 @@
   let dragging = $state(false);
   let offX = 0, offY = 0;
 
-  $effect(() => { posX = x; });
+  // Clamp initial position so panel doesn't start off-screen
+  $effect(() => {
+    const effectiveW = Math.min(width, window.innerWidth - 16);
+    posX = Math.max(0, Math.min(x, window.innerWidth - effectiveW - 8));
+  });
   $effect(() => { posY = y; });
 
   function startDrag(e) {

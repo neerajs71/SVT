@@ -103,7 +103,7 @@
   let pickerExpanded = $state(new Set());
 
   // Resizable left panel in picker
-  let pickerPanelW = $state(192);  // px
+  let pickerPanelW = $state(140);  // px
   let pickerPanelDragging = false;
   let pickerPanelDragStartX = 0;
   let pickerPanelDragStartW = 0;
@@ -117,7 +117,7 @@
   }
   function onPickerPanelDragMove(e) {
     if (!pickerPanelDragging) return;
-    pickerPanelW = Math.max(120, Math.min(400, pickerPanelDragStartW + (e.clientX - pickerPanelDragStartX)));
+    pickerPanelW = Math.max(80, Math.min(200, pickerPanelDragStartW + (e.clientX - pickerPanelDragStartX)));
   }
   function onPickerPanelDragEnd() {
     pickerPanelDragging = false;
@@ -1355,8 +1355,8 @@
     title="Assign file to {pickingSlot}"
     visible={pickingSlot !== null}
     onClose={closePicker}
-    width={580}
-    x={60}
+    width={340}
+    x={8}
     y={60}
   >
     {#snippet children()}
