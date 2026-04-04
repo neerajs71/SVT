@@ -65,10 +65,14 @@
     onUpdatePoints?.([...(rail.points ?? []), { x, y }]);
   }
 
-  function onPointDown(e, idx) {
+  // ── Pointer-event drag (replaces mouse events) ────────────────────────────
+  // setPointerCapture routes all subsequent pointer events to the SVG even
+  // when the cursor leaves the circle or the SVG boundary.
+  function onPointPointerDown(e, idx) {
     if (tool !== 'select') return;
     e.stopPropagation();
     dragIdx = idx;
+    svgRef?.setPointerCapture(e.pointerId);
   }
 
   function onPointClick(e, idx) {
@@ -77,7 +81,7 @@
     onUpdatePoints?.((rail.points ?? []).filter((_, i) => i !== idx));
   }
 
-  function onMouseMove(e) {
+  function onSvgPointerMove(e) {
     if (dragIdx === null || !rail || !svgRef) return;
     const { x, y } = svgCoords(e);
     onUpdatePoints?.(
@@ -85,7 +89,7 @@
     );
   }
 
-  function onMouseUp() { dragIdx = null; }
+  function onSvgPointerUp() { dragIdx = null; }
 
   // Cursor shape per tool
   const cursor = $derived(
@@ -134,9 +138,8 @@
       viewBox="0 0 {W} {H}"
       style="display:block;width:100%;height:100%;cursor:{cursor}"
       onclick={onSvgClick}
-      onmousemove={onMouseMove}
-      onmouseup={onMouseUp}
-      onmouseleave={onMouseUp}>
+      onpointermove={onSvgPointerMove}
+      onpointerup={onSvgPointerUp}>
 
       <!-- Background -->
       <rect x={PAD} y={PAD/2} width={CW} height={CH}
@@ -195,7 +198,7 @@
           stroke={isActive ? '#b91c1c' : '#2563eb'}
           stroke-width="2"
           style="cursor:{tool === 'select' ? 'grab' : tool === 'delete' ? 'not-allowed' : 'crosshair'}"
-          onmousedown={e => onPointDown(e, i)}
+          onpointerdown={e => onPointPointerDown(e, i)}
           onclick={e => onPointClick(e, i)}/>
         <!-- Coordinate label on hover-like: show on active only -->
         {#if isActive}
