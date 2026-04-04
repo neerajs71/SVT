@@ -247,14 +247,23 @@
                 title="Cancel"
               >✕</button>
             {:else}
-              <!-- + button (folders only, local mode) -->
+              <!-- + button (folders only, local mode, handle available) -->
               {#if item.type === 'dir' && datasourceStore.mode === 'local'}
-                <button
-                  onclick={(e) => openCreateMenu(e, item)}
-                  class="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded
-                         text-green-600 hover:bg-green-100 active:bg-green-200 font-bold text-sm leading-none mr-0.5"
-                  title="Create file or folder here"
-                >+</button>
+                {#if item.handle}
+                  <button
+                    onclick={(e) => openCreateMenu(e, item)}
+                    class="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded
+                           text-green-600 hover:bg-green-100 active:bg-green-200 font-bold text-sm leading-none mr-0.5"
+                    title="Create file or folder here"
+                  >+</button>
+                {:else}
+                  <!-- No handle: iOS or legacy file picker — creation unavailable -->
+                  <span
+                    class="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded
+                           text-gray-300 cursor-not-allowed font-bold text-sm leading-none mr-0.5"
+                    title="File creation is not supported on iOS — use a desktop browser"
+                  >+</span>
+                {/if}
               {:else}
                 <span class="w-5 flex-shrink-0 mr-0.5"></span>
               {/if}

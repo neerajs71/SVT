@@ -201,7 +201,7 @@ class DatasourceState {
    */
   async createItem(parentPath, name, isDir, ext = '') {
     const node = getNodeByPath(this.tree, parentPath);
-    if (!node?.handle) throw new Error('Directory handle not available — open the folder via "Open Folder" first');
+    if (!node?.handle) throw new Error('File creation requires Chrome or Edge on desktop — not supported on this browser');
 
     let childHandle;
     if (isDir) {
