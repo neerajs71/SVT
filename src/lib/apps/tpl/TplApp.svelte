@@ -8,6 +8,8 @@
   import { FloatingPanel } from '$lib/components/FloatingPanel';
   import { FolderSolid, FolderOpenSolid, FileLinesOutline } from 'flowbite-svelte-icons';
   import { SUBAPP_REGISTRY } from './subapps/index.js';
+  import { tabStore } from '$lib/tabs/tabs.svelte.js';
+  import { saveToHandle, downloadBlob } from '$lib/apps/shared/fileActions.js';
 
   const { tab } = $props();
 
@@ -15,6 +17,10 @@
   let tpl      = $state(null);
   let loading  = $state(true);
   let error    = $state('');
+  let saveErr  = $state('');
+  let _loadedHash = $state('');
+  const dirty  = $derived(tpl ? JSON.stringify(tpl) !== _loadedHash : false);
+  $effect(() => { tabStore.setDirty(tab.id, dirty); });
 
   // slot key → { name, wellName, las }
   let slotFiles = $state({});
@@ -57,6 +63,7 @@
         throw new Error('No file source');
       }
       tpl = parseTpl(text);
+      _loadedHash = JSON.stringify(tpl);
     } catch (e) {
       error = e.name === 'AbortError' ? 'Timed out — please retry' : (e.message ?? String(e));
     } finally {
@@ -71,6 +78,7 @@
       const res = await fetch('/samples/basic_log.tpl');
       if (!res.ok) throw new Error('Sample not found');
       tpl = parseTpl(await res.text());
+      _loadedHash = JSON.stringify(tpl);
     } catch (e) {
       error = e.message ?? String(e);
     } finally {
@@ -712,13 +720,23 @@
     editingCurve = null;
   }
 
-  function saveTpl() {
-    const blob = new Blob([JSON.stringify(tpl, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = tab.name;
-    document.body.appendChild(a); a.click();
-    document.body.removeChild(a); URL.revokeObjectURL(url);
+  async function saveTpl() {
+    const json = JSON.stringify(tpl, null, 2);
+    if (tab.handle) {
+      try {
+        await saveToHandle(tab.handle, json);
+        _loadedHash = JSON.stringify(tpl);
+      } catch (e) {
+        saveErr = e.message;
+      }
+    } else {
+      downloadBlob(tab.name, json, 'application/json');
+      _loadedHash = JSON.stringify(tpl);
+    }
+  }
+
+  function downloadTpl() {
+    downloadBlob(tab.name, JSON.stringify(tpl, null, 2), 'application/json');
   }
 
   // Panel x offset (cumulative)
@@ -726,6 +744,17 @@
     return DEPTH_W + panels.slice(0, idx).reduce((s, p) => s + p.width, 0);
   }
 </script>
+
+<svelte:window onkeydown={(e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveTpl(); }
+}} />
+
+{#if saveErr}
+  <div class="px-3 py-1 bg-red-50 border-b border-red-200 text-xs text-red-600 flex items-center gap-2">
+    <span class="flex-1">{saveErr}</span>
+    <button onclick={() => saveErr = ''} class="text-red-400 hover:text-red-600">✕</button>
+  </div>
+{/if}
 
 {#if loading}
   <div class="flex items-center justify-center h-48 text-gray-400 text-sm">Loading template…</div>
@@ -755,12 +784,23 @@
 
       <!-- Save -->
       <div class="tb-item group">
-        <button class="tb-btn" onclick={saveTpl} aria-label="Save TPL">
+        <button class="tb-btn" class:tb-active={dirty} onclick={saveTpl} aria-label="Save TPL">
+          {#if dirty}<span class="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-orange-400 pointer-events-none"></span>{/if}
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M3 12h10M8 3v7M5 7l3 3 3-3"/>
           </svg>
         </button>
-        <span class="tb-tip">Save</span>
+        <span class="tb-tip">{tab.handle ? 'Save to disk' : 'Download'}</span>
+      </div>
+
+      <!-- Download copy -->
+      <div class="tb-item group">
+        <button class="tb-btn" onclick={downloadTpl} aria-label="Download copy">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M3 14h10M8 2v8M5 7l3 4 3-4"/>
+          </svg>
+        </button>
+        <span class="tb-tip">Download copy</span>
       </div>
 
       <div class="tb-sep"></div>

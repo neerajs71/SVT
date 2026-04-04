@@ -1,5 +1,7 @@
 <script>
   import { onMount } from 'svelte';
+  import { tabStore } from '$lib/tabs/tabs.svelte.js';
+  import { saveToHandle, downloadBlob } from '$lib/apps/shared/fileActions.js';
 
   let { tab } = $props();
 
@@ -12,6 +14,8 @@
   let saveError = $state(null);
 
   const canSave = $derived(!!tab.handle && typeof tab.handle.createWritable === 'function');
+
+  $effect(() => { tabStore.setDirty(tab.id, dirty); });
 
   onMount(async () => {
     try {
@@ -37,9 +41,7 @@
     saving = true;
     saveError = null;
     try {
-      const w = await tab.handle.createWritable();
-      await w.write(content);
-      await w.close();
+      await saveToHandle(tab.handle, content);
       original = content;
     } catch (e) {
       saveError = e.message;
@@ -49,13 +51,7 @@
   }
 
   function download() {
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = tab.name;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(tab.name, content, 'text/plain');
   }
 </script>
 

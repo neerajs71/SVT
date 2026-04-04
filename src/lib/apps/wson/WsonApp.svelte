@@ -15,12 +15,18 @@
   import { onMount } from 'svelte';
   import { FloatingPanel } from '$lib/components/FloatingPanel';
   import labella from 'labella';
+  import { tabStore } from '$lib/tabs/tabs.svelte.js';
+  import { saveToHandle, downloadBlob } from '$lib/apps/shared/fileActions.js';
 
   const { tab } = $props();
 
-  let loading = $state(true);
-  let error   = $state('');
-  let wson    = $state(null);
+  let loading  = $state(true);
+  let error    = $state('');
+  let wson     = $state(null);
+  let saveErr  = $state('');
+  let _loadedHash = $state('');
+  const dirty  = $derived(wson ? JSON.stringify(wson) !== _loadedHash : false);
+  $effect(() => { tabStore.setDirty(tab.id, dirty); });
 
   // Directional + autoscale data from /api/schematic
   let dirData = $state(null); // { dtx, prNorm, prAuto }
@@ -540,6 +546,7 @@
       }
       const text = new TextDecoder().decode(bytes);
       wson = JSON.parse(text);
+      _loadedHash = JSON.stringify(wson);
     } catch (e) {
       error = e.name === 'AbortError' ? 'Drive download timed out — please retry' : (e.message ?? String(e));
     } finally {
@@ -884,18 +891,25 @@
   }
 
   // Download
-  function downloadWson() {
+  async function saveWson() {
     if (!wson) return;
     const data = JSON.stringify(wson, null, 2);
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = (tab.name || 'schematic') + '.wson';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    if (tab.handle) {
+      try {
+        await saveToHandle(tab.handle, data);
+        _loadedHash = JSON.stringify(wson);
+      } catch (e) {
+        saveErr = e.message;
+      }
+    } else {
+      downloadBlob((tab.name || 'schematic'), data, 'application/json');
+      _loadedHash = JSON.stringify(wson);
+    }
+  }
+
+  function downloadWson() {
+    if (!wson) return;
+    downloadBlob((tab.name || 'schematic'), JSON.stringify(wson, null, 2), 'application/json');
   }
 
   // Helpers
@@ -1066,6 +1080,17 @@
 
 </script>
 
+<svelte:window onkeydown={(e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveWson(); }
+}} />
+
+{#if saveErr}
+  <div class="px-3 py-1 bg-red-50 border-b border-red-200 text-xs text-red-600 flex items-center gap-2 flex-shrink-0">
+    <span class="flex-1">{saveErr}</span>
+    <button onclick={() => saveErr = ''} class="text-red-400 hover:text-red-600">✕</button>
+  </div>
+{/if}
+
 {#if loading}
   <div class="flex items-center justify-center h-48 text-gray-400 text-sm">Loading schematic…</div>
 {:else if error}
@@ -1106,10 +1131,18 @@
     <!-- Toolbar -->
     <div class="schematic-toolbar">
       <div class="tb-item group">
-        <button class="tb-btn" onclick={downloadWson} aria-label="Save">
+        <button class="tb-btn" class:tb-active={dirty} onclick={saveWson} aria-label="Save">
+          {#if dirty}<span class="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-orange-400 pointer-events-none"></span>{/if}
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 12h10M8 3v7M5 7l3 3 3-3"/></svg>
         </button>
-        <span class="tb-tip">Save</span>
+        <span class="tb-tip">{tab.handle ? 'Save to disk' : 'Download'}</span>
+      </div>
+
+      <div class="tb-item group">
+        <button class="tb-btn" onclick={downloadWson} aria-label="Download copy">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 14h10M8 2v8M5 7l3 4 3-4"/></svg>
+        </button>
+        <span class="tb-tip">Download copy</span>
       </div>
 
       <div class="tb-item group">

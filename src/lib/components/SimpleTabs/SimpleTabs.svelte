@@ -22,6 +22,7 @@
           onclick={() => tabStore.setActive(tab.id)}
           title={tab.name}
         >
+          {#if tab.dirty}<span class="flex-shrink-0 text-orange-400 text-[10px] leading-none">●</span>{/if}
           <span class="truncate flex-1 min-w-0">{tab.name}</span>
           <span
             class="flex-shrink-0 w-4 h-4 flex items-center justify-center rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700 leading-none"

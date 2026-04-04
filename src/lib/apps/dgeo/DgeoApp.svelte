@@ -1,5 +1,7 @@
 <script>
   import { onMount } from 'svelte';
+  import { tabStore } from '$lib/tabs/tabs.svelte.js';
+  import { saveToHandle, downloadBlob } from '$lib/apps/shared/fileActions.js';
 
   const { tab } = $props();
 
@@ -14,6 +16,9 @@
   let horizons = $state([]);      // [{ id, name, colour, points: [{x,y}] }]
   let dirty    = $state(false);
   let loadErr  = $state('');
+  let saveErr  = $state('');
+
+  $effect(() => { tabStore.setDirty(tab.id, dirty); });
 
   // Tool: 'select' | 'add-point' | 'delete'
   let tool        = $state('select');
@@ -124,13 +129,23 @@
     }, null, 2);
   }
 
+  async function saveFile() {
+    const json = toJSON();
+    if (tab.handle) {
+      try {
+        await saveToHandle(tab.handle, json);
+        dirty = false;
+      } catch (e) {
+        saveErr = e.message;
+      }
+    } else {
+      downloadBlob(tab.name || 'geology.dgeo', json, 'application/json');
+      dirty = false;
+    }
+  }
+
   function downloadFile() {
-    const blob = new Blob([toJSON()], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = tab.name || 'geology.dgeo';
-    a.click();
-    URL.revokeObjectURL(a.href);
+    downloadBlob(tab.name || 'geology.dgeo', toJSON(), 'application/json');
     dirty = false;
   }
 
@@ -331,13 +346,18 @@
 
     <!-- Bottom actions -->
     <div class="p-3 border-t border-gray-200 flex flex-col gap-1.5">
-      {#if loadErr}
-        <p class="text-[0.6rem] text-red-500">{loadErr}</p>
-      {/if}
+      {#if loadErr}<p class="text-[0.6rem] text-red-500">{loadErr}</p>{/if}
+      {#if saveErr}<p class="text-[0.6rem] text-red-500 cursor-pointer" onclick={() => saveErr = ''}>{saveErr} ✕</p>{/if}
+      <button
+        onclick={saveFile}
+        class="w-full text-xs rounded py-1.5 font-medium transition-colors
+               {dirty ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-600'}">
+        {tab.handle ? (dirty ? '● Save' : 'Saved') : (dirty ? '● Download' : 'Download')}
+      </button>
       <button
         onclick={downloadFile}
-        class="w-full text-xs bg-blue-600 text-white rounded py-1.5 hover:bg-blue-700 font-medium">
-        {dirty ? '● Save .dgeo' : 'Save .dgeo'}
+        class="w-full text-xs border border-gray-200 text-gray-500 rounded py-1 hover:bg-gray-50">
+        ⬇ Download copy
       </button>
       <button
         onclick={initDefault}
