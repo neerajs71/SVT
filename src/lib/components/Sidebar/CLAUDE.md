@@ -1,6 +1,6 @@
-# CLAUDE.md — src/lib/components/Sidebar/
+# CLAUDE.md — Sidebar
 
-Collapsible file-browser sidebar built on Flowbite Svelte `Drawer`. Supports local folder upload and Google Drive browsing.
+Collapsible file-browser sidebar built on Flowbite `Drawer`. Supports local folder upload (File System Access API on desktop, `<input webkitdirectory>` on iOS) and Google Drive browsing.
 
 ---
 
@@ -16,10 +16,8 @@ Collapsible file-browser sidebar built on Flowbite Svelte `Drawer`. Supports loc
 ## Usage
 
 ```svelte
-<script>
-  import { Sidebar } from '$lib/components/Sidebar';
-  let sidebarOpen = $state(false);
-</script>
+import { Sidebar } from '$lib/components/Sidebar';
+let sidebarOpen = $state(false);
 
 <Sidebar bind:open={sidebarOpen} />
 ```
@@ -28,57 +26,33 @@ Collapsible file-browser sidebar built on Flowbite Svelte `Drawer`. Supports loc
 
 ---
 
-## Component Breakdown
+## Structure
 
-### Hamburger Button
-```svelte
-<button
-  onclick={() => (open = !open)}
-  class="fixed top-2 left-0 z-50 p-1 rounded-r-md bg-green-800 text-white hover:bg-green-700"
->
-  <BarsOutline class="w-4 h-4" />
-</button>
-```
-- `fixed top-2 left-0` — flush to the left edge
-- `rounded-r-md` — only right side rounded (edge-attached look)
-- Icon: `BarsOutline` from `flowbite-svelte-icons` (not `MenuOutline` — that export doesn't exist)
-
-### Drawer (Flowbite)
-```svelte
-<Drawer bind:open placement="left" width="w-64" id="sidebar"
-        dismissable={false} outsideclose={true}>
-```
-
-| Prop | Value | Reason |
-|------|-------|--------|
-| `bind:open` | — | Two-way binding |
-| `placement` | `"left"` | Slides in from left |
-| `width` | `"w-64"` | 256 px |
-| `dismissable` | `false` | Suppresses Flowbite's built-in X (we provide our own) |
-| `outsideclose` | `true` | Clicking backdrop closes drawer |
-
-**Critical:** `dismissable={false}` is required — without it two X buttons appear.
-
-### Sidebar Header
-Dark green (`bg-green-800`) bar with title and a `CloseButton` that sets `open = false`.
-
-### File Tree
-- Reads from `datasourceStore` (from `$lib/datasource`)
-- Clicking a file calls `tabStore.openFile(item)` (from `$lib/tabs/tabs.svelte.js`)
-- Folders expand/collapse via `datasourceStore.toggleExpanded(path, id)`
-- Remote folders are lazy-loaded on first expand
-
-### Bottom Buttons
-- **Mode toggle** — switches between local and remote (Google Drive)
-- **Open Folder** — shown in local mode only; triggers `<input webkitdirectory>`
+| Part | Description |
+|------|-------------|
+| Hamburger button | `fixed top-2 left-0`, `BarsOutline` icon, toggles `open` |
+| Drawer | `placement="left"`, `dismissable={false}`, `outsideclose={true}` |
+| Header bar | Dark green, title, close button |
+| File tree | Reads `datasourceStore`; click → `tabStore.openFile(item)`; folder toggle → `datasourceStore.toggleExpanded()` |
+| Bottom bar | Mode toggle (local ↔ Drive) + Open Folder button |
+| Resize handle | Drag right edge to resize sidebar width |
 
 ---
 
-## Known Pitfalls
+## Critical Drawer Props
 
-| Issue | Cause | Fix |
-|-------|-------|-----|
-| Two X buttons | `dismissable` defaults to `true` | Set `dismissable={false}` |
-| Sidebar never opens | Using deprecated `hidden` prop | Use `open` prop |
-| Close button doesn't work | One-way `open={open}` | Use `bind:open` |
-| Sidebar opens but content empty | Using Flowbite `SidebarItem` inside `Drawer` | Use plain `<a>` or `<button>` tags |
+```svelte
+<Drawer bind:open placement="left" width="w-64"
+        dismissable={false} outsideclose={true}>
+```
+
+- `dismissable={false}` — prevents Flowbite rendering a second X button
+- Use `open` prop not deprecated `hidden`
+- Always `bind:open`, not one-way `open={open}`
+
+---
+
+## File Handle Behaviour
+
+- Desktop Chrome/Edge via `showDirectoryPicker` → tree nodes carry a `FileSystemFileHandle`; `tabStore` stores it as `tab.handle` for in-place saving
+- iOS / legacy `<input webkitdirectory>` → no handle; `tab.handle` is `null`; apps show Download button instead of Save
