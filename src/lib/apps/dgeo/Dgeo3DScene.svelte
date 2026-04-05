@@ -376,13 +376,15 @@
 
   $effect(() => {
     if (!showNurbs) {
-      for (const d of nurbsCache) d?.geo?.dispose();
+      // Don't read nurbsCache here — the disposal $effect handles geometry cleanup.
+      // Reading it would create a dependency that causes an infinite loop.
       nurbsCache = [];
       return;
     }
     // Capture reactive deps synchronously before entering async context
-    const snap      = sorted;
-    const _wgReady  = webgpuReady;   // subscribe so we re-run when GPU is ready
+    const snap     = sorted;
+    const _wgReady = webgpuReady;   // subscribe so we re-run when GPU is ready
+    let cancelled  = false;
 
     (async () => {
       const next = await Promise.all(snap.map(async h => {
@@ -395,6 +397,7 @@
           if (!ev) continue;
           try {
             const r = await Promise.resolve(ev.evaluate(params));
+            if (cancelled) return null;   // showNurbs toggled off while evaluating
             const geo = new THREE.BufferGeometry();
             geo.setAttribute('position', new THREE.BufferAttribute(r.positions.slice(), 3));
             geo.setIndex(new THREE.BufferAttribute(new Uint32Array(r.indices), 1));
@@ -406,9 +409,11 @@
         }
         return null;
       }));
-      for (const d of nurbsCache) d?.geo?.dispose();
-      nurbsCache = next.filter(Boolean);
+      if (!cancelled) nurbsCache = next.filter(Boolean);
     })();
+
+    // Signal async work to bail out if the effect re-runs before it completes
+    return () => { cancelled = true; };
   });
 
   // Dispose geometries when component unmounts
