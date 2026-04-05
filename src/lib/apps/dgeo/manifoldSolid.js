@@ -111,23 +111,16 @@ export async function buildLayerSolids({
 
   const opts = { WX, WY, strikeW, sampleArcLength, nX, nDepth };
 
-  // Keep only horizons that have enough rails
+  // Process horizons in RECEIVED ORDER (array order = user-defined stratigraphic order).
+  // The caller (DgeoApp) passes horizons unsorted so the user controls the sequence.
+  // For the subtract to produce positive-volume layers, the array should be ordered
+  // shallowest-first (each successive horizon deeper than the previous) — which is
+  // the natural order when users add horizons from top to bottom.
   const valid = horizons.filter(h => getRails(h).length >= 2);
   if (valid.length === 0) return [];
 
-  // Sort shallowest first: smallest average nDepth → thinnest block at top
-  const sorted = [...valid].sort((a, b) => {
-    const avgHz = h => {
-      const rails = getRails(h);
-      let sum = 0, cnt = 0;
-      for (const r of rails) for (const p of r.points) { sum += nDepth(p.y); cnt++; }
-      return cnt ? sum / cnt : 0;
-    };
-    return avgHz(a) - avgHz(b); // ascending (shallowest = smallest hz first)
-  });
-
-  // Build Manifold per horizon
-  const manifolds = sorted.map(h => {
+  // Build ceiling-envelope manifold per horizon (solid from Z=0 down to horizon depth)
+  const manifolds = valid.map(h => {
     try {
       return buildSolidManifold(mf, getRails(h), opts);
     } catch (e) {
@@ -136,16 +129,18 @@ export async function buildLayerSolids({
     }
   });
 
-  // ── Operator clipping (RA / RAI) ─────────────────────────────────────────
-  // RA  on H[k]: clip ALL shallower manifolds[j<k] to not extend below H[k]
-  //              (handles erosion unconformities that cut up through shallower layers)
-  // RAI on H[k]: same but only the immediate shallower neighbour (j = k-1)
-  // RB / RBI: no manifold modification needed — the standard subtract already
-  //           produces the correct channel body when H[k] dips below H[k-1].
-  // Implementation: manifolds[j].intersect(manifolds[k]) clips j's solid to only
-  //   the portion that is also inside k's solid (safe no-op for non-crossing horizons).
-  for (let k = 1; k < sorted.length; k++) {
-    const op = sorted[k].operator ?? 'none';
+  // ── Operator clipping ────────────────────────────────────────────────────
+  // Applied in array order — this is the key: user-defined order controls
+  // which horizon's operator clips which.
+  //
+  // RA  on valid[k]: clip ALL earlier manifolds[j<k] by intersecting with manifolds[k].
+  //     Effect: shallower envelopes are truncated where valid[k] cuts up through them.
+  //     No-op when horizons don't cross (intersect of nested solids = smaller = unchanged).
+  // RAI on valid[k]: same but only the immediate predecessor (j = k-1).
+  // RB / RBI: no manifold modification — standard subtract already gives the correct
+  //     channel body when valid[k] dips below valid[k-1].
+  for (let k = 1; k < valid.length; k++) {
+    const op = valid[k].operator ?? 'none';
     if (op === 'RA') {
       for (let j = 0; j < k; j++) {
         if (manifolds[j] && manifolds[k]) {
@@ -162,9 +157,9 @@ export async function buildLayerSolids({
     }
   }
 
-  // Boolean subtraction: deeper.subtract(shallower) = inter-horizon layer
+  // Boolean subtraction: envelope[i].subtract(envelope[i-1]) = inter-horizon layer
   const blocks = [];
-  for (let i = 0; i < sorted.length; i++) {
+  for (let i = 0; i < valid.length; i++) {
     if (!manifolds[i]) continue;
 
     let result = manifolds[i];
@@ -177,12 +172,13 @@ export async function buildLayerSolids({
     }
 
     try {
-      const geo = manifoldMeshToGeo(result.getMesh());
+      const mesh = result.getMesh();
+      if (!mesh || mesh.triVerts.length === 0) continue; // skip degenerate (fully eroded) layers
       blocks.push({
-        geo,
-        color: sorted[i].colour ?? '#8b7355',
-        name:  sorted[i].name,
-        id:    sorted[i].id,
+        geo:   manifoldMeshToGeo(mesh),
+        color: valid[i].colour ?? '#8b7355',
+        name:  valid[i].name,
+        id:    valid[i].id,
       });
     } catch (e) {
       console.warn('[manifoldSolid] getMesh failed at layer', i, e);

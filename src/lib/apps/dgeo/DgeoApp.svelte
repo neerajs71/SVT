@@ -210,6 +210,18 @@
     dirty = true;
   }
 
+  function moveHorizon(id, dir) {
+    const idx = horizons.findIndex(h => h.id === id);
+    if (idx < 0) return;
+    if (dir === 'up'   && idx === 0) return;
+    if (dir === 'down' && idx === horizons.length - 1) return;
+    const arr = [...horizons];
+    const swap = dir === 'up' ? idx - 1 : idx + 1;
+    [arr[idx], arr[swap]] = [arr[swap], arr[idx]];
+    horizons = arr;
+    dirty = true;
+  }
+
   // Returns stroke attributes for a horizon line based on its operator
   function horizonStroke(h) {
     const op = h.operator ?? 'none';
@@ -452,86 +464,112 @@
 
   </div><!-- /toolbar -->
 
-  <!-- ── Main canvas area ────────────────────────────────────────────────── -->
-  <div class="flex-1 overflow-hidden flex flex-col min-h-0">
+  <!-- ── Horizon panel (vertical, ordered list with operators) ───────────── -->
+  <div class="hz-panel">
+    <div class="hz-panel-header">
+      <span>Stratigraphic Column</span>
+      <button onclick={addHorizon} class="hz-add-btn" title="Add horizon">+</button>
+    </div>
 
-    <!-- Horizon strip (thin, scrollable horizontal list) -->
-    <div class="flex items-center gap-1 px-2 py-1 border-b border-gray-100 bg-gray-50 overflow-x-auto flex-shrink-0"
-         style="min-height:30px">
-      <span class="text-[9px] text-gray-400 uppercase tracking-wide flex-shrink-0 mr-0.5">Horizons</span>
-
-      {#each sortedHorizons as h (h.id)}
+    <!-- Ordered list — array order = stratigraphic order (user-controlled) -->
+    <div class="hz-list">
+      {#each horizons as h, idx (h.id)}
+        {@const isActive = activeId === h.id}
+        {@const op = h.operator ?? 'none'}
         <div
           role="button" tabindex="0"
           onclick={() => { activeId = h.id; }}
           onkeydown={e => e.key === 'Enter' && (activeId = h.id)}
-          class="flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer flex-shrink-0 transition-colors
-                 {activeId === h.id
-                   ? 'border-blue-500 bg-blue-50'
-                   : 'border-gray-200 bg-white hover:border-gray-300'}">
+          class="hz-row {isActive ? 'hz-row-active' : ''}">
+
+          <!-- Reorder arrows -->
+          <div class="hz-arrows">
+            <button
+              onclick={e => { e.stopPropagation(); moveHorizon(h.id, 'up'); }}
+              disabled={idx === 0}
+              class="hz-arrow" title="Move up (earlier in stratigraphy)">▲</button>
+            <button
+              onclick={e => { e.stopPropagation(); moveHorizon(h.id, 'down'); }}
+              disabled={idx === horizons.length - 1}
+              class="hz-arrow" title="Move down (later in stratigraphy)">▼</button>
+          </div>
+
           <!-- Colour swatch -->
           <input type="color" value={h.colour}
             oninput={e => recolourHorizon(h.id, e.target.value)}
-            class="w-3 h-3 rounded-sm cursor-pointer border-0 p-0 flex-shrink-0"
-            style="appearance:none;-webkit-appearance:none;background:none"
+            class="hz-swatch"
             onclick={e => e.stopPropagation()}/>
 
-          <!-- Name (dblclick to edit) -->
-          {#if editingName === h.id}
-            <input type="text" value={h.name} autofocus
-              class="text-[10px] border border-blue-400 rounded px-0.5 w-20"
-              onblur={e => { renameHorizon(h.id, e.target.value); editingName = null; }}
-              onkeydown={e => { if (e.key === 'Enter') { renameHorizon(h.id, e.target.value); editingName = null; } }}
-              onclick={e => e.stopPropagation()}/>
-          {:else}
-            <span class="text-[10px] text-gray-700 max-w-[80px] truncate"
-              ondblclick={e => { e.stopPropagation(); editingName = h.id; }}>
-              {h.name}
-            </span>
-          {/if}
-
-          <!-- Operator buttons -->
-          <div class="flex gap-0.5 ml-0.5 flex-shrink-0" onclick={e => e.stopPropagation()}>
-            {#each ['none','RA','RAI','RB','RBI'] as op}
-              <button
-                onclick={() => setOperator(h.id, op)}
-                class="px-1 py-0 text-[9px] rounded border leading-tight
-                       {(h.operator ?? 'none') === op
-                         ? 'bg-blue-500 text-white border-blue-600'
-                         : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50 hover:text-gray-600'}">
-                {op === 'none' ? '·' : op}
-              </button>
-            {/each}
+          <!-- Name -->
+          <div class="hz-name-col">
+            {#if editingName === h.id}
+              <input type="text" value={h.name} autofocus
+                class="hz-name-input"
+                onblur={e => { renameHorizon(h.id, e.target.value); editingName = null; }}
+                onkeydown={e => { if (e.key === 'Enter') { renameHorizon(h.id, e.target.value); editingName = null; } }}
+                onclick={e => e.stopPropagation()}/>
+            {:else}
+              <span class="hz-name"
+                ondblclick={e => { e.stopPropagation(); editingName = h.id; }}>
+                {h.name}
+              </span>
+            {/if}
           </div>
 
           <!-- Delete -->
           <button
             onclick={e => { e.stopPropagation(); deleteHorizon(h.id); }}
-            class="text-gray-300 hover:text-red-500 text-[9px] leading-none ml-0.5 flex-shrink-0">✕</button>
+            class="hz-del" title="Delete horizon">✕</button>
+
+          <!-- Operator row -->
+          <div class="hz-ops" onclick={e => e.stopPropagation()}>
+            {#each ['none','RA','RAI','RB','RBI'] as opVal}
+              <button
+                onclick={() => setOperator(h.id, opVal)}
+                title={opVal === 'none' ? 'Deposit (no erosion)' :
+                       opVal === 'RA'  ? 'Remove Above — erodes shallower layers' :
+                       opVal === 'RAI' ? 'Remove Above (intersection only)' :
+                       opVal === 'RB'  ? 'Remove Below — channel / diapir cuts down' :
+                                         'Remove Below (intersection only)'}
+                class="hz-op-btn {op === opVal ? 'hz-op-active' : ''}">
+                {opVal === 'none' ? '·' : opVal}
+              </button>
+            {/each}
+          </div>
+
         </div>
       {/each}
-
-      <!-- Add horizon shortcut -->
-      <button
-        onclick={addHorizon}
-        class="px-1.5 py-0.5 text-[10px] text-blue-600 border border-dashed border-blue-300
-               rounded hover:border-blue-500 flex-shrink-0">
-        + Add
-      </button>
-
-      <!-- Spacer + active horizon info -->
-      {#if activeHorizon}
-        <span class="ml-auto text-[9px] text-blue-600 font-medium flex-shrink-0 pl-2">
-          {activeHorizon.name} · {activeHorizon.points.length} pts
-        </span>
-      {/if}
     </div>
+
+    <!-- Domain inputs at bottom of panel -->
+    <div class="hz-domain">
+      <div class="hz-domain-row">
+        <span class="hz-domain-label">X (km)</span>
+        <input type="number" class="hz-domain-input" value={domX.min}
+          onchange={e => { domX = { ...domX, min: +e.target.value }; }}/>
+        <span class="hz-domain-sep">–</span>
+        <input type="number" class="hz-domain-input" value={domX.max}
+          onchange={e => { domX = { ...domX, max: +e.target.value }; }}/>
+      </div>
+      <div class="hz-domain-row">
+        <span class="hz-domain-label">Depth (m)</span>
+        <input type="number" class="hz-domain-input" value={domY.min}
+          onchange={e => { domY = { ...domY, min: +e.target.value }; }}/>
+        <span class="hz-domain-sep">–</span>
+        <input type="number" class="hz-domain-input" value={domY.max}
+          onchange={e => { domY = { ...domY, max: +e.target.value }; }}/>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Main canvas area ────────────────────────────────────────────────── -->
+  <div class="flex-1 overflow-hidden flex flex-col min-h-0">
 
     <!-- ── 3D block view ────────────────────────────────────────────────────── -->
     {#if viewMode === '3d'}
       <div class="flex-1 overflow-hidden min-h-0">
         <Dgeo3DView
-          horizons={sortedHorizons}
+          horizons={horizons}
           domX={domX}
           domY={domY}
           {onUpdateRails}
@@ -541,26 +579,6 @@
 
     {:else}
     <!-- ── 2D SVG canvas ───────────────────────────────────────────────────── -->
-
-      <!-- Compact domain bar -->
-      <div class="flex items-center gap-2 px-3 py-1 border-b border-gray-100 bg-white text-[10px] text-gray-500 flex-shrink-0 flex-wrap">
-        <span class="font-medium text-gray-600">Domain</span>
-        <span>X:</span>
-        <input type="number" class="w-12 border border-gray-200 rounded px-1 py-0 text-[10px]" value={domX.min}
-          onchange={e => { domX = { ...domX, min: +e.target.value }; }}/>
-        <span>–</span>
-        <input type="number" class="w-12 border border-gray-200 rounded px-1 py-0 text-[10px]" value={domX.max}
-          onchange={e => { domX = { ...domX, max: +e.target.value }; }}/>
-        <span class="text-gray-400">km</span>
-        <span class="ml-2">Depth:</span>
-        <input type="number" class="w-14 border border-gray-200 rounded px-1 py-0 text-[10px]" value={domY.min}
-          onchange={e => { domY = { ...domY, min: +e.target.value }; }}/>
-        <span>–</span>
-        <input type="number" class="w-14 border border-gray-200 rounded px-1 py-0 text-[10px]" value={domY.max}
-          onchange={e => { domY = { ...domY, max: +e.target.value }; }}/>
-        <span class="text-gray-400">m</span>
-      </div>
-
       <div class="flex-1 overflow-auto p-2">
         <svg
           bind:this={svgRef}
@@ -574,7 +592,7 @@
           <!-- Background -->
           <rect x={PAD} y={PAD/2} width={CHART_W} height={CHART_H} fill="#f0f4ff" stroke="#d1d5db" stroke-width="1"/>
 
-          <!-- Formation bands (between consecutive sorted horizons) -->
+          <!-- Formation bands (between consecutive depth-sorted horizons for 2D display) -->
           {#each sortedHorizons as h, i (h.id)}
             {#if i < sortedHorizons.length - 1}
               {@const nextH = sortedHorizons[i + 1]}
@@ -775,4 +793,137 @@
     background: #f97316;
     pointer-events: none;
   }
+
+  /* ── Horizon panel ─────────────────────────────────────────────────────── */
+  .hz-panel {
+    width: 196px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid #e2e8f0;
+    background: #fafafa;
+    overflow: hidden;
+  }
+  .hz-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #64748b;
+  }
+  .hz-add-btn {
+    font-size: 14px;
+    line-height: 1;
+    color: #3b82f6;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0 2px;
+  }
+  .hz-add-btn:hover { color: #1d4ed8; }
+
+  .hz-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .hz-row {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 5px;
+    padding: 4px 5px 3px;
+    cursor: pointer;
+    transition: border-color 0.1s;
+  }
+  .hz-row:hover { border-color: #cbd5e1; }
+  .hz-row-active { border-color: #3b82f6 !important; background: #eff6ff; }
+
+  /* Top row: arrows + colour + name + delete */
+  .hz-row { display: grid; grid-template-columns: 20px 14px 1fr 14px; align-items: center; gap: 3px; }
+  .hz-arrows { display: flex; flex-direction: column; gap: 1px; }
+  .hz-arrow {
+    background: none; border: none; cursor: pointer;
+    font-size: 7px; line-height: 1; color: #94a3b8; padding: 0;
+  }
+  .hz-arrow:hover:not(:disabled) { color: #3b82f6; }
+  .hz-arrow:disabled { opacity: 0.2; cursor: default; }
+
+  .hz-swatch {
+    width: 14px; height: 14px;
+    border-radius: 3px; border: none; padding: 0; cursor: pointer;
+    appearance: none; -webkit-appearance: none; background: none;
+    flex-shrink: 0;
+  }
+  .hz-name-col { overflow: hidden; }
+  .hz-name {
+    display: block; font-size: 10px; color: #1e293b;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .hz-name-input {
+    width: 100%; font-size: 10px; border: 1px solid #93c5fd;
+    border-radius: 2px; padding: 0 2px;
+  }
+  .hz-del {
+    background: none; border: none; cursor: pointer;
+    font-size: 9px; color: #cbd5e1; padding: 0; line-height: 1;
+    justify-self: end;
+  }
+  .hz-del:hover { color: #ef4444; }
+
+  /* Operator buttons row — spans all 4 columns */
+  .hz-ops {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 2px;
+    padding-top: 3px;
+    border-top: 1px solid #f1f5f9;
+    margin-top: 2px;
+  }
+  .hz-op-btn {
+    flex: 1;
+    font-size: 8px;
+    font-weight: 600;
+    padding: 1px 0;
+    border-radius: 3px;
+    border: 1px solid #e2e8f0;
+    background: white;
+    color: #94a3b8;
+    cursor: pointer;
+    transition: all 0.1s;
+    text-align: center;
+  }
+  .hz-op-btn:hover { border-color: #93c5fd; color: #3b82f6; }
+  .hz-op-active { background: #3b82f6 !important; color: white !important; border-color: #2563eb !important; }
+
+  /* Domain inputs at bottom */
+  .hz-domain {
+    border-top: 1px solid #e2e8f0;
+    padding: 5px 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    background: white;
+  }
+  .hz-domain-row {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 9px;
+    color: #64748b;
+  }
+  .hz-domain-label { width: 56px; flex-shrink: 0; }
+  .hz-domain-input {
+    width: 42px; font-size: 9px;
+    border: 1px solid #e2e8f0; border-radius: 3px;
+    padding: 1px 3px;
+  }
+  .hz-domain-sep { color: #94a3b8; }
 </style>
