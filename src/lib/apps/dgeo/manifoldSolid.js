@@ -8,17 +8,16 @@
  *   Y = along-strike                       [0 .. strikeW]
  *   Z = depth (positive downward)          [0 .. WY]
  *
- * Algorithm (mirrors pyenthu/dlis mfgoms.ts + geostore.ts):
- *  1. Use manifold-3d's own `Manifold.cube([WX, strikeW, WY])` — guaranteed manifold.
- *  2. Subdivide with `.refine(n)` for smooth surface approximation.
- *  3. Warp vertices IN-PLACE: top face (Z=0) → horizon depth hz(x,y),
- *       base face (Z=WY) → stays at WY.
- *     Formula: vert[2] = hz + (WY - hz) * vert[2] / WY
- *     Each solid spans from its horizon depth DOWN to the box base.
- *  4. Process horizons in user-defined array order (shallowest first).
- *     Shallower envelopes are LARGER (more volume below them).
- *  5. Layer[i]   = mf[i].subtract(mf[i+1])  (shallower minus deeper = band).
- *     Last layer = mf[last] alone             (deepest horizon to box base).
+ * Deposition operator algorithm (mirrors pyenthu/dlis geostore.ts):
+ *  1. Sort horizons DEEPEST FIRST (largest average depth value).
+ *  2. Build a manifold solid per horizon with buildSolidManifold():
+ *       each solid spans from its horizon surface DOWN to the box base.
+ *       → deeper horizon = smaller solid, shallower horizon = larger solid.
+ *  3. Layer[0] (deepest/basement) = solid[0]  — no subtraction.
+ *  4. Layer[i] (i > 0) = solid[i].subtract(solid[i-1])
+ *       solid[i] is shallower → LARGER volume
+ *       solid[i-1] is deeper  → smaller volume
+ *       result = positive-volume band between horizons i-1 and i. ✓
  */
 
 import * as THREE from 'three';
@@ -45,9 +44,22 @@ function manifoldMeshToGeo(mesh) {
   return geo;
 }
 
+// ── Average depth of a horizon (across all rail points) ──────────────────────
+function avgRailDepth(h, getRails) {
+  const rails = getRails(h);
+  let sum = 0, count = 0;
+  for (const rail of rails) {
+    for (const p of rail.points) { sum += p.y; count++; }
+  }
+  return count > 0 ? sum / count : 0;
+}
+
 // ── Build a closed Manifold solid for one horizon ─────────────────────────────
 //
-// Parameters from Dgeo3DScene: WX, WY, strikeW, nX, nDepth, nStrike, sampleArcLength
+// The solid spans from the horizon's curved surface DOWN to the box base.
+// A deeper horizon (large nDepth) produces a SMALLER solid.
+// A shallower horizon (small nDepth) produces a LARGER solid.
+//
 // nDepth(p.y) maps geological depth → world Z ∈ [0, WY]
 //
 function buildSolidManifold(mf, rails, { WX, WY, strikeW, sampleArcLength, nX, nDepth, nXsamp = 40, refineN = 5 }) {
@@ -56,8 +68,7 @@ function buildSolidManifold(mf, rails, { WX, WY, strikeW, sampleArcLength, nX, n
   const nR  = sr.length;
   const nXn = nXsamp;
 
-  // Surface grid: surfGrid[r][col] = depth in world Z for (rail r, arc-col col)
-  // nDepth() maps geological depth Y → Z ∈ [0, WY]; clamp to avoid self-intersection
+  // Surface grid: surfGrid[r][col] = world-Z depth at (rail r, arc-col col)
   const surfGrid = sr.map(rail => {
     const pts = sampleArcLength(rail.points, nXn);
     return pts.map(p => Math.max(0.01, Math.min(WY * 0.99, nDepth(p.y))));
@@ -73,23 +84,21 @@ function buildSolidManifold(mf, rails, { WX, WY, strikeW, sampleArcLength, nX, n
     const r0    = Math.min(nR - 2, Math.floor(yFrac));
     const rt    = yFrac - r0;
 
-    return surfGrid[r0][x0]   * (1-rt)*(1-xt)
-         + surfGrid[r0][x0+1] * (1-rt)* xt
-         + surfGrid[r0+1][x0] *  rt   *(1-xt)
-         + surfGrid[r0+1][x0+1]*rt    * xt;
+    return surfGrid[r0][x0]    * (1-rt)*(1-xt)
+         + surfGrid[r0][x0+1]  * (1-rt)* xt
+         + surfGrid[r0+1][x0]  *  rt   *(1-xt)
+         + surfGrid[r0+1][x0+1]*  rt   * xt;
   }
 
-  // cube([WX, strikeW, WY]): X=horizontal, Y=strike, Z=depth
-  // Warp: Z=0 (top face) maps TO hz (horizon depth); Z=WY (base) stays at WY.
-  // This makes each solid span from its horizon depth DOWN to the box base —
-  // geologically correct: deposition fills the space below each horizon.
-  const cube    = mf.Manifold.cube([WX, strikeW, WY], /* center= */ false);
+  // Warp a [WX × strikeW × WY] cube so:
+  //   top face (Z=0)  → horizon surface depth hz(x,y)
+  //   base face (Z=WY) → stays at WY
+  // Formula: Z_new = hz + (WY - hz) * Z / WY
+  const cube    = mf.Manifold.cube([WX, strikeW, WY], false);
   const refined = cube.refine(refineN);
   const warped  = refined.warp(vert => {
-    // vert[0]=x, vert[1]=strike, vert[2]=depth (cube space, 0=surface 1=base)
-    const hz = horizonDepth(vert[0], vert[1]);   // ∈ [0, WY]
-    // top face (z=0) → hz; base face (z=WY) → WY
-    vert[2] = hz + (WY - hz) * vert[2] / WY;
+    const hz = horizonDepth(vert[0], vert[1]);
+    vert[2]  = hz + (WY - hz) * vert[2] / WY;
   });
 
   return warped; // Manifold
@@ -111,19 +120,20 @@ export async function buildLayerSolids({
   nStrike,
 }) {
   const mf = await getMF();
-
   const opts = { WX, WY, strikeW, sampleArcLength, nX, nDepth };
 
-  // Process horizons in RECEIVED ORDER (array order = user-defined stratigraphic order).
-  // The caller (DgeoApp) passes horizons unsorted so the user controls the sequence.
-  // For the subtract to produce positive-volume layers, the array should be ordered
-  // shallowest-first (each successive horizon deeper than the previous) — which is
-  // the natural order when users add horizons from top to bottom.
   const valid = horizons.filter(h => getRails(h).length >= 2);
   if (valid.length === 0) return [];
 
-  // Build ceiling-envelope manifold per horizon (solid from Z=0 down to horizon depth)
-  const manifolds = valid.map(h => {
+  // Sort DEEPEST FIRST — deepest horizon has the largest average geological depth.
+  // This matches pyenthu/dlis geostore.ts which sorts by maxY descending (their Y is
+  // upward, so largest Y = shallowest; we invert: largest depth = deepest).
+  const sorted = [...valid].sort((a, b) =>
+    avgRailDepth(b, getRails) - avgRailDepth(a, getRails)
+  );
+
+  // Build each solid: from horizon surface DOWN to box base
+  const manifolds = sorted.map(h => {
     try {
       return buildSolidManifold(mf, getRails(h), opts);
     } catch (e) {
@@ -132,58 +142,40 @@ export async function buildLayerSolids({
     }
   });
 
-  // ── Operator clipping ────────────────────────────────────────────────────
-  // Each manifolds[i] is now a solid from hz[i] DOWN to the box base.
-  // Shallower horizons produce LARGER solids (more volume below them).
+  // Deposition operator (mirroring pyenthu/dlis geostore.ts mfGeoMeshes derived):
   //
-  // RA  on valid[k]: erode all earlier (shallower) envelopes by intersecting
-  //     with manifolds[k].  intersect(mf[j], mf[k]) = max(hz[j], hz[k]) to WY
-  //     — effectively clips mf[j] to start no higher than hz[k].
-  // RAI on valid[k]: same but only immediate predecessor (j = k-1).
-  // RB / RBI: handled by subtract order — no extra clipping needed.
-  for (let k = 1; k < valid.length; k++) {
-    const op = valid[k].operator ?? 'none';
-    if (op === 'RA') {
-      for (let j = 0; j < k; j++) {
-        if (manifolds[j] && manifolds[k]) {
-          try { manifolds[j] = manifolds[j].intersect(manifolds[k]); }
-          catch (e) { console.warn('[manifoldSolid] RA intersect failed j=', j, 'k=', k, e); }
-        }
-      }
-    } else if (op === 'RAI') {
-      const j = k - 1;
-      if (manifolds[j] && manifolds[k]) {
-        try { manifolds[j] = manifolds[j].intersect(manifolds[k]); }
-        catch (e) { console.warn('[manifoldSolid] RAI intersect failed j=', j, 'k=', k, e); }
-      }
-    }
-  }
-
-  // Boolean subtraction (bottom-up):
-  //   mf[i] spans from hz[i] to box base (shallower = larger solid).
-  //   Layer[i] = mf[i].subtract(mf[i+1])  → band between hz[i] and hz[i+1].
-  //   Last layer = mf[last] alone          → hz[last] down to box base.
+  //   sorted[0] = deepest  → solid[0] = smallest (horizon near box base)
+  //   sorted[n] = shallowest → solid[n] = largest  (horizon near box top)
+  //
+  //   Layer 0 (basement)  = solid[0]                       deepest formation
+  //   Layer i (i > 0)     = solid[i].subtract(solid[i-1])  band between horizons
+  //
+  // solid[i] is LARGER than solid[i-1] (shallower horizon → more volume below it),
+  // so the subtraction always yields a positive-volume band. ✓
   const blocks = [];
-  for (let i = 0; i < valid.length; i++) {
+
+  for (let i = 0; i < sorted.length; i++) {
     if (!manifolds[i]) continue;
 
     let result = manifolds[i];
-    if (i < valid.length - 1 && manifolds[i + 1]) {
+
+    if (i > 0 && manifolds[i - 1]) {
       try {
-        result = manifolds[i].subtract(manifolds[i + 1]);
+        result = manifolds[i].subtract(manifolds[i - 1]);
       } catch (e) {
         console.warn('[manifoldSolid] subtract failed at layer', i, e);
+        continue;
       }
     }
 
     try {
       const mesh = result.getMesh();
-      if (!mesh || mesh.triVerts.length === 0) continue; // skip degenerate (fully eroded) layers
+      if (!mesh || mesh.triVerts.length === 0) continue;
       blocks.push({
         geo:   manifoldMeshToGeo(mesh),
-        color: valid[i].colour ?? '#8b7355',
-        name:  valid[i].name,
-        id:    valid[i].id,
+        color: sorted[i].colour ?? '#8b7355',
+        name:  sorted[i].name,
+        id:    sorted[i].id,
       });
     } catch (e) {
       console.warn('[manifoldSolid] getMesh failed at layer', i, e);
