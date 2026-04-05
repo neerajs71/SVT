@@ -231,6 +231,8 @@
       let buf;
       if (item.file) {
         buf = await item.file.arrayBuffer();
+      } else if (item.handle) {
+        buf = await (await item.handle.getFile()).arrayBuffer();
       } else if (item.id) {
         const ctl = new AbortController();
         const tid = setTimeout(() => ctl.abort(), 30_000);
@@ -396,6 +398,8 @@
         let buf;
         if (item.file) {
           buf = await item.file.arrayBuffer();
+        } else if (item.handle) {
+          buf = await (await item.handle.getFile()).arrayBuffer();
         } else if (item.id) {
           const res = await fetch(`/api/drive?fileId=${encodeURIComponent(item.id)}`);
           if (!res.ok) continue;
@@ -716,6 +720,7 @@
     try {
       let buf;
       if (item.file) buf = await item.file.arrayBuffer();
+      else if (item.handle) buf = await (await item.handle.getFile()).arrayBuffer();
       else if (item.id) {
         const res = await fetch(`/api/drive?fileId=${encodeURIComponent(item.id)}`);
         if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
