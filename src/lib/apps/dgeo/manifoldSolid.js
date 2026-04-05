@@ -11,13 +11,14 @@
  * Algorithm (mirrors pyenthu/dlis mfgoms.ts + geostore.ts):
  *  1. Use manifold-3d's own `Manifold.cube([WX, strikeW, WY])` — guaranteed manifold.
  *  2. Subdivide with `.refine(n)` for smooth surface approximation.
- *  3. Warp vertices IN-PLACE (void, not return):
- *       Z=0 (surface) → stays 0  (ground surface)
- *       Z=WY (base)   → hz(x,y)  (horizon depth, ∈ [0, WY])
- *     Formula: vert[2] = hz * vert[2] / WY
- *  4. Sort horizons shallowest first (smallest hz → thinnest block).
- *  5. Block[0] = mfMan[0] directly.
- *     Block[i>0] = mfMan[i].subtract(mfMan[i-1])  (deeper minus shallower = layer).
+ *  3. Warp vertices IN-PLACE: top face (Z=0) → horizon depth hz(x,y),
+ *       base face (Z=WY) → stays at WY.
+ *     Formula: vert[2] = hz + (WY - hz) * vert[2] / WY
+ *     Each solid spans from its horizon depth DOWN to the box base.
+ *  4. Process horizons in user-defined array order (shallowest first).
+ *     Shallower envelopes are LARGER (more volume below them).
+ *  5. Layer[i]   = mf[i].subtract(mf[i+1])  (shallower minus deeper = band).
+ *     Last layer = mf[last] alone             (deepest horizon to box base).
  */
 
 import * as THREE from 'three';
@@ -79,14 +80,16 @@ function buildSolidManifold(mf, rails, { WX, WY, strikeW, sampleArcLength, nX, n
   }
 
   // cube([WX, strikeW, WY]): X=horizontal, Y=strike, Z=depth
-  // Warp: Z=0 (surface face) stays; Z=WY (base face) moves to hz
+  // Warp: Z=0 (top face) maps TO hz (horizon depth); Z=WY (base) stays at WY.
+  // This makes each solid span from its horizon depth DOWN to the box base —
+  // geologically correct: deposition fills the space below each horizon.
   const cube    = mf.Manifold.cube([WX, strikeW, WY], /* center= */ false);
   const refined = cube.refine(refineN);
   const warped  = refined.warp(vert => {
-    // vert[0]=x, vert[1]=strike, vert[2]=depth (cube space)
+    // vert[0]=x, vert[1]=strike, vert[2]=depth (cube space, 0=surface 1=base)
     const hz = horizonDepth(vert[0], vert[1]);   // ∈ [0, WY]
-    // surface (z=0) → 0; base (z=WY) → hz
-    vert[2] = hz * vert[2] / WY;
+    // top face (z=0) → hz; base face (z=WY) → WY
+    vert[2] = hz + (WY - hz) * vert[2] / WY;
   });
 
   return warped; // Manifold
@@ -130,15 +133,14 @@ export async function buildLayerSolids({
   });
 
   // ── Operator clipping ────────────────────────────────────────────────────
-  // Applied in array order — this is the key: user-defined order controls
-  // which horizon's operator clips which.
+  // Each manifolds[i] is now a solid from hz[i] DOWN to the box base.
+  // Shallower horizons produce LARGER solids (more volume below them).
   //
-  // RA  on valid[k]: clip ALL earlier manifolds[j<k] by intersecting with manifolds[k].
-  //     Effect: shallower envelopes are truncated where valid[k] cuts up through them.
-  //     No-op when horizons don't cross (intersect of nested solids = smaller = unchanged).
-  // RAI on valid[k]: same but only the immediate predecessor (j = k-1).
-  // RB / RBI: no manifold modification — standard subtract already gives the correct
-  //     channel body when valid[k] dips below valid[k-1].
+  // RA  on valid[k]: erode all earlier (shallower) envelopes by intersecting
+  //     with manifolds[k].  intersect(mf[j], mf[k]) = max(hz[j], hz[k]) to WY
+  //     — effectively clips mf[j] to start no higher than hz[k].
+  // RAI on valid[k]: same but only immediate predecessor (j = k-1).
+  // RB / RBI: handled by subtract order — no extra clipping needed.
   for (let k = 1; k < valid.length; k++) {
     const op = valid[k].operator ?? 'none';
     if (op === 'RA') {
@@ -157,15 +159,18 @@ export async function buildLayerSolids({
     }
   }
 
-  // Boolean subtraction: envelope[i].subtract(envelope[i-1]) = inter-horizon layer
+  // Boolean subtraction (bottom-up):
+  //   mf[i] spans from hz[i] to box base (shallower = larger solid).
+  //   Layer[i] = mf[i].subtract(mf[i+1])  → band between hz[i] and hz[i+1].
+  //   Last layer = mf[last] alone          → hz[last] down to box base.
   const blocks = [];
   for (let i = 0; i < valid.length; i++) {
     if (!manifolds[i]) continue;
 
     let result = manifolds[i];
-    if (i > 0 && manifolds[i - 1]) {
+    if (i < valid.length - 1 && manifolds[i + 1]) {
       try {
-        result = manifolds[i].subtract(manifolds[i - 1]);
+        result = manifolds[i].subtract(manifolds[i + 1]);
       } catch (e) {
         console.warn('[manifoldSolid] subtract failed at layer', i, e);
       }
