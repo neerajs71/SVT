@@ -1,6 +1,8 @@
 <script>
-  import { T } from '@threlte/core';
+  import { T, useThrelte } from '@threlte/core';
   import { OrbitControls, interactivity, HTML } from '@threlte/extras';
+  import { onDestroy } from 'svelte';
+  import { NurbsGpgpu }   from './nurbs/nurbsGpgpu.js';
   import { NurbsCpu }     from './nurbs/nurbsCpu.js';
   import { railsToNURBS } from './nurbs/railsToNURBS.js';
   import * as THREE from 'three';
@@ -21,8 +23,16 @@
     onUpdateRails     = null,
   } = $props();
 
-  // CPU NURBS evaluator — no GPU/renderer dependency
+  // GPU evaluator (preferred) + CPU fallback.
+  // Created synchronously — NOT $state — so Svelte's reactivity system never
+  // tracks these objects and they cannot cause reactive loops.
+  const { renderer } = useThrelte();
   const cpu = new NurbsCpu(40);
+  let gpgpu = null;
+  try { gpgpu = new NurbsGpgpu(renderer, 40); } catch (e) {
+    console.warn('[Dgeo3DScene] GPU NURBS unavailable, using CPU', e);
+  }
+  onDestroy(() => gpgpu?.dispose());
 
   // Enable Threlte raycasting
   interactivity();
@@ -349,27 +359,31 @@
     })
   );
 
-  // ── NURBS overlay (CPU B-spline evaluation) ───────────────────────────────
-  // Per-horizon NURBS cache: { geo, positions, resolution, color }
-  // $derived.by() cleanly rebuilds when showNurbs / sorted / defaultRailCount change.
+  // ── NURBS overlay — GPU preferred, CPU fallback ───────────────────────────
+  // gpgpu / cpu are plain (non-reactive) variables — safe to read in derived
+  // without creating dependency cycles.
   const nurbsCache = $derived.by(() => {
     if (!showNurbs) return [];
     return sorted.map(h => {
       const rails = getRails(h);
       if (rails.length < 2) return null;
-      try {
-        const params = railsToNURBS(rails, { sampleArcLength, nX, nDepth, nStrike });
-        if (!params) return null;
-        const { positions, indices, resolution } = cpu.evaluate(params);
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.BufferAttribute(positions.slice(), 3));
-        geo.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
-        geo.computeVertexNormals();
-        return { geo, positions, resolution, color: h.colour ?? '#c8e6c9' };
-      } catch (e) {
-        console.warn('[Dgeo3DScene] NURBS eval failed for', h.name, e);
-        return null;
+      const params = railsToNURBS(rails, { sampleArcLength, nX, nDepth, nStrike });
+      if (!params) return null;
+      // Try GPU first; fall back to CPU on any error
+      for (const ev of [gpgpu, cpu]) {
+        if (!ev) continue;
+        try {
+          const { positions, indices, resolution } = ev.evaluate(params);
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute('position', new THREE.BufferAttribute(positions.slice(), 3));
+          geo.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
+          geo.computeVertexNormals();
+          return { geo, positions, resolution, color: h.colour ?? '#c8e6c9' };
+        } catch (e) {
+          console.warn('[Dgeo3DScene] NURBS eval failed on', ev.constructor.name, 'for', h.name, e);
+        }
       }
+      return null;
     }).filter(Boolean);
   });
   $effect(() => {
