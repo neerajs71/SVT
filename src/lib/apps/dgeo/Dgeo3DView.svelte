@@ -17,6 +17,7 @@
   let editRailIdx   = $state(null);
   let resetKey      = $state(0);
   let showPopup     = $state(false);
+  let showRuler     = $state(false);
 
   function resetView() { resetKey++; }
 
@@ -132,6 +133,16 @@
       {showSolids ? '◼ Solidify ON' : '◻ Solidify'}
     </button>
 
+    <!-- Ruler toggle -->
+    <button
+      onclick={() => (showRuler = !showRuler)}
+      class="px-2 py-0.5 border rounded text-[10px] font-medium transition-colors
+             {showRuler
+               ? 'bg-slate-600 text-white border-slate-700 hover:bg-slate-700'
+               : 'border-gray-200 text-gray-600 hover:bg-gray-100'}">
+      📏 Ruler
+    </button>
+
     <button onclick={resetView}
       class="px-2 py-0.5 border border-gray-200 rounded hover:bg-gray-100">
       ⟲ Reset
@@ -152,6 +163,7 @@
           {domY}
           {strikeKm}
           {showSolids}
+          {showRuler}
           bind:editHorizonId
           bind:editRailIdx
           {onUpdateRails}

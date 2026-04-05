@@ -1,6 +1,6 @@
 <script>
   import { T } from '@threlte/core';
-  import { OrbitControls, interactivity } from '@threlte/extras';
+  import { OrbitControls, interactivity, HTML } from '@threlte/extras';
   import * as THREE from 'three';
   import { buildLayerSolids } from './manifoldSolid.js';
 
@@ -10,6 +10,7 @@
     domY,
     strikeKm      = 5,
     showSolids    = false,
+    showRuler     = false,
     editHorizonId = $bindable(null),
     editRailIdx   = $bindable(null),
     onUpdateRails = null,
@@ -275,6 +276,69 @@
   });
   $effect(() => { const g = sliceFillGeo; return () => g?.dispose(); });
 
+  // ── Ruler geometry ────────────────────────────────────────────────────────
+  // Depth ruler: right face (X=WX, Y=0), ticks along Z.
+  // Distance ruler: bottom-front edge (Y=0, Z=WY), ticks along X.
+  // Strike ruler: bottom-right edge (X=WX, Z=WY), ticks along Y.
+  const RULER_OFFSET = 0.55;  // gap from block face
+
+  const rulerGeos = $derived.by(() => {
+    const sw = strikeW;
+    const off = RULER_OFFSET;
+    const pts_d = [], pts_x = [], pts_s = [];
+
+    // ── Depth ruler (right face, along Z) ──────────────────────────────────
+    pts_d.push(new THREE.Vector3(WX + off, 0, 0),  new THREE.Vector3(WX + off, 0, WY));
+    for (let i = 0; i <= 5; i++) {
+      const wz = (i / 5) * WY;
+      pts_d.push(new THREE.Vector3(WX + off - 0.15, 0, wz), new THREE.Vector3(WX + off + 0.15, 0, wz));
+    }
+
+    // ── Distance ruler (bottom-front, along X) ─────────────────────────────
+    pts_x.push(new THREE.Vector3(0, 0, WY + off),  new THREE.Vector3(WX, 0, WY + off));
+    for (let i = 0; i <= 5; i++) {
+      const wx = (i / 5) * WX;
+      pts_x.push(new THREE.Vector3(wx, 0, WY + off - 0.15), new THREE.Vector3(wx, 0, WY + off + 0.15));
+    }
+
+    // ── Strike ruler (right-bottom edge, along Y) ──────────────────────────
+    pts_s.push(new THREE.Vector3(WX + off, 0, WY),  new THREE.Vector3(WX + off, sw, WY));
+    for (let i = 0; i <= 4; i++) {
+      const wy = (i / 4) * sw;
+      pts_s.push(new THREE.Vector3(WX + off - 0.15, wy, WY), new THREE.Vector3(WX + off + 0.15, wy, WY));
+    }
+
+    return {
+      depth:  new THREE.BufferGeometry().setFromPoints(pts_d),
+      dist:   new THREE.BufferGeometry().setFromPoints(pts_x),
+      strike: new THREE.BufferGeometry().setFromPoints(pts_s),
+    };
+  });
+  $effect(() => {
+    const g = rulerGeos;
+    return () => { g.depth?.dispose(); g.dist?.dispose(); g.strike?.dispose(); };
+  });
+
+  // Tick label data
+  const depthTicks = $derived(
+    Array.from({ length: 6 }, (_, i) => {
+      const t = i / 5;
+      return { wz: t * WY, label: Math.round(domY.min + t * (domY.max - domY.min)) + ' m' };
+    })
+  );
+  const distTicks = $derived(
+    Array.from({ length: 6 }, (_, i) => {
+      const t = i / 5;
+      return { wx: t * WX, label: (domX.min + t * (domX.max - domX.min)).toFixed(1) + ' km' };
+    })
+  );
+  const strikeTicks = $derived(
+    Array.from({ length: 5 }, (_, i) => {
+      const t = i / 4;
+      return { wy: t * strikeW, label: (t * strikeKm).toFixed(1) + ' km' };
+    })
+  );
+
   // ── Camera ─────────────────────────────────────────────────────────────────
   // Coordinate system: X=horizontal, Y=strike, Z=depth (0=surface, WY=deepest).
   // "Up" in geological terms = -Z direction.
@@ -396,3 +460,47 @@
 <T is={THREE.LineSegments} geometry={gridGeo}>
   <T.LineBasicMaterial color={0x94a3b8} transparent opacity={0.22} />
 </T>
+
+<!-- ── Rulers ─────────────────────────────────────────────────────────────── -->
+{#if showRuler}
+  {@const off = RULER_OFFSET}
+
+  <!-- Depth ruler lines (right face) -->
+  <T is={THREE.LineSegments} geometry={rulerGeos.depth}>
+    <T.LineBasicMaterial color="#374151" />
+  </T>
+  <!-- Depth labels -->
+  {#each depthTicks as tick (tick.wz)}
+    <HTML position={[WX + off + 0.25, 0, tick.wz]} center={false}>
+      <span style="font-size:9px; font-family:monospace; color:#1e293b; white-space:nowrap; pointer-events:none; text-shadow:0 0 3px #fff,0 0 3px #fff">
+        {tick.label}
+      </span>
+    </HTML>
+  {/each}
+
+  <!-- Distance ruler lines (front-bottom) -->
+  <T is={THREE.LineSegments} geometry={rulerGeos.dist}>
+    <T.LineBasicMaterial color="#374151" />
+  </T>
+  <!-- Distance labels -->
+  {#each distTicks as tick (tick.wx)}
+    <HTML position={[tick.wx, 0, WY + off + 0.25]} center>
+      <span style="font-size:9px; font-family:monospace; color:#1e293b; white-space:nowrap; pointer-events:none; text-shadow:0 0 3px #fff,0 0 3px #fff">
+        {tick.label}
+      </span>
+    </HTML>
+  {/each}
+
+  <!-- Strike ruler lines (right-bottom edge) -->
+  <T is={THREE.LineSegments} geometry={rulerGeos.strike}>
+    <T.LineBasicMaterial color="#374151" />
+  </T>
+  <!-- Strike labels -->
+  {#each strikeTicks as tick (tick.wy)}
+    <HTML position={[WX + off + 0.25, tick.wy, WY]} center={false}>
+      <span style="font-size:9px; font-family:monospace; color:#1e293b; white-space:nowrap; pointer-events:none; text-shadow:0 0 3px #fff,0 0 3px #fff">
+        {tick.label}
+      </span>
+    </HTML>
+  {/each}
+{/if}
