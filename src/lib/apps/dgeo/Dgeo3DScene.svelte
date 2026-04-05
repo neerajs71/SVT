@@ -1,5 +1,6 @@
 <script>
   import { T, useThrelte } from '@threlte/core';
+  import { untrack } from 'svelte';
   import { OrbitControls, interactivity, HTML } from '@threlte/extras';
   import { NurbsGpgpu }   from './nurbs/nurbsGpgpu.js';
   import { railsToNURBS } from './nurbs/railsToNURBS.js';
@@ -356,10 +357,17 @@
   // Per-horizon NURBS cache: { geo, positions, resolution, color }
   let nurbsCache = $state([]);
 
+  // Disposal only — reads nurbsCache in cleanup, never writes it.
+  $effect(() => {
+    const snap = nurbsCache;
+    return () => { for (const d of snap) d?.geo?.dispose(); };
+  });
+
+  // Build/clear cache — uses untrack() to WRITE nurbsCache without creating
+  // a read-dependency, which would otherwise cause an infinite reactive loop.
   $effect(() => {
     if (!showNurbs || !gpgpu) {
-      for (const d of nurbsCache) d?.geo?.dispose();
-      nurbsCache = [];
+      untrack(() => { nurbsCache = []; });
       return;
     }
     const snap = sorted;  // reactive capture
@@ -381,13 +389,7 @@
       }
     }).filter(Boolean);
 
-    for (const d of nurbsCache) d?.geo?.dispose();
-    nurbsCache = next;
-  });
-
-  $effect(() => {
-    const snap = nurbsCache;
-    return () => { for (const d of snap) d?.geo?.dispose(); };
+    untrack(() => { nurbsCache = next; });
   });
 
   // Slice intersection curves — CPU extract from cached vertex grid
