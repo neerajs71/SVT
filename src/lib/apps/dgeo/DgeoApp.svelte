@@ -676,19 +676,19 @@
     title="Stratigraphic Column"
     visible={showHzPanel}
     onClose={() => (showHzPanel = false)}
-    width={520}
+    width={340}
     x={40} y={60}>
     {#snippet children()}
       <div class="p-3">
 
         <!-- Table header -->
         <div class="hz-tbl-head">
-          <span style="width:28px"></span>
-          <span style="width:18px"></span>
+          <span style="width:22px"></span>
+          <span style="width:16px"></span>
           <span class="flex-1">Name</span>
-          <span style="width:72px" class="text-center">Ref depth (m)</span>
-          <span style="width:140px" class="text-center">Operator</span>
-          <span style="width:20px"></span>
+          <span style="width:58px" class="text-center">Depth (m)</span>
+          <span style="width:112px" class="text-center">Operator</span>
+          <span style="width:16px"></span>
         </div>
 
         <!-- Horizon rows -->
@@ -699,7 +699,7 @@
                onkeydown={e => e.key==='Enter' && (activeId=h.id)}>
 
             <!-- Up/Down -->
-            <div style="width:28px" class="flex flex-col items-center gap-px">
+            <div style="width:22px" class="flex flex-col items-center gap-px">
               <button class="hz-t-arr" disabled={idx===0}
                 onclick={e=>{e.stopPropagation();moveHorizon(h.id,'up')}}
                 title="Move up in stratigraphy">▲</button>
@@ -712,9 +712,8 @@
             <input type="color" value={h.colour}
               oninput={e=>recolourHorizon(h.id,e.target.value)}
               onclick={e=>e.stopPropagation()}
-              style="width:18px;height:18px"
-              class="rounded border-0 p-0 cursor-pointer flex-shrink-0"
-              style:appearance="none" style:-webkit-appearance="none"/>
+              style="width:16px;height:16px;appearance:none;-webkit-appearance:none"
+              class="rounded border-0 p-0 cursor-pointer flex-shrink-0"/>
 
             <!-- Name -->
             <input type="text" value={h.name}
@@ -726,11 +725,11 @@
             <input type="number" value={refZ}
               onchange={e=>{e.stopPropagation();adjustDepth(h.id,+e.target.value)}}
               onclick={e=>e.stopPropagation()}
-              style="width:72px"
-              class="text-xs border border-gray-200 rounded px-1.5 py-0.5 text-right"/>
+              style="width:58px"
+              class="text-xs border border-gray-200 rounded px-1 py-0.5 text-right"/>
 
             <!-- Operator buttons -->
-            <div style="width:140px" class="flex gap-0.5" onclick={e=>e.stopPropagation()}>
+            <div style="width:112px" class="flex gap-0.5" onclick={e=>e.stopPropagation()}>
               {#each ['none','RA','RAI','RB','RBI'] as op}
                 {@const active = (h.operator??'none')===op}
                 <button
@@ -751,7 +750,7 @@
             </div>
 
             <!-- Delete -->
-            <button style="width:20px"
+            <button style="width:16px"
               onclick={e=>{e.stopPropagation();deleteHorizon(h.id)}}
               class="text-gray-300 hover:text-red-500 text-xs text-center">✕</button>
           </div>
@@ -875,7 +874,7 @@
   .hz-tbl-head {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     padding: 0 2px 4px;
     border-bottom: 1px solid #e2e8f0;
     margin-bottom: 3px;
@@ -888,7 +887,7 @@
   .hz-tbl-row {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     padding: 3px 2px;
     border-radius: 5px;
     cursor: pointer;
