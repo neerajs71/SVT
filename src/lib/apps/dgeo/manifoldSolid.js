@@ -136,6 +136,32 @@ export async function buildLayerSolids({
     }
   });
 
+  // ── Operator clipping (RA / RAI) ─────────────────────────────────────────
+  // RA  on H[k]: clip ALL shallower manifolds[j<k] to not extend below H[k]
+  //              (handles erosion unconformities that cut up through shallower layers)
+  // RAI on H[k]: same but only the immediate shallower neighbour (j = k-1)
+  // RB / RBI: no manifold modification needed — the standard subtract already
+  //           produces the correct channel body when H[k] dips below H[k-1].
+  // Implementation: manifolds[j].intersect(manifolds[k]) clips j's solid to only
+  //   the portion that is also inside k's solid (safe no-op for non-crossing horizons).
+  for (let k = 1; k < sorted.length; k++) {
+    const op = sorted[k].operator ?? 'none';
+    if (op === 'RA') {
+      for (let j = 0; j < k; j++) {
+        if (manifolds[j] && manifolds[k]) {
+          try { manifolds[j] = manifolds[j].intersect(manifolds[k]); }
+          catch (e) { console.warn('[manifoldSolid] RA intersect failed j=', j, 'k=', k, e); }
+        }
+      }
+    } else if (op === 'RAI') {
+      const j = k - 1;
+      if (manifolds[j] && manifolds[k]) {
+        try { manifolds[j] = manifolds[j].intersect(manifolds[k]); }
+        catch (e) { console.warn('[manifoldSolid] RAI intersect failed j=', j, 'k=', k, e); }
+      }
+    }
+  }
+
   // Boolean subtraction: deeper.subtract(shallower) = inter-horizon layer
   const blocks = [];
   for (let i = 0; i < sorted.length; i++) {

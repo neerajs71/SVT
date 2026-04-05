@@ -18,7 +18,7 @@
   ];
 
   // ── State ─────────────────────────────────────────────────────────────────
-  let horizons = $state([]);      // [{ id, name, colour, points: [{x,y}] }]
+  let horizons = $state([]);      // [{ id, name, colour, operator, points: [{x,y}] }]
   let dirty    = $state(false);
   let loadErr  = $state('');
   let saveErr  = $state('');
@@ -91,11 +91,12 @@
       if (!text.trim()) { initDefault(); return; }
       const data = JSON.parse(text);
       horizons = (data.horizons ?? []).map(h => ({
-        id:     h.id ?? crypto.randomUUID(),
-        name:   h.name ?? 'Horizon',
-        colour: h.colour ?? FORMATION_COLOURS[0],
-        points: h.points ?? [],
-        rails:  h.rails  ?? null,
+        id:       h.id ?? crypto.randomUUID(),
+        name:     h.name ?? 'Horizon',
+        colour:   h.colour ?? FORMATION_COLOURS[0],
+        operator: h.operator ?? 'none',
+        points:   h.points ?? [],
+        rails:    h.rails  ?? null,
       }));
       if (data.domain) {
         domX = data.domain.x ?? domX;
@@ -113,13 +114,13 @@
     const xL  = domX.min + (domX.max - domX.min) * 0.05;
     const xR  = domX.max - (domX.max - domX.min) * 0.05;
     horizons = [
-      { id: crypto.randomUUID(), name: 'Seabed',        colour: FORMATION_COLOURS[0],
+      { id: crypto.randomUUID(), name: 'Seabed',        colour: FORMATION_COLOURS[0], operator: 'none',
         points: [{ x: xL, y: 200 }, { x: mid, y: 220 }, { x: xR, y: 210 }] },
-      { id: crypto.randomUUID(), name: 'Top Sand A',    colour: FORMATION_COLOURS[1],
+      { id: crypto.randomUUID(), name: 'Top Sand A',    colour: FORMATION_COLOURS[1], operator: 'none',
         points: [{ x: xL, y: 800 }, { x: mid, y: 900 }, { x: xR, y: 850 }] },
-      { id: crypto.randomUUID(), name: 'Top Shale B',   colour: FORMATION_COLOURS[2],
+      { id: crypto.randomUUID(), name: 'Top Shale B',   colour: FORMATION_COLOURS[2], operator: 'none',
         points: [{ x: xL, y: 1600 }, { x: mid, y: 1700 }, { x: xR, y: 1650 }] },
-      { id: crypto.randomUUID(), name: 'Top Reservoir', colour: FORMATION_COLOURS[3],
+      { id: crypto.randomUUID(), name: 'Top Reservoir', colour: FORMATION_COLOURS[3], operator: 'none',
         points: [{ x: xL, y: 2400 }, { x: mid, y: 2500 }, { x: xR, y: 2450 }] },
     ];
     dirty = false;
@@ -130,7 +131,9 @@
       version: '1.0',
       domain:  { x: domX, y: domY },
       horizons: horizons.map(h => ({
-        id: h.id, name: h.name, colour: h.colour, points: h.points,
+        id: h.id, name: h.name, colour: h.colour,
+        operator: h.operator ?? 'none',
+        points: h.points,
         ...(h.rails ? { rails: h.rails } : {}),
       })),
     }, null, 2);
@@ -175,9 +178,10 @@
     const xMid = (domX.min + domX.max) / 2;
     const h = {
       id:     crypto.randomUUID(),
-      name:   `Horizon ${idx + 1}`,
-      colour: FORMATION_COLOURS[idx % FORMATION_COLOURS.length],
-      points: [{ x: xL, y: depth }, { x: xMid, y: depth + 50 }, { x: xR, y: depth }],
+      name:     `Horizon ${idx + 1}`,
+      colour:   FORMATION_COLOURS[idx % FORMATION_COLOURS.length],
+      operator: 'none',
+      points:   [{ x: xL, y: depth }, { x: xMid, y: depth + 50 }, { x: xR, y: depth }],
     };
     horizons = [...horizons, h];
     activeId = h.id;
@@ -199,6 +203,19 @@
   function recolourHorizon(id, colour) {
     horizons = horizons.map(h => h.id === id ? { ...h, colour } : h);
     dirty = true;
+  }
+
+  function setOperator(id, op) {
+    horizons = horizons.map(h => h.id === id ? { ...h, operator: op } : h);
+    dirty = true;
+  }
+
+  // Returns stroke attributes for a horizon line based on its operator
+  function horizonStroke(h) {
+    const op = h.operator ?? 'none';
+    if (op === 'RA' || op === 'RAI') return { dasharray: '8 4', width: 2 };
+    if (op === 'RB' || op === 'RBI') return { dasharray: 'none', width: 3.5 };
+    return { dasharray: 'none', width: 2 };
   }
 
   // ── SVG interaction ───────────────────────────────────────────────────────
@@ -473,6 +490,20 @@
             </span>
           {/if}
 
+          <!-- Operator buttons -->
+          <div class="flex gap-0.5 ml-0.5 flex-shrink-0" onclick={e => e.stopPropagation()}>
+            {#each ['none','RA','RAI','RB','RBI'] as op}
+              <button
+                onclick={() => setOperator(h.id, op)}
+                class="px-1 py-0 text-[9px] rounded border leading-tight
+                       {(h.operator ?? 'none') === op
+                         ? 'bg-blue-500 text-white border-blue-600'
+                         : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50 hover:text-gray-600'}">
+                {op === 'none' ? '·' : op}
+              </button>
+            {/each}
+          </div>
+
           <!-- Delete -->
           <button
             onclick={e => { e.stopPropagation(); deleteHorizon(h.id); }}
@@ -598,13 +629,15 @@
           {#each horizons as h (h.id)}
             {@const sorted = [...h.points].sort((a, b) => a.x - b.x)}
             {@const isActive = activeId === h.id}
+            {@const stroke = horizonStroke(h)}
 
             {#if sorted.length >= 2}
               <polyline
                 points={polyStr(h)}
                 fill="none"
                 stroke={h.colour}
-                stroke-width={isActive ? 3 : 2}
+                stroke-width={isActive ? stroke.width + 1 : stroke.width}
+                stroke-dasharray={stroke.dasharray}
                 stroke-linejoin="round"
                 stroke-linecap="round"
                 style="filter: {isActive ? 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))' : 'none'}"/>
@@ -613,6 +646,7 @@
                 fill="none"
                 stroke="#374151"
                 stroke-width={isActive ? 1.5 : 0.5}
+                stroke-dasharray={stroke.dasharray}
                 opacity="0.5"
                 stroke-linejoin="round"
                 stroke-linecap="round"/>

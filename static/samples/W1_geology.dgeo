@@ -9,6 +9,7 @@
       "id": "h1",
       "name": "Seabed",
       "colour": "#c8e6c9",
+      "operator": "none",
       "points": [
         { "x": 0.5, "y": 150 },
         { "x": 2.5, "y": 175 },
@@ -21,6 +22,7 @@
       "id": "h2",
       "name": "Top Pliocene",
       "colour": "#fff9c4",
+      "operator": "none",
       "points": [
         { "x": 0.5, "y": 600 },
         { "x": 2.5, "y": 650 },
@@ -33,6 +35,7 @@
       "id": "h3",
       "name": "Top Miocene",
       "colour": "#ffe0b2",
+      "operator": "none",
       "points": [
         { "x": 0.5, "y": 1200 },
         { "x": 2.5, "y": 1350 },
@@ -45,6 +48,7 @@
       "id": "h4",
       "name": "Top Oligocene",
       "colour": "#f8bbd0",
+      "operator": "none",
       "points": [
         { "x": 0.5, "y": 2000 },
         { "x": 2.5, "y": 2200 },
@@ -57,6 +61,7 @@
       "id": "h5",
       "name": "Top Reservoir",
       "colour": "#e1bee7",
+      "operator": "none",
       "points": [
         { "x": 0.5, "y": 3000 },
         { "x": 2.5, "y": 3200 },
@@ -69,6 +74,7 @@
       "id": "h6",
       "name": "Base Reservoir",
       "colour": "#b3e5fc",
+      "operator": "none",
       "points": [
         { "x": 0.5, "y": 3400 },
         { "x": 2.5, "y": 3650 },
