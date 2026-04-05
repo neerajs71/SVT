@@ -624,39 +624,45 @@
   {/each}
 {/if}
 
-<!-- ── NURBS surfaces (comparison overlay) ───────────────────────────────── -->
+<!-- ── NURBS surfaces — displayed to the right of the cube for clarity ──── -->
 {#if showNurbs}
-  {#each nurbsCache as nd (nd.geo.uuid)}
-    <!-- Solid NURBS surface at lower opacity so bilinear is still visible behind it -->
-    <T.Mesh geometry={nd.geo}>
-      <T.MeshLambertMaterial
-        color={nd.color}
-        transparent opacity={0.38}
-        side={THREE.DoubleSide}
-      />
-    </T.Mesh>
-    <!-- Wireframe helps visually distinguish NURBS from bilinear surface -->
-    <T.Mesh geometry={nd.geo}>
+  <!-- Offset the NURBS group so it sits beside the cube (not overlapping) -->
+  <T.Group position={[WX + 1.5, 0, 0]}>
+    {#each nurbsCache as nd (nd.geo.uuid)}
+      <T.Mesh geometry={nd.geo}>
+        <T.MeshLambertMaterial
+          color={nd.color}
+          transparent opacity={0.75}
+          side={THREE.DoubleSide}
+        />
+      </T.Mesh>
+      <T.Mesh geometry={nd.geo}>
+        <T.MeshBasicMaterial
+          color={nd.color} wireframe transparent opacity={0.25}
+        />
+      </T.Mesh>
+    {/each}
+
+    <!-- Slice intersection curves -->
+    {#each sliceCurves as sc (sc.geo.uuid)}
+      <T is={THREE.Line} geometry={sc.geo}>
+        <T.LineBasicMaterial color={sc.color} />
+      </T>
+    {/each}
+
+    <!-- Slice plane -->
+    {@const ys = Math.max(0, Math.min(strikeW, sliceY))}
+    <T.Mesh position={[WX/2, ys, WY/2]} rotation={[Math.PI/2, 0, 0]}>
+      <T.PlaneGeometry args={[WX, WY]} />
       <T.MeshBasicMaterial
-        color={nd.color} wireframe transparent opacity={0.22}
+        color="#a855f7" transparent opacity={0.07}
+        side={THREE.DoubleSide} depthWrite={false}
       />
     </T.Mesh>
-  {/each}
 
-  <!-- Slice intersection curves — one per NURBS surface -->
-  {#each sliceCurves as sc (sc.geo.uuid)}
-    <T is={THREE.Line} geometry={sc.geo}>
-      <T.LineBasicMaterial color={sc.color} />
+    <!-- Wireframe outline box for the NURBS panel -->
+    <T is={THREE.LineSegments} geometry={frameGeo}>
+      <T.LineBasicMaterial color={0x94a3b8} transparent opacity={0.35} />
     </T>
-  {/each}
-
-  <!-- Slice plane (purple, moves with sliceY slider) -->
-  {@const ys = Math.max(0, Math.min(strikeW, sliceY))}
-  <T.Mesh position={[WX/2, ys, WY/2]} rotation={[Math.PI/2, 0, 0]}>
-    <T.PlaneGeometry args={[WX, WY]} />
-    <T.MeshBasicMaterial
-      color="#a855f7" transparent opacity={0.07}
-      side={THREE.DoubleSide} depthWrite={false}
-    />
-  </T.Mesh>
+  </T.Group>
 {/if}
