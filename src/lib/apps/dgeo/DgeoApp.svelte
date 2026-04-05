@@ -763,33 +763,6 @@
           + Add horizon
         </button>
 
-        <!-- Operator legend -->
-        <div class="mt-3 pt-3 border-t border-gray-100">
-          <p class="text-[9px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Operator reference</p>
-          <div class="grid grid-cols-1 gap-0.5">
-            {#each [
-              ['·',   'none',  'Deposit',                      'Conformable layer — fills space between this horizon and the one above. No erosion.'],
-              ['RA',  'RA',    'Remove Above',                  'Erosional unconformity. This surface truncates ALL shallower horizons where it cuts up through them.'],
-              ['RAI', 'RAI',   'Remove Above (intersection)',   'Same as RA but only clips the immediately shallower neighbour, not all layers above.'],
-              ['RB',  'RB',    'Remove Below',                  'Channel or diapir cutting downward. This surface incises into deeper layers. The standard subtract already produces the body.'],
-              ['RBI', 'RBI',   'Remove Below (intersection)',   'Same as RB but only clips the immediately deeper neighbour.'],
-            ] as [label, opKey, name, desc]}
-              <div class="flex gap-2 items-start py-0.5">
-                <span class="w-7 flex-shrink-0 text-center text-[9px] font-bold px-1 py-0.5 rounded border
-                             {opKey === 'none' ? 'border-gray-200 text-gray-400' :
-                              opKey === 'RA' || opKey === 'RAI' ? 'border-orange-200 text-orange-600 bg-orange-50' :
-                              'border-purple-200 text-purple-600 bg-purple-50'}">
-                  {label}
-                </span>
-                <div>
-                  <span class="text-[10px] font-semibold text-gray-700">{name}</span>
-                  <span class="text-[9px] text-gray-400 ml-1">{desc}</span>
-                </div>
-              </div>
-            {/each}
-          </div>
-        </div>
-
       </div>
     {/snippet}
   </FloatingPanel>
