@@ -732,12 +732,19 @@
             <!-- Operator buttons -->
             <div style="width:140px" class="flex gap-0.5" onclick={e=>e.stopPropagation()}>
               {#each ['none','RA','RAI','RB','RBI'] as op}
+                {@const active = (h.operator??'none')===op}
                 <button
                   onclick={()=>setOperator(h.id,op)}
-                  title={op==='none' ? 'Deposit' : op==='RA' ? 'Remove Above' :
-                         op==='RAI' ? 'Remove Above (intersection)' :
-                         op==='RB' ? 'Remove Below' : 'Remove Below (intersection)'}
-                  class="hz-t-op {(h.operator??'none')===op ? 'hz-t-op-on' : ''}">
+                  title={op==='none' ? 'Deposit — conformable layer, no erosion' :
+                         op==='RA'   ? 'Remove Above — truncates ALL shallower horizons' :
+                         op==='RAI'  ? 'Remove Above Intersection — clips immediate neighbour only' :
+                         op==='RB'   ? 'Remove Below — channel/diapir cutting downward' :
+                                       'Remove Below Intersection — clips immediate deeper neighbour only'}
+                  class="hz-t-op
+                    {active && op==='none'  ? 'hz-t-op-deposit' : ''}
+                    {active && (op==='RA'||op==='RAI') ? 'hz-t-op-ra' : ''}
+                    {active && (op==='RB'||op==='RBI') ? 'hz-t-op-rb' : ''}
+                    {!active ? 'hz-t-op-off' : ''}">
                   {op==='none'?'·':op}
                 </button>
               {/each}
@@ -756,6 +763,33 @@
                  rounded hover:border-blue-500 hover:bg-blue-50">
           + Add horizon
         </button>
+
+        <!-- Operator legend -->
+        <div class="mt-3 pt-3 border-t border-gray-100">
+          <p class="text-[9px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Operator reference</p>
+          <div class="grid grid-cols-1 gap-0.5">
+            {#each [
+              ['·',   'none',  'Deposit',                      'Conformable layer — fills space between this horizon and the one above. No erosion.'],
+              ['RA',  'RA',    'Remove Above',                  'Erosional unconformity. This surface truncates ALL shallower horizons where it cuts up through them.'],
+              ['RAI', 'RAI',   'Remove Above (intersection)',   'Same as RA but only clips the immediately shallower neighbour, not all layers above.'],
+              ['RB',  'RB',    'Remove Below',                  'Channel or diapir cutting downward. This surface incises into deeper layers. The standard subtract already produces the body.'],
+              ['RBI', 'RBI',   'Remove Below (intersection)',   'Same as RB but only clips the immediately deeper neighbour.'],
+            ] as [label, opKey, name, desc]}
+              <div class="flex gap-2 items-start py-0.5">
+                <span class="w-7 flex-shrink-0 text-center text-[9px] font-bold px-1 py-0.5 rounded border
+                             {opKey === 'none' ? 'border-gray-200 text-gray-400' :
+                              opKey === 'RA' || opKey === 'RAI' ? 'border-orange-200 text-orange-600 bg-orange-50' :
+                              'border-purple-200 text-purple-600 bg-purple-50'}">
+                  {label}
+                </span>
+                <div>
+                  <span class="text-[10px] font-semibold text-gray-700">{name}</span>
+                  <span class="text-[9px] text-gray-400 ml-1">{desc}</span>
+                </div>
+              </div>
+            {/each}
+          </div>
+        </div>
 
       </div>
     {/snippet}
@@ -881,7 +915,11 @@
     color: #94a3b8;
     cursor: pointer;
     text-align: center;
+    transition: all 0.1s;
   }
-  .hz-t-op:hover { border-color: #93c5fd; color: #3b82f6; }
-  .hz-t-op-on { background: #3b82f6 !important; color: white !important; border-color: #2563eb !important; }
+  .hz-t-op-off:hover { border-color: #93c5fd; color: #3b82f6; }
+  /* Active states — colour-coded by operator type */
+  .hz-t-op-deposit { background: #f0fdf4; color: #16a34a; border-color: #86efac; }
+  .hz-t-op-ra      { background: #fff7ed; color: #ea580c; border-color: #fdba74; }
+  .hz-t-op-rb      { background: #faf5ff; color: #9333ea; border-color: #d8b4fe; }
 </style>
