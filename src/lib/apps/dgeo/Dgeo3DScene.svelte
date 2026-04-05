@@ -276,18 +276,28 @@
   $effect(() => { const g = sliceFillGeo; return () => g?.dispose(); });
 
   // ── Camera ─────────────────────────────────────────────────────────────────
-  // Look at the block from above-front-right
+  // Coordinate system: X=horizontal, Y=strike, Z=depth (0=surface, WY=deepest).
+  // "Up" in geological terms = -Z direction.
+  // Setting camera.up = [0,0,-1] makes OrbitControls rotate around the Z-axis
+  // (depth axis), so azimuth drag spins horizontally around the block — correct.
+  // Polar limits prevent flipping below the block.
   const camTarget = $derived([WX/2, strikeW/2, WY/2]);
-  const camPos    = $derived([WX*1.8, -WY*0.5, WY*0.5]);
+  // Position: right of centre (+X), in front (-Y), above the surface (-Z)
+  const camPos    = $derived([WX * 1.3, strikeW/2 - WY * 0.7, -WY * 0.55]);
 </script>
 
-<!-- Camera -->
-<T.PerspectiveCamera makeDefault fov={45} near={0.01} far={200} position={camPos}>
+<!-- Camera: up=[0,0,-1] so depth-axis (Z) is the orbit pivot -->
+<T.PerspectiveCamera makeDefault fov={50} near={0.01} far={500}
+  position={camPos} up={[0, 0, -1]}>
   <OrbitControls
     target={camTarget}
     enableDamping
     dampingFactor={0.07}
     enabled={!isDragging}
+    minPolarAngle={0.05}
+    maxPolarAngle={Math.PI * 0.72}
+    minDistance={1}
+    maxDistance={120}
   />
 </T.PerspectiveCamera>
 
