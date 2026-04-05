@@ -8,9 +8,11 @@
     domX,
     domY,
     onUpdateRails = null,
+    showSolids    = $bindable(false),
   } = $props();
 
   let strikeKm      = $state(5);
+  let solidsBuilding = $state(false);
   let editHorizonId = $state(null);
   let editRailIdx   = $state(null);
   let resetKey      = $state(0);
@@ -120,6 +122,16 @@
       </button>
     {/if}
 
+    <!-- Solidify toggle -->
+    <button
+      onclick={() => (showSolids = !showSolids)}
+      class="px-2 py-0.5 border rounded text-[10px] font-medium transition-colors
+             {showSolids
+               ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
+               : 'border-gray-200 text-gray-600 hover:bg-gray-100'}">
+      {showSolids ? '◼ Solidify ON' : '◻ Solidify'}
+    </button>
+
     <button onclick={resetView}
       class="px-2 py-0.5 border border-gray-200 rounded hover:bg-gray-100">
       ⟲ Reset
@@ -139,6 +151,7 @@
           {domX}
           {domY}
           {strikeKm}
+          {showSolids}
           bind:editHorizonId
           bind:editRailIdx
           {onUpdateRails}

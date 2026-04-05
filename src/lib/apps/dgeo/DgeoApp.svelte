@@ -7,7 +7,8 @@
   const { tab } = $props();
 
   // ── View mode ──────────────────────────────────────────────────────────────
-  let viewMode = $state('2d');  // '2d' | '3d'
+  let viewMode   = $state('2d');  // '2d' | '3d'
+  let showSolids = $state(false); // manifold solid blocks in 3D view
 
   // ── Colour palette for formations ─────────────────────────────────────────
   const FORMATION_COLOURS = [
@@ -338,6 +339,23 @@
       <span class="tb-tip">3D Block view</span>
     </div>
 
+    <!-- Solidify (3D mode only) -->
+    {#if viewMode === '3d'}
+      <div class="tb-item group">
+        <button class="tb-btn" class:tb-active={showSolids}
+          onclick={() => (showSolids = !showSolids)} aria-label="Toggle solid blocks">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 1 L14 4.5 V11.5 L8 15 L2 11.5 V4.5 Z"
+              fill={showSolids ? 'currentColor' : 'none'}
+              stroke="currentColor" stroke-width="1.4"/>
+            <path d="M8 1 L8 8 M2 4.5 L8 8 L14 4.5"
+              fill="none" stroke={showSolids ? 'white' : 'currentColor'} stroke-width="1.2"/>
+          </svg>
+        </button>
+        <span class="tb-tip">{showSolids ? 'Hide solids' : 'Solidify surfaces'}</span>
+      </div>
+    {/if}
+
     <div class="tb-sep"></div>
 
     <!-- Tools (2D mode only) -->
@@ -486,6 +504,7 @@
           domX={domX}
           domY={domY}
           {onUpdateRails}
+          bind:showSolids
         />
       </div>
 

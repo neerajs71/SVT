@@ -2,12 +2,14 @@
   import { T } from '@threlte/core';
   import { OrbitControls, interactivity } from '@threlte/extras';
   import * as THREE from 'three';
+  import { buildLayerSolids } from './manifoldSolid.js';
 
   let {
-    horizons     = [],
+    horizons      = [],
     domX,
     domY,
-    strikeKm     = 5,
+    strikeKm      = 5,
+    showSolids    = false,   // toggle manifold solid blocks
     editHorizonId = $bindable(null),
     editRailIdx   = $bindable(null),
     onUpdateRails = null,   // (horizonId, newRails) => void
@@ -126,6 +128,45 @@
   $effect(() => {
     const snap = surfaces;
     return () => { for (const s of snap) s.geo?.dispose(); };
+  });
+
+  // ── Manifold solid blocks ──────────────────────────────────────────────────
+  // Built asynchronously whenever showSolids changes or horizons/rails update.
+  let solidBlocks = $state([]);    // [{ geo, color, name, id }]
+  let solidsBuilding = $state(false);
+
+  $effect(() => {
+    // Track changes: showSolids flag + horizon rail data
+    const flag = showSolids;
+    const snap = horizons.map(h => ({ id: h.id, rails: getRails(h) }));
+
+    if (!flag) {
+      solidBlocks = [];
+      return;
+    }
+
+    const sw = strikeW; // capture reactive value
+    solidsBuilding = true;
+    buildLayerSolids({
+      horizons,
+      getRails,
+      WX, WY,
+      strikeW: sw,
+      sampleArcLength,
+      nx, ny, nz_km,
+    }).then(blocks => {
+      // Dispose old geometries
+      for (const b of solidBlocks) b.geo?.dispose();
+      solidBlocks = blocks;
+      solidsBuilding = false;
+    }).catch(e => {
+      console.error('[Dgeo3DScene] buildLayerSolids error', e);
+      solidsBuilding = false;
+    });
+
+    return () => {
+      // When effect re-runs (deps changed), old geos disposed above
+    };
   });
 
   // ── Frame ──────────────────────────────────────────────────────────────────
@@ -266,20 +307,49 @@
 <T.DirectionalLight position={[14, 10, -8]} intensity={0.55} />
 <T.DirectionalLight position={[-8, 4, 14]} intensity={0.25} />
 
-<!-- ── Formation surfaces ──────────────────────────────────────────────────── -->
-{#each surfaces as s (s.geo.uuid)}
-  <T.Mesh
-    geometry={s.geo}
-    onclick={() => { editHorizonId = s.id; editRailIdx = 0; }}
-  >
-    <T.MeshLambertMaterial
-      color={s.color}
-      transparent={true}
-      opacity={0.88}
-      side={THREE.DoubleSide}
-    />
-  </T.Mesh>
-{/each}
+<!-- ── Manifold solid blocks (when solidify is on) ─────────────────────────── -->
+{#if showSolids}
+  {#each solidBlocks as b (b.geo.uuid)}
+    <T.Mesh geometry={b.geo}>
+      <T.MeshPhongMaterial
+        color={b.color}
+        transparent={true}
+        opacity={0.82}
+        side={THREE.DoubleSide}
+        shininess={30}
+      />
+    </T.Mesh>
+    <!-- Wireframe overlay so block edges are visible -->
+    <T.Mesh geometry={b.geo}>
+      <T.MeshBasicMaterial
+        color="#1e293b"
+        wireframe={true}
+        transparent={true}
+        opacity={0.08}
+      />
+    </T.Mesh>
+  {/each}
+  {#if solidsBuilding}
+    <!-- Building indicator rendered via HTML overlay (handled in parent) -->
+  {/if}
+{/if}
+
+<!-- ── Formation surfaces (shown when NOT in solid mode) ──────────────────── -->
+{#if !showSolids}
+  {#each surfaces as s (s.geo.uuid)}
+    <T.Mesh
+      geometry={s.geo}
+      onclick={() => { editHorizonId = s.id; editRailIdx = 0; }}
+    >
+      <T.MeshLambertMaterial
+        color={s.color}
+        transparent={true}
+        opacity={0.88}
+        side={THREE.DoubleSide}
+      />
+    </T.Mesh>
+  {/each}
+{/if}
 
 <!-- ── Rail lines for selected horizon ────────────────────────────────────── -->
 {#each railLineGeos as l (l.geo.uuid)}
