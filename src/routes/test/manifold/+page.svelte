@@ -1,10 +1,8 @@
 <script>
   import { onMount } from 'svelte';
   import { Canvas, T } from '@threlte/core';
-  import { OrbitControls, interactivity } from '@threlte/extras';
+  import { OrbitControls } from '@threlte/extras';
   import * as THREE from 'three';
-
-  interactivity();
 
   // ── State ──────────────────────────────────────────────────────────────────
   let status   = $state('Loading manifold-3d WASM…');
