@@ -23,7 +23,7 @@
   } = $props();
 
   // ── Drag state ─────────────────────────────────────────────────────────────
-  let pos       = $state({ x: 40, y: 60 });
+  let pos       = $state({ x: 8, y: 60 });
   let dragging  = $state(false);
 
   function startDrag(e) {
@@ -53,7 +53,7 @@
 <div
   class="absolute z-40 rounded-xl shadow-2xl border border-gray-200 flex flex-col
          overflow-hidden select-none"
-  style="left:{pos.x}px; top:{pos.y}px; width:560px; background:white;"
+  style="left:{pos.x}px; top:{pos.y}px; width:min(560px, calc(100vw - 16px)); background:white;"
 >
 
   <!-- ── Header (drag handle) ──────────────────────────────────────────────── -->
@@ -73,7 +73,7 @@
     <span class="text-[10px] text-blue-600 font-medium">Rail Editor</span>
 
     <!-- Rail strip — select active rail without closing popup -->
-    <div class="flex gap-0.5 ml-auto items-center overflow-x-auto" style="max-width:280px">
+    <div class="flex gap-0.5 ml-auto items-center overflow-x-auto" style="max-width:min(280px, 40vw)">
       {#each allRails as r, ri}
         <button
           onclick={() => (editRailIdx = ri)}
