@@ -18,6 +18,16 @@
   let resetKey      = $state(0);
   let showPopup     = $state(false);
   let showRuler     = $state(false);
+  let showNurbs     = $state(false);   // toggle NURBS overlay + slice curve
+
+  // ── Slice plane position (world-space Y, 0 .. strikeW) ───────────────────
+  // strikeW = strikeKm / (domX.max - domX.min) * WX, where WX=10 and domX span defaults to 10
+  // We approximate here; Dgeo3DScene computes the authoritative value.
+  // Close enough for the slider max — Dgeo3DScene clamps sliceY internally.
+  const strikeW = $derived(strikeKm);   // world Y ≈ strikeKm when domX span ≈ 10
+  const sliceW2km = (wy) => wy / strikeW * strikeKm;
+  let sliceY = $state(0);
+  $effect(() => { sliceY = strikeW / 2; });          // re-centre when model resizes
 
   function resetView() { resetKey++; }
 
@@ -143,6 +153,28 @@
       📏 Ruler
     </button>
 
+    <!-- NURBS overlay toggle -->
+    <button
+      onclick={() => (showNurbs = !showNurbs)}
+      class="px-2 py-0.5 border rounded text-[10px] font-medium transition-colors
+             {showNurbs
+               ? 'bg-purple-600 text-white border-purple-700 hover:bg-purple-700'
+               : 'border-gray-200 text-gray-600 hover:bg-gray-100'}">
+      〜 NURBS
+    </button>
+
+    <!-- Slice slider (visible when NURBS on) -->
+    {#if showNurbs}
+      <label class="flex items-center gap-1.5">
+        <span class="text-gray-500">Slice:</span>
+        <input type="range" min="0" max={strikeW} step="0.05" bind:value={sliceY}
+          class="w-20 accent-purple-500"/>
+        <span class="font-mono w-12 text-gray-600">
+          {(sliceW2km(sliceY)).toFixed(1)} km
+        </span>
+      </label>
+    {/if}
+
     <button onclick={resetView}
       class="px-2 py-0.5 border border-gray-200 rounded hover:bg-gray-100">
       ⟲ Reset
@@ -164,6 +196,8 @@
           {strikeKm}
           {showSolids}
           {showRuler}
+          {showNurbs}
+          {sliceY}
           bind:editHorizonId
           bind:editRailIdx
           {onUpdateRails}

@@ -1,6 +1,8 @@
 <script>
-  import { T } from '@threlte/core';
+  import { T, useThrelte } from '@threlte/core';
   import { OrbitControls, interactivity, HTML } from '@threlte/extras';
+  import { NurbsGpgpu }   from './nurbs/nurbsGpgpu.js';
+  import { railsToNURBS } from './nurbs/railsToNURBS.js';
   import * as THREE from 'three';
   import { buildLayerSolids } from './manifoldSolid.js';
 
@@ -11,6 +13,8 @@
     strikeKm      = 5,
     showSolids    = false,
     showRuler     = false,
+    showNurbs     = false,
+    sliceY        = 0,
     editHorizonId = $bindable(null),
     editRailIdx   = $bindable(null),
     onUpdateRails = null,
@@ -339,6 +343,83 @@
     })
   );
 
+  // ── NURBS overlay (WebGL GPGPU) ───────────────────────────────────────────
+  const { renderer } = useThrelte();
+
+  let gpgpu = $state(null);
+  $effect(() => {
+    const g = new NurbsGpgpu(renderer, 40);
+    gpgpu = g;
+    return () => { g.dispose(); gpgpu = null; };
+  });
+
+  // Per-horizon NURBS cache: { geo, positions, resolution, color }
+  let nurbsCache = $state([]);
+
+  $effect(() => {
+    if (!showNurbs || !gpgpu) {
+      for (const d of nurbsCache) d?.geo?.dispose();
+      nurbsCache = [];
+      return;
+    }
+    const snap = sorted;  // reactive capture
+    const next = snap.map(h => {
+      const rails = getRails(h);
+      if (rails.length < 2) return null;
+      try {
+        const params = railsToNURBS(rails, { sampleArcLength, nX, nDepth, nStrike });
+        if (!params) return null;
+        const { positions, indices, resolution } = gpgpu.evaluate(params);
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(positions.slice(), 3));
+        geo.setIndex(new THREE.BufferAttribute(indices, 1));
+        geo.computeVertexNormals();
+        return { geo, positions, resolution, color: h.colour ?? '#c8e6c9' };
+      } catch (e) {
+        console.warn('[Dgeo3DScene] NURBS eval failed for', h.name, e);
+        return null;
+      }
+    }).filter(Boolean);
+
+    for (const d of nurbsCache) d?.geo?.dispose();
+    nurbsCache = next;
+  });
+
+  $effect(() => {
+    const snap = nurbsCache;
+    return () => { for (const d of snap) d?.geo?.dispose(); };
+  });
+
+  // Slice intersection curves — CPU extract from cached vertex grid
+  const sliceCurves = $derived.by(() => {
+    if (!showNurbs || !nurbsCache.length) return [];
+    return nurbsCache.map(nd => {
+      const { positions, resolution, color } = nd;
+      const W      = resolution + 1;
+      const sw     = strikeW;
+      const vFrac  = sw > 0 ? Math.max(0, Math.min(1, sliceY / sw)) : 0;
+      const rFloat = vFrac * resolution;
+      const r0     = Math.min(resolution - 1, Math.floor(rFloat));
+      const r1     = r0 + 1;
+      const t      = rFloat - r0;
+
+      const pts = new Float32Array(W * 3);
+      for (let c = 0; c < W; c++) {
+        const i0 = (r0 * W + c) * 3, i1 = (r1 * W + c) * 3;
+        pts[c * 3]     = positions[i0]     + t * (positions[i1]     - positions[i0]);
+        pts[c * 3 + 1] = positions[i0 + 1] + t * (positions[i1 + 1] - positions[i0 + 1]);
+        pts[c * 3 + 2] = positions[i0 + 2] + t * (positions[i1 + 2] - positions[i0 + 2]);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+      return { geo, color };
+    });
+  });
+  $effect(() => {
+    const snap = sliceCurves;
+    return () => { for (const c of snap) c?.geo?.dispose(); };
+  });
+
   // ── Camera ─────────────────────────────────────────────────────────────────
   // Coordinate system: X=horizontal, Y=strike, Z=depth (0=surface, WY=deepest).
   // "Up" in geological terms = -Z direction.
@@ -503,4 +584,41 @@
       </span>
     </HTML>
   {/each}
+{/if}
+
+<!-- ── NURBS surfaces (comparison overlay) ───────────────────────────────── -->
+{#if showNurbs}
+  {#each nurbsCache as nd (nd.geo.uuid)}
+    <!-- Solid NURBS surface at lower opacity so bilinear is still visible behind it -->
+    <T.Mesh geometry={nd.geo}>
+      <T.MeshLambertMaterial
+        color={nd.color}
+        transparent opacity={0.38}
+        side={THREE.DoubleSide}
+      />
+    </T.Mesh>
+    <!-- Wireframe helps visually distinguish NURBS from bilinear surface -->
+    <T.Mesh geometry={nd.geo}>
+      <T.MeshBasicMaterial
+        color={nd.color} wireframe transparent opacity={0.22}
+      />
+    </T.Mesh>
+  {/each}
+
+  <!-- Slice intersection curves — one per NURBS surface -->
+  {#each sliceCurves as sc (sc.geo.uuid)}
+    <T is={THREE.Line} geometry={sc.geo}>
+      <T.LineBasicMaterial color={sc.color} />
+    </T>
+  {/each}
+
+  <!-- Slice plane (purple, moves with sliceY slider) -->
+  {@const ys = Math.max(0, Math.min(strikeW, sliceY))}
+  <T.Mesh position={[WX/2, ys, WY/2]} rotation={[Math.PI/2, 0, 0]}>
+    <T.PlaneGeometry args={[WX, WY]} />
+    <T.MeshBasicMaterial
+      color="#a855f7" transparent opacity={0.07}
+      side={THREE.DoubleSide} depthWrite={false}
+    />
+  </T.Mesh>
 {/if}
