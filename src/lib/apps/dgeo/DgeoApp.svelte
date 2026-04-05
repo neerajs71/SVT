@@ -118,13 +118,13 @@
     const xL  = domX.min + (domX.max - domX.min) * 0.05;
     const xR  = domX.max - (domX.max - domX.min) * 0.05;
     horizons = [
-      { id: crypto.randomUUID(), name: 'Seabed',        colour: FORMATION_COLOURS[0], operator: 'none',
+      { id: crypto.randomUUID(), name: 'Seabed',        colour: FORMATION_COLOURS[0], operator: 'none', visible: true,
         points: [{ x: xL, y: 200 }, { x: mid, y: 220 }, { x: xR, y: 210 }] },
-      { id: crypto.randomUUID(), name: 'Top Sand A',    colour: FORMATION_COLOURS[1], operator: 'none',
+      { id: crypto.randomUUID(), name: 'Top Sand A',    colour: FORMATION_COLOURS[1], operator: 'none', visible: true,
         points: [{ x: xL, y: 800 }, { x: mid, y: 900 }, { x: xR, y: 850 }] },
-      { id: crypto.randomUUID(), name: 'Top Shale B',   colour: FORMATION_COLOURS[2], operator: 'none',
+      { id: crypto.randomUUID(), name: 'Top Shale B',   colour: FORMATION_COLOURS[2], operator: 'none', visible: true,
         points: [{ x: xL, y: 1600 }, { x: mid, y: 1700 }, { x: xR, y: 1650 }] },
-      { id: crypto.randomUUID(), name: 'Top Reservoir', colour: FORMATION_COLOURS[3], operator: 'none',
+      { id: crypto.randomUUID(), name: 'Top Reservoir', colour: FORMATION_COLOURS[3], operator: 'none', visible: true,
         points: [{ x: xL, y: 2400 }, { x: mid, y: 2500 }, { x: xR, y: 2450 }] },
     ];
     dirty = false;
@@ -194,6 +194,7 @@
       name:     `Horizon ${idx + 1}`,
       colour:   FORMATION_COLOURS[idx % FORMATION_COLOURS.length],
       operator: 'none',
+      visible:  true,
       points:   basePts,
       rails,
     };
@@ -221,6 +222,13 @@
 
   function setOperator(id, op) {
     horizons = horizons.map(h => h.id === id ? { ...h, operator: op } : h);
+    dirty = true;
+  }
+
+  function toggleVisibility(id) {
+    horizons = horizons.map(h =>
+      h.id === id ? { ...h, visible: !(h.visible ?? true) } : h
+    );
     dirty = true;
   }
 
@@ -704,6 +712,7 @@
         <div class="hz-tbl-head">
           <span style="width:22px"></span>
           <span style="width:16px"></span>
+          <span style="width:16px"></span>
           <span class="flex-1">Name</span>
           <span style="width:58px" class="text-center">Depth (m)</span>
           <span style="width:112px" class="text-center">Operator</span>
@@ -733,6 +742,21 @@
               onclick={e=>e.stopPropagation()}
               style="width:16px;height:16px;appearance:none;-webkit-appearance:none"
               class="rounded border-0 p-0 cursor-pointer flex-shrink-0"/>
+
+            <!-- Visibility toggle -->
+            <button style="width:16px" title={(h.visible??true) ? 'Hide surface' : 'Show surface'}
+              onclick={e=>{e.stopPropagation();toggleVisibility(h.id)}}
+              class="text-center leading-none flex-shrink-0 {(h.visible??true) ? 'text-blue-400' : 'text-gray-300'}">
+              {#if (h.visible ?? true)}
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 3C4.5 3 1.5 5.5 0 8c1.5 2.5 4.5 5 8 5s6.5-2.5 8-5c-1.5-2.5-4.5-5-8-5zm0 8a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/>
+                </svg>
+              {:else}
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M2 2l12 12M8 3C4.5 3 1.5 5.5 0 8c.7 1.2 1.8 2.3 3 3.1L2 2zm3 .4A7.8 7.8 0 0 1 8 3c3.5 0 6.5 2.5 8 5a8.3 8.3 0 0 1-3 3.1L11 3.4zM5.5 5.5a3 3 0 0 0 4.1 4.1L5.5 5.5z"/>
+                </svg>
+              {/if}
+            </button>
 
             <!-- Name -->
             <input type="text" value={h.name}

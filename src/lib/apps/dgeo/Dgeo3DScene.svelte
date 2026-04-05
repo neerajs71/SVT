@@ -144,13 +144,15 @@
     })
   );
 
-  // ── Derived: surface meshes for all horizons ───────────────────────────────
+  // ── Derived: surface meshes for visible horizons ───────────────────────────
   const surfaces = $derived.by(() => {
-    return sorted.map((h, i) => {
-      const rails = getRails(h);
-      const geo = buildGridGeo(rails);
-      return geo ? { geo, color: h.colour ?? '#c8e6c9', id: h.id, name: h.name } : null;
-    }).filter(Boolean);
+    return sorted
+      .filter(h => h.visible !== false)
+      .map((h, i) => {
+        const rails = getRails(h);
+        const geo = buildGridGeo(rails);
+        return geo ? { geo, color: h.colour ?? '#c8e6c9', id: h.id, name: h.name } : null;
+      }).filter(Boolean);
   });
   $effect(() => {
     const snap = surfaces;
@@ -388,6 +390,7 @@
 
     (async () => {
       const next = await Promise.all(snap.map(async h => {
+        if (h.visible === false) return null;
         const rails = getRails(h);
         if (rails.length < 2) return null;
         const params = railsToNURBS(rails, { sampleArcLength, nX, nDepth, nStrike });
@@ -486,19 +489,22 @@
 <!-- ── Manifold solid blocks ──────────────────────────────────────────────── -->
 {#if showSolids}
   {#each solidBlocks as b (b.geo.uuid)}
-    <T.Mesh geometry={b.geo}>
-      <T.MeshPhongMaterial
-        color={b.color}
-        transparent opacity={0.82}
-        side={THREE.DoubleSide}
-        shininess={30}
-      />
-    </T.Mesh>
-    <T.Mesh geometry={b.geo}>
-      <T.MeshBasicMaterial
-        color="#1e293b" wireframe transparent opacity={0.08}
-      />
-    </T.Mesh>
+    {@const hz = horizons.find(h => h.id === b.id)}
+    {#if hz?.visible !== false}
+      <T.Mesh geometry={b.geo}>
+        <T.MeshPhongMaterial
+          color={b.color}
+          transparent opacity={0.82}
+          side={THREE.DoubleSide}
+          shininess={30}
+        />
+      </T.Mesh>
+      <T.Mesh geometry={b.geo}>
+        <T.MeshBasicMaterial
+          color="#1e293b" wireframe transparent opacity={0.08}
+        />
+      </T.Mesh>
+    {/if}
   {/each}
 {/if}
 
