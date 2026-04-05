@@ -101,8 +101,9 @@
   <!-- 3D canvas -->
   <div style="flex:1;min-height:0">
     <Canvas>
-      <T.PerspectiveCamera makeDefault position={[6, -3, 4]} fov={45} />
-      <OrbitControls enableDamping dampingFactor={0.07} target={[2, 1.5, 1]} />
+      <T.PerspectiveCamera makeDefault position={[6, -3, 4]} fov={45}>
+        <OrbitControls enableDamping dampingFactor={0.07} target={[2, 1.5, 1]} />
+      </T.PerspectiveCamera>
 
       <T.AmbientLight intensity={0.5} />
       <T.DirectionalLight position={[8, -5, 10]} intensity={0.8} />
