@@ -285,291 +285,441 @@
   );
 </script>
 
-<div class="flex h-full overflow-hidden bg-gray-50 text-sm">
+<div class="flex h-full overflow-hidden bg-white text-sm">
 
-  <!-- ── Left toolbar ───────────────────────────────────────────────────── -->
-  <div class="w-52 flex-shrink-0 border-r border-gray-200 flex flex-col bg-white">
+  <!-- ── Narrow icon toolbar (TplApp pattern) ─────────────────────────────── -->
+  <div class="tb-dgeo">
 
-    <!-- Header -->
-    <div class="px-3 py-2 border-b border-gray-200">
-      <div class="text-xs font-bold text-gray-700 uppercase tracking-wide">Geological Cross-Section</div>
-      <div class="text-[0.6rem] text-gray-400 truncate mt-0.5">{tab.name}</div>
-      <!-- 2D / 3D toggle -->
-      <div class="flex gap-0.5 mt-1.5">
-        {#each [['2d','2D'],['3d','3D']] as [v, label]}
-          <button
-            onclick={() => viewMode = v}
-            class="flex-1 text-[10px] font-semibold py-0.5 rounded transition-colors
-                   {viewMode === v
-                     ? 'bg-blue-600 text-white'
-                     : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}">
-            {label}
-          </button>
-        {/each}
-      </div>
+    <!-- Save -->
+    <div class="tb-item group">
+      <button class="tb-btn" class:tb-active={dirty} onclick={saveFile} aria-label="Save">
+        {#if dirty}<span class="dirty-dot"></span>{/if}
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2" y="2" width="12" height="12" rx="1.5"/>
+          <rect x="5" y="2" width="6" height="4" rx="0.5" fill="currentColor" stroke="none"/>
+          <rect x="4.5" y="9" width="7" height="5" rx="0.75"/>
+        </svg>
+      </button>
+      <span class="tb-tip">{tab.handle ? 'Save to disk' : 'Download'}</span>
     </div>
 
-    <!-- Tools -->
-    <div class="px-3 py-2 border-b border-gray-200">
-      <div class="text-[0.6rem] text-gray-400 uppercase mb-1.5">Tool</div>
-      <div class="flex flex-col gap-0.5">
-        {#each [['select','Select / Move','↖'],['add-point','Add Point','+'],['delete','Delete Point','✕']] as [t, label, icon]}
-          <button
-            onclick={() => tool = t}
-            class="flex items-center gap-1.5 text-xs px-2 py-1 rounded border transition-colors
-                   {tool === t
-                     ? 'bg-blue-600 text-white border-blue-600'
-                     : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'}">
-            <span class="w-4 text-center font-mono">{icon}</span>
-            {label}
-          </button>
-        {/each}
-      </div>
+    <!-- Download copy -->
+    <div class="tb-item group">
+      <button class="tb-btn" onclick={downloadFile} aria-label="Download copy">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M3 14h10M8 2v8M5 7l3 4 3-4"/>
+        </svg>
+      </button>
+      <span class="tb-tip">Download copy</span>
     </div>
 
-    <!-- Horizons list -->
-    <div class="flex-1 overflow-y-auto">
-      <div class="flex items-center justify-between px-3 pt-2 pb-1">
-        <div class="text-[0.6rem] text-gray-400 uppercase">Horizons</div>
-        <button
-          onclick={addHorizon}
-          class="text-[0.65rem] text-blue-600 hover:text-blue-800 font-medium">+ Add</button>
+    <div class="tb-sep"></div>
+
+    <!-- 2D view -->
+    <div class="tb-item group">
+      <button class="tb-btn" class:tb-active={viewMode==='2d'} onclick={() => viewMode='2d'} aria-label="2D cross-section">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2" y="3" width="12" height="10" rx="1"/>
+          <path d="M2 7 q3-2 6 0 q3 2 6 0" stroke-dasharray="2 1.2"/>
+          <path d="M2 10.5 q3-1.5 6 0 q3 1.5 6 0" stroke-dasharray="2 1.2"/>
+        </svg>
+      </button>
+      <span class="tb-tip">2D Cross-section</span>
+    </div>
+
+    <!-- 3D view -->
+    <div class="tb-item group">
+      <button class="tb-btn" class:tb-active={viewMode==='3d'} onclick={() => viewMode='3d'} aria-label="3D block view">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M8 2 L14 5.5 V11 L8 14.5 L2 11 V5.5 Z"/>
+          <path d="M8 2 V8.5 M2 5.5 L8 8.5 L14 5.5"/>
+        </svg>
+      </button>
+      <span class="tb-tip">3D Block view</span>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <!-- Tools (2D mode only) -->
+    {#if viewMode === '2d'}
+      <div class="tb-item group">
+        <button class="tb-btn" class:tb-active={tool==='select'}
+          onclick={() => tool='select'} aria-label="Select / Move">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M3 2 L3 12 L6 9 L8 14 L10 13 L8 8 L12 8 Z" fill="currentColor" stroke="none" opacity="0.7"/>
+          </svg>
+        </button>
+        <span class="tb-tip">Select / Move</span>
       </div>
+
+      <div class="tb-item group">
+        <button class="tb-btn" class:tb-active={tool==='add-point'}
+          onclick={() => tool='add-point'} aria-label="Add point">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="8" cy="8" r="5.5"/>
+            <line x1="8" y1="5" x2="8" y2="11"/><line x1="5" y1="8" x2="11" y2="8"/>
+          </svg>
+        </button>
+        <span class="tb-tip">Add point</span>
+      </div>
+
+      <div class="tb-item group">
+        <button class="tb-btn" class:tb-active={tool==='delete'}
+          onclick={() => tool='delete'} aria-label="Delete point">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="8" cy="8" r="5.5"/>
+            <line x1="5.5" y1="5.5" x2="10.5" y2="10.5"/><line x1="10.5" y1="5.5" x2="5.5" y2="10.5"/>
+          </svg>
+        </button>
+        <span class="tb-tip">Delete point</span>
+      </div>
+
+      <div class="tb-sep"></div>
+    {/if}
+
+    <!-- Add horizon -->
+    <div class="tb-item group">
+      <button class="tb-btn" onclick={addHorizon} aria-label="Add horizon">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M2 10 q3-2.5 6 0 q3 2.5 6 0"/>
+          <path d="M2 6 q3-2.5 6 0 q3 2.5 6 0" opacity="0.4"/>
+          <line x1="8" y1="1" x2="8" y2="4"/><line x1="6.5" y1="2.5" x2="9.5" y2="2.5"/>
+        </svg>
+      </button>
+      <span class="tb-tip">Add horizon</span>
+    </div>
+
+    <!-- Reset -->
+    <div class="tb-item group">
+      <button class="tb-btn" onclick={initDefault} aria-label="Reset to default">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M3 8 A5 5 0 1 1 5.5 12.5"/>
+          <polyline points="2,6 3,9 6,8"/>
+        </svg>
+      </button>
+      <span class="tb-tip">Reset to default</span>
+    </div>
+
+    <!-- Error indicator -->
+    {#if loadErr || saveErr}
+      <div class="tb-item group mt-auto">
+        <button class="tb-btn" style="color:#ef4444"
+          onclick={() => { loadErr=''; saveErr=''; }}
+          aria-label="Clear errors">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M8 2 L14.5 13.5 H1.5 Z"/>
+            <line x1="8" y1="6.5" x2="8" y2="9.5"/><circle cx="8" cy="11.5" r="0.6" fill="currentColor"/>
+          </svg>
+        </button>
+        <span class="tb-tip">{loadErr || saveErr} — click to clear</span>
+      </div>
+    {/if}
+
+  </div><!-- /toolbar -->
+
+  <!-- ── Main canvas area ────────────────────────────────────────────────── -->
+  <div class="flex-1 overflow-hidden flex flex-col min-h-0">
+
+    <!-- Horizon strip (thin, scrollable horizontal list) -->
+    <div class="flex items-center gap-1 px-2 py-1 border-b border-gray-100 bg-gray-50 overflow-x-auto flex-shrink-0"
+         style="min-height:30px">
+      <span class="text-[9px] text-gray-400 uppercase tracking-wide flex-shrink-0 mr-0.5">Horizons</span>
 
       {#each sortedHorizons as h (h.id)}
         <div
           role="button" tabindex="0"
           onclick={() => { activeId = h.id; }}
           onkeydown={e => e.key === 'Enter' && (activeId = h.id)}
-          class="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer transition-colors
-                 {activeId === h.id ? 'bg-blue-50 border-l-2 border-blue-500' : 'hover:bg-gray-50 border-l-2 border-transparent'}">
+          class="flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer flex-shrink-0 transition-colors
+                 {activeId === h.id
+                   ? 'border-blue-500 bg-blue-50'
+                   : 'border-gray-200 bg-white hover:border-gray-300'}">
           <!-- Colour swatch -->
           <input type="color" value={h.colour}
             oninput={e => recolourHorizon(h.id, e.target.value)}
-            class="w-4 h-4 rounded cursor-pointer border-0 p-0 flex-shrink-0"
+            class="w-3 h-3 rounded-sm cursor-pointer border-0 p-0 flex-shrink-0"
+            style="appearance:none;-webkit-appearance:none;background:none"
             onclick={e => e.stopPropagation()}/>
 
-          <!-- Name (double-click to edit) -->
+          <!-- Name (dblclick to edit) -->
           {#if editingName === h.id}
             <input type="text" value={h.name} autofocus
-              class="flex-1 text-xs border border-blue-400 rounded px-1 py-0"
+              class="text-[10px] border border-blue-400 rounded px-0.5 w-20"
               onblur={e => { renameHorizon(h.id, e.target.value); editingName = null; }}
               onkeydown={e => { if (e.key === 'Enter') { renameHorizon(h.id, e.target.value); editingName = null; } }}
               onclick={e => e.stopPropagation()}/>
           {:else}
-            <span
-              class="flex-1 text-xs text-gray-700 truncate"
+            <span class="text-[10px] text-gray-700 max-w-[80px] truncate"
               ondblclick={e => { e.stopPropagation(); editingName = h.id; }}>
               {h.name}
             </span>
           {/if}
 
+          <!-- Delete -->
           <button
             onclick={e => { e.stopPropagation(); deleteHorizon(h.id); }}
-            class="text-gray-300 hover:text-red-500 text-xs ml-auto flex-shrink-0">✕</button>
+            class="text-gray-300 hover:text-red-500 text-[9px] leading-none ml-0.5 flex-shrink-0">✕</button>
         </div>
       {/each}
-    </div>
 
-    <!-- Bottom actions -->
-    <div class="p-3 border-t border-gray-200 flex flex-col gap-1.5">
-      {#if loadErr}<p class="text-[0.6rem] text-red-500">{loadErr}</p>{/if}
-      {#if saveErr}<p class="text-[0.6rem] text-red-500 cursor-pointer" onclick={() => saveErr = ''}>{saveErr} ✕</p>{/if}
+      <!-- Add horizon shortcut -->
       <button
-        onclick={saveFile}
-        class="w-full text-xs rounded py-1.5 font-medium transition-colors
-               {dirty ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-600'}">
-        {tab.handle ? (dirty ? '● Save' : 'Saved') : (dirty ? '● Download' : 'Download')}
+        onclick={addHorizon}
+        class="px-1.5 py-0.5 text-[10px] text-blue-600 border border-dashed border-blue-300
+               rounded hover:border-blue-500 flex-shrink-0">
+        + Add
       </button>
-      <button
-        onclick={downloadFile}
-        class="w-full text-xs border border-gray-200 text-gray-500 rounded py-1 hover:bg-gray-50">
-        ⬇ Download copy
-      </button>
-      <button
-        onclick={initDefault}
-        class="w-full text-xs border border-gray-200 text-gray-500 rounded py-1 hover:bg-gray-50">
-        Reset to default
-      </button>
-    </div>
-  </div>
 
-  <!-- ── Right: canvas area ───────────────────────────────────────────── -->
-  <div class="flex-1 overflow-auto bg-white flex flex-col" class:overflow-hidden={viewMode === '3d'}>
-
-    <!-- 3D block view -->
-    {#if viewMode === '3d'}
-      <Dgeo3DView
-        horizons={sortedHorizons}
-        domX={domX}
-        domY={domY}
-        {onUpdateRails}
-      />
-    {/if}
-
-    <!-- 2D SVG canvas (hidden in 3D mode) -->
-    <div class="contents" class:hidden={viewMode === '3d'}>
-
-    <!-- Domain controls -->
-    <div class="flex items-center gap-4 px-4 py-1.5 border-b border-gray-100 bg-gray-50 text-xs text-gray-500 flex-shrink-0">
-      <span class="font-medium text-gray-600">Domain</span>
-      <span>X:</span>
-      <input type="number" class="w-14 border border-gray-200 rounded px-1 py-0" value={domX.min}
-        onchange={e => { domX = { ...domX, min: +e.target.value }; }}/>
-      <span>–</span>
-      <input type="number" class="w-14 border border-gray-200 rounded px-1 py-0" value={domX.max}
-        onchange={e => { domX = { ...domX, max: +e.target.value }; }}/>
-      <span class="text-gray-400">km</span>
-      <span class="ml-2">Depth:</span>
-      <input type="number" class="w-16 border border-gray-200 rounded px-1 py-0" value={domY.min}
-        onchange={e => { domY = { ...domY, min: +e.target.value }; }}/>
-      <span>–</span>
-      <input type="number" class="w-16 border border-gray-200 rounded px-1 py-0" value={domY.max}
-        onchange={e => { domY = { ...domY, max: +e.target.value }; }}/>
-      <span class="text-gray-400">m</span>
+      <!-- Spacer + active horizon info -->
       {#if activeHorizon}
-        <span class="ml-4 text-blue-600 font-medium">{activeHorizon.name}</span>
-        <span class="text-gray-400">{activeHorizon.points.length} pts</span>
+        <span class="ml-auto text-[9px] text-blue-600 font-medium flex-shrink-0 pl-2">
+          {activeHorizon.name} · {activeHorizon.points.length} pts
+        </span>
       {/if}
     </div>
 
-    <div class="flex-1 overflow-auto p-4">
-      <svg
-        bind:this={svgRef}
-        width={W} height={H}
-        viewBox="0 0 {W} {H}"
-        style="display:block; font-family:sans-serif; cursor:{cursor}; max-width:100%; height:auto;"
-        onclick={onSvgClick}
-        onmousemove={onSvgMouseMove}
-        onmouseup={onSvgMouseUp}>
+    <!-- ── 3D block view ────────────────────────────────────────────────────── -->
+    {#if viewMode === '3d'}
+      <div class="flex-1 overflow-hidden min-h-0">
+        <Dgeo3DView
+          horizons={sortedHorizons}
+          domX={domX}
+          domY={domY}
+          {onUpdateRails}
+        />
+      </div>
 
-        <!-- Background -->
-        <rect x={PAD} y={PAD/2} width={CHART_W} height={CHART_H} fill="#f0f4ff" stroke="#d1d5db" stroke-width="1"/>
+    {:else}
+    <!-- ── 2D SVG canvas ───────────────────────────────────────────────────── -->
 
-        <!-- Formation bands (between consecutive sorted horizons) -->
-        {#each sortedHorizons as h, i (h.id)}
-          {#if i < sortedHorizons.length - 1}
-            {@const nextH = sortedHorizons[i + 1]}
-            <polygon
-              points={bandPath(h, nextH)}
-              fill={nextH.colour}
-              opacity="0.7"/>
-          {/if}
-        {/each}
+      <!-- Compact domain bar -->
+      <div class="flex items-center gap-2 px-3 py-1 border-b border-gray-100 bg-white text-[10px] text-gray-500 flex-shrink-0 flex-wrap">
+        <span class="font-medium text-gray-600">Domain</span>
+        <span>X:</span>
+        <input type="number" class="w-12 border border-gray-200 rounded px-1 py-0 text-[10px]" value={domX.min}
+          onchange={e => { domX = { ...domX, min: +e.target.value }; }}/>
+        <span>–</span>
+        <input type="number" class="w-12 border border-gray-200 rounded px-1 py-0 text-[10px]" value={domX.max}
+          onchange={e => { domX = { ...domX, max: +e.target.value }; }}/>
+        <span class="text-gray-400">km</span>
+        <span class="ml-2">Depth:</span>
+        <input type="number" class="w-14 border border-gray-200 rounded px-1 py-0 text-[10px]" value={domY.min}
+          onchange={e => { domY = { ...domY, min: +e.target.value }; }}/>
+        <span>–</span>
+        <input type="number" class="w-14 border border-gray-200 rounded px-1 py-0 text-[10px]" value={domY.max}
+          onchange={e => { domY = { ...domY, max: +e.target.value }; }}/>
+        <span class="text-gray-400">m</span>
+      </div>
 
-        <!-- Top fill (surface to first horizon) -->
-        {#if sortedHorizons.length > 0}
-          {@const first = sortedHorizons[0]}
-          {@const pts = [...first.points].sort((a, b) => a.x - b.x)}
-          <polygon
-            points={[
-              `${PAD},${PAD/2}`,
-              `${PAD + CHART_W},${PAD/2}`,
-              `${PAD + CHART_W},${toSvgY(pts[pts.length-1].y).toFixed(1)}`,
-              ...pts.map(p => `${toSvgX(p.x).toFixed(1)},${toSvgY(p.y).toFixed(1)}`).reverse(),
-              `${PAD},${toSvgY(pts[0].y).toFixed(1)}`,
-            ].join(' ')}
-            fill={sortedHorizons[0].colour}
-            opacity="0.4"/>
-        {/if}
+      <div class="flex-1 overflow-auto p-2">
+        <svg
+          bind:this={svgRef}
+          width={W} height={H}
+          viewBox="0 0 {W} {H}"
+          style="display:block; font-family:sans-serif; cursor:{cursor}; max-width:100%; height:auto;"
+          onclick={onSvgClick}
+          onmousemove={onSvgMouseMove}
+          onmouseup={onSvgMouseUp}>
 
-        <!-- Bottom fill (last horizon to bottom) -->
-        {#if sortedHorizons.length > 0}
-          {@const last = sortedHorizons[sortedHorizons.length - 1]}
-          {@const pts = [...last.points].sort((a, b) => a.x - b.x)}
-          <polygon
-            points={[
-              `${PAD},${toSvgY(pts[0].y).toFixed(1)}`,
-              ...pts.map(p => `${toSvgX(p.x).toFixed(1)},${toSvgY(p.y).toFixed(1)}`),
-              `${PAD + CHART_W},${toSvgY(pts[pts.length-1].y).toFixed(1)}`,
-              `${PAD + CHART_W},${PAD/2 + CHART_H}`,
-              `${PAD},${PAD/2 + CHART_H}`,
-            ].join(' ')}
-            fill={FORMATION_COLOURS[(sortedHorizons.length) % FORMATION_COLOURS.length]}
-            opacity="0.5"/>
-        {/if}
+          <!-- Background -->
+          <rect x={PAD} y={PAD/2} width={CHART_W} height={CHART_H} fill="#f0f4ff" stroke="#d1d5db" stroke-width="1"/>
 
-        <!-- Grid lines -->
-        {#each xTicks as t}
-          <line x1={t.sx} y1={PAD/2} x2={t.sx} y2={PAD/2 + CHART_H} stroke="#c7d2fe" stroke-width="0.5" stroke-dasharray="4,4"/>
-        {/each}
-        {#each yTicks as t}
-          <line x1={PAD} y1={t.sy} x2={PAD + CHART_W} y2={t.sy} stroke="#c7d2fe" stroke-width="0.5" stroke-dasharray="4,4"/>
-        {/each}
-
-        <!-- Horizon lines + points -->
-        {#each horizons as h (h.id)}
-          {@const sorted = [...h.points].sort((a, b) => a.x - b.x)}
-          {@const isActive = activeId === h.id}
-
-          <!-- Line -->
-          {#if sorted.length >= 2}
-            <polyline
-              points={polyStr(h)}
-              fill="none"
-              stroke={h.colour}
-              stroke-width={isActive ? 3 : 2}
-              stroke-linejoin="round"
-              stroke-linecap="round"
-              style="filter: {isActive ? 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))' : 'none'}"/>
-            <!-- Dark border for visibility -->
-            <polyline
-              points={polyStr(h)}
-              fill="none"
-              stroke="#374151"
-              stroke-width={isActive ? 1.5 : 0.5}
-              opacity="0.5"
-              stroke-linejoin="round"
-              stroke-linecap="round"/>
-          {/if}
-
-          <!-- Horizon label at rightmost point -->
-          {#if sorted.length > 0}
-            {@const lastPt = sorted[sorted.length - 1]}
-            <text
-              x={toSvgX(lastPt.x) + 5}
-              y={toSvgY(lastPt.y) + 4}
-              font-size="10"
-              font-weight={isActive ? 'bold' : 'normal'}
-              fill={isActive ? '#1d4ed8' : '#374151'}>
-              {h.name}
-            </text>
-          {/if}
-
-          <!-- Control points -->
-          {#each h.points as pt, i}
-            <circle
-              cx={toSvgX(pt.x)}
-              cy={toSvgY(pt.y)}
-              r={isActive ? 6 : 4}
-              fill={isActive ? 'white' : h.colour}
-              stroke={isActive ? h.colour : '#374151'}
-              stroke-width={isActive ? 2 : 0.5}
-              style="cursor:{tool === 'select' ? 'grab' : tool === 'delete' ? 'not-allowed' : 'crosshair'}"
-              onmousedown={e => onPointMouseDown(e, h.id, i)}
-              onclick={e => onPointClick(e, h.id, i)}/>
+          <!-- Formation bands (between consecutive sorted horizons) -->
+          {#each sortedHorizons as h, i (h.id)}
+            {#if i < sortedHorizons.length - 1}
+              {@const nextH = sortedHorizons[i + 1]}
+              <polygon
+                points={bandPath(h, nextH)}
+                fill={nextH.colour}
+                opacity="0.7"/>
+            {/if}
           {/each}
-        {/each}
 
-        <!-- X-axis -->
-        {#each xTicks as t}
-          <line x1={t.sx} y1={PAD/2 + CHART_H} x2={t.sx} y2={PAD/2 + CHART_H + 4} stroke="#6b7280" stroke-width="1"/>
-          <text x={t.sx} y={PAD/2 + CHART_H + 14} text-anchor="middle" font-size="9" fill="#6b7280">{t.v.toFixed(1)}</text>
-        {/each}
-        <text x={PAD + CHART_W / 2} y={H - 4} text-anchor="middle" font-size="10" fill="#6b7280">Distance (km)</text>
+          <!-- Top fill (surface to first horizon) -->
+          {#if sortedHorizons.length > 0}
+            {@const first = sortedHorizons[0]}
+            {@const pts = [...first.points].sort((a, b) => a.x - b.x)}
+            <polygon
+              points={[
+                `${PAD},${PAD/2}`,
+                `${PAD + CHART_W},${PAD/2}`,
+                `${PAD + CHART_W},${toSvgY(pts[pts.length-1].y).toFixed(1)}`,
+                ...pts.map(p => `${toSvgX(p.x).toFixed(1)},${toSvgY(p.y).toFixed(1)}`).reverse(),
+                `${PAD},${toSvgY(pts[0].y).toFixed(1)}`,
+              ].join(' ')}
+              fill={sortedHorizons[0].colour}
+              opacity="0.4"/>
+          {/if}
 
-        <!-- Y-axis (depth) -->
-        {#each yTicks as t}
-          <line x1={PAD - 4} y1={t.sy} x2={PAD} y2={t.sy} stroke="#6b7280" stroke-width="1"/>
-          <text x={PAD - 7} y={t.sy + 3} text-anchor="end" font-size="9" fill="#6b7280">{Math.round(t.v)}</text>
-        {/each}
-        <text x="12" y={PAD/2 + CHART_H/2} text-anchor="middle" font-size="10" fill="#6b7280"
-          transform="rotate(-90 12 {PAD/2 + CHART_H/2})">Depth (m)</text>
+          <!-- Bottom fill (last horizon to bottom) -->
+          {#if sortedHorizons.length > 0}
+            {@const last = sortedHorizons[sortedHorizons.length - 1]}
+            {@const pts = [...last.points].sort((a, b) => a.x - b.x)}
+            <polygon
+              points={[
+                `${PAD},${toSvgY(pts[0].y).toFixed(1)}`,
+                ...pts.map(p => `${toSvgX(p.x).toFixed(1)},${toSvgY(p.y).toFixed(1)}`),
+                `${PAD + CHART_W},${toSvgY(pts[pts.length-1].y).toFixed(1)}`,
+                `${PAD + CHART_W},${PAD/2 + CHART_H}`,
+                `${PAD},${PAD/2 + CHART_H}`,
+              ].join(' ')}
+              fill={FORMATION_COLOURS[(sortedHorizons.length) % FORMATION_COLOURS.length]}
+              opacity="0.5"/>
+          {/if}
 
-        <!-- Border -->
-        <rect x={PAD} y={PAD/2} width={CHART_W} height={CHART_H} fill="none" stroke="#9ca3af" stroke-width="1"/>
-      </svg>
-    </div>
-    </div> <!-- end 2D wrapper -->
-  </div>
+          <!-- Grid lines -->
+          {#each xTicks as t}
+            <line x1={t.sx} y1={PAD/2} x2={t.sx} y2={PAD/2 + CHART_H} stroke="#c7d2fe" stroke-width="0.5" stroke-dasharray="4,4"/>
+          {/each}
+          {#each yTicks as t}
+            <line x1={PAD} y1={t.sy} x2={PAD + CHART_W} y2={t.sy} stroke="#c7d2fe" stroke-width="0.5" stroke-dasharray="4,4"/>
+          {/each}
+
+          <!-- Horizon lines + points -->
+          {#each horizons as h (h.id)}
+            {@const sorted = [...h.points].sort((a, b) => a.x - b.x)}
+            {@const isActive = activeId === h.id}
+
+            {#if sorted.length >= 2}
+              <polyline
+                points={polyStr(h)}
+                fill="none"
+                stroke={h.colour}
+                stroke-width={isActive ? 3 : 2}
+                stroke-linejoin="round"
+                stroke-linecap="round"
+                style="filter: {isActive ? 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))' : 'none'}"/>
+              <polyline
+                points={polyStr(h)}
+                fill="none"
+                stroke="#374151"
+                stroke-width={isActive ? 1.5 : 0.5}
+                opacity="0.5"
+                stroke-linejoin="round"
+                stroke-linecap="round"/>
+            {/if}
+
+            {#if sorted.length > 0}
+              {@const lastPt = sorted[sorted.length - 1]}
+              <text
+                x={toSvgX(lastPt.x) + 5}
+                y={toSvgY(lastPt.y) + 4}
+                font-size="10"
+                font-weight={isActive ? 'bold' : 'normal'}
+                fill={isActive ? '#1d4ed8' : '#374151'}>
+                {h.name}
+              </text>
+            {/if}
+
+            {#each h.points as pt, i}
+              <circle
+                cx={toSvgX(pt.x)}
+                cy={toSvgY(pt.y)}
+                r={isActive ? 6 : 4}
+                fill={isActive ? 'white' : h.colour}
+                stroke={isActive ? h.colour : '#374151'}
+                stroke-width={isActive ? 2 : 0.5}
+                style="cursor:{tool === 'select' ? 'grab' : tool === 'delete' ? 'not-allowed' : 'crosshair'}"
+                onmousedown={e => onPointMouseDown(e, h.id, i)}
+                onclick={e => onPointClick(e, h.id, i)}/>
+            {/each}
+          {/each}
+
+          <!-- X-axis -->
+          {#each xTicks as t}
+            <line x1={t.sx} y1={PAD/2 + CHART_H} x2={t.sx} y2={PAD/2 + CHART_H + 4} stroke="#6b7280" stroke-width="1"/>
+            <text x={t.sx} y={PAD/2 + CHART_H + 14} text-anchor="middle" font-size="9" fill="#6b7280">{t.v.toFixed(1)}</text>
+          {/each}
+          <text x={PAD + CHART_W / 2} y={H - 4} text-anchor="middle" font-size="10" fill="#6b7280">Distance (km)</text>
+
+          <!-- Y-axis (depth) -->
+          {#each yTicks as t}
+            <line x1={PAD - 4} y1={t.sy} x2={PAD} y2={t.sy} stroke="#6b7280" stroke-width="1"/>
+            <text x={PAD - 7} y={t.sy + 3} text-anchor="end" font-size="9" fill="#6b7280">{Math.round(t.v)}</text>
+          {/each}
+          <text x="12" y={PAD/2 + CHART_H/2} text-anchor="middle" font-size="10" fill="#6b7280"
+            transform="rotate(-90 12 {PAD/2 + CHART_H/2})">Depth (m)</text>
+
+          <!-- Border -->
+          <rect x={PAD} y={PAD/2} width={CHART_W} height={CHART_H} fill="none" stroke="#9ca3af" stroke-width="1"/>
+        </svg>
+      </div>
+    {/if}
+
+  </div><!-- /canvas area -->
 </div>
+
+<style>
+  .tb-dgeo {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 2px;
+    background: #ffffff;
+    border-right: 1px solid #e2e8f0;
+    width: 30px;
+    flex-shrink: 0;
+  }
+  .tb-item {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .tb-btn {
+    position: relative;
+    background: none;
+    border: none;
+    color: #64748b;
+    width: 26px;
+    height: 26px;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .tb-btn:hover  { background: #f1f5f9; color: #1e293b; }
+  .tb-btn.tb-active { background: #dbeafe; color: #2563eb; }
+  .tb-sep {
+    width: 18px;
+    height: 1px;
+    background: #e2e8f0;
+    margin: 2px 0;
+  }
+  .tb-tip {
+    display: none;
+    position: absolute;
+    left: 32px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #1e293b;
+    color: #fff;
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+    z-index: 999;
+    pointer-events: none;
+  }
+  .tb-tip::before {
+    content: '';
+    position: absolute;
+    right: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    border: 4px solid transparent;
+    border-right-color: #1e293b;
+  }
+  .tb-item:hover .tb-tip { display: block; }
+  .dirty-dot {
+    position: absolute;
+    top: 2px; right: 2px;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #f97316;
+    pointer-events: none;
+  }
+</style>
