@@ -20,10 +20,12 @@
   ];
 
   // ── State ─────────────────────────────────────────────────────────────────
-  let horizons = $state([]);      // [{ id, name, colour, operator, points: [{x,y}] }]
-  let dirty    = $state(false);
-  let loadErr  = $state('');
-  let saveErr  = $state('');
+  let horizons         = $state([]);      // [{ id, name, colour, operator, points, rails }]
+  let dirty            = $state(false);
+  let loadErr          = $state('');
+  let saveErr          = $state('');
+  let strikeKm         = $state(5);       // bound to Dgeo3DView
+  let defaultRailCount = $state(10);      // bound to Dgeo3DView
 
   $effect(() => { tabStore.setDirty(tab.id, dirty); });
 
@@ -173,17 +175,27 @@
 
   // ── Horizon management ────────────────────────────────────────────────────
   function addHorizon() {
-    const idx = horizons.length;
+    const idx   = horizons.length;
     const depth = domY.min + (domY.max - domY.min) * ((idx + 1) / (horizons.length + 2));
-    const xL  = domX.min + (domX.max - domX.min) * 0.05;
-    const xR  = domX.max - (domX.max - domX.min) * 0.05;
-    const xMid = (domX.min + domX.max) / 2;
+    const xL    = domX.min + (domX.max - domX.min) * 0.05;
+    const xR    = domX.max - (domX.max - domX.min) * 0.05;
+    const xMid  = (domX.min + domX.max) / 2;
+    const basePts = [{ x: xL, y: depth }, { x: xMid, y: depth + 50 }, { x: xR, y: depth }];
+
+    // Generate defaultRailCount evenly-spaced rails across the strike extent
+    const n     = Math.max(2, defaultRailCount);
+    const rails = Array.from({ length: n }, (_, i) => ({
+      z:      (i / (n - 1)) * strikeKm,
+      points: basePts.map(p => ({ ...p })),
+    }));
+
     const h = {
-      id:     crypto.randomUUID(),
+      id:       crypto.randomUUID(),
       name:     `Horizon ${idx + 1}`,
       colour:   FORMATION_COLOURS[idx % FORMATION_COLOURS.length],
       operator: 'none',
-      points:   [{ x: xL, y: depth }, { x: xMid, y: depth + 50 }, { x: xR, y: depth }],
+      points:   basePts,
+      rails,
     };
     horizons = [...horizons, h];
     activeId = h.id;
@@ -506,6 +518,8 @@
           domY={domY}
           {onUpdateRails}
           bind:showSolids
+          bind:strikeKm
+          bind:defaultRailCount
         />
       </div>
 

@@ -4,14 +4,14 @@
   import DgeoEditPopup    from './DgeoEditPopup.svelte';
 
   let {
-    horizons      = [],
+    horizons          = [],
     domX,
     domY,
-    onUpdateRails = null,
-    showSolids    = $bindable(false),
+    onUpdateRails     = null,
+    showSolids        = $bindable(false),
+    strikeKm          = $bindable(5),
+    defaultRailCount  = $bindable(10),
   } = $props();
-
-  let strikeKm      = $state(5);
   let solidsBuilding = $state(false);
   let editHorizonId = $state(null);
   let editRailIdx   = $state(null);
@@ -153,6 +153,13 @@
       📏 Ruler
     </button>
 
+    <!-- Default rail count -->
+    <label class="flex items-center gap-1">
+      <span class="text-gray-500">Rails:</span>
+      <input type="number" min="2" max="50" bind:value={defaultRailCount}
+        class="w-12 border border-gray-200 rounded px-1 text-xs text-gray-700 bg-white"/>
+    </label>
+
     <!-- NURBS overlay toggle -->
     <button
       onclick={() => (showNurbs = !showNurbs)}
@@ -163,10 +170,10 @@
       〜 NURBS
     </button>
 
-    <!-- Slice slider (visible when NURBS on) -->
+    <!-- Y slider — strike-direction slice (visible when NURBS on) -->
     {#if showNurbs}
       <label class="flex items-center gap-1.5">
-        <span class="text-gray-500">Slice:</span>
+        <span class="text-gray-500">Y:</span>
         <input type="range" min="0" max={strikeW} step="0.05" bind:value={sliceY}
           class="w-20 accent-purple-500"/>
         <span class="font-mono w-12 text-gray-600">
@@ -194,6 +201,7 @@
           {domX}
           {domY}
           {strikeKm}
+          {defaultRailCount}
           {showSolids}
           {showRuler}
           {showNurbs}

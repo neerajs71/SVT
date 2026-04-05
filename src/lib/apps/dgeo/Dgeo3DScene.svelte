@@ -1,25 +1,28 @@
 <script>
-  import { T, useThrelte } from '@threlte/core';
-  import { untrack } from 'svelte';
+  import { T } from '@threlte/core';
   import { OrbitControls, interactivity, HTML } from '@threlte/extras';
-  import { NurbsGpgpu }   from './nurbs/nurbsGpgpu.js';
+  import { NurbsCpu }     from './nurbs/nurbsCpu.js';
   import { railsToNURBS } from './nurbs/railsToNURBS.js';
   import * as THREE from 'three';
   import { buildLayerSolids } from './manifoldSolid.js';
 
   let {
-    horizons      = [],
+    horizons          = [],
     domX,
     domY,
-    strikeKm      = 5,
-    showSolids    = false,
-    showRuler     = false,
-    showNurbs     = false,
-    sliceY        = 0,
-    editHorizonId = $bindable(null),
-    editRailIdx   = $bindable(null),
-    onUpdateRails = null,
+    strikeKm          = 5,
+    defaultRailCount  = 10,
+    showSolids        = false,
+    showRuler         = false,
+    showNurbs         = false,
+    sliceY            = 0,
+    editHorizonId     = $bindable(null),
+    editRailIdx       = $bindable(null),
+    onUpdateRails     = null,
   } = $props();
+
+  // CPU NURBS evaluator — no GPU/renderer dependency
+  const cpu = new NurbsCpu(40);
 
   // Enable Threlte raycasting
   interactivity();
@@ -41,11 +44,13 @@
   // ── Rail helpers ───────────────────────────────────────────────────────────
   function getRails(h) {
     if (h.rails && h.rails.length >= 2) return h.rails;
+    // No rails saved yet — generate defaultRailCount evenly-spaced rails
     const pts = h.points ?? [];
-    return [
-      { z: 0,        points: pts },
-      { z: strikeKm, points: pts },
-    ];
+    const n   = Math.max(2, defaultRailCount);
+    return Array.from({ length: n }, (_, i) => ({
+      z:      (i / (n - 1)) * strikeKm,
+      points: pts,
+    }));
   }
 
   // ── Arc-length parameterisation ────────────────────────────────────────────
@@ -344,43 +349,21 @@
     })
   );
 
-  // ── NURBS overlay (WebGL GPGPU) ───────────────────────────────────────────
-  const { renderer } = useThrelte();
-
-  let gpgpu = $state(null);
-  $effect(() => {
-    const g = new NurbsGpgpu(renderer, 40);
-    gpgpu = g;
-    return () => { g.dispose(); gpgpu = null; };
-  });
-
+  // ── NURBS overlay (CPU B-spline evaluation) ───────────────────────────────
   // Per-horizon NURBS cache: { geo, positions, resolution, color }
-  let nurbsCache = $state([]);
-
-  // Disposal only — reads nurbsCache in cleanup, never writes it.
-  $effect(() => {
-    const snap = nurbsCache;
-    return () => { for (const d of snap) d?.geo?.dispose(); };
-  });
-
-  // Build/clear cache — uses untrack() to WRITE nurbsCache without creating
-  // a read-dependency, which would otherwise cause an infinite reactive loop.
-  $effect(() => {
-    if (!showNurbs || !gpgpu) {
-      untrack(() => { nurbsCache = []; });
-      return;
-    }
-    const snap = sorted;  // reactive capture
-    const next = snap.map(h => {
+  // $derived.by() cleanly rebuilds when showNurbs / sorted / defaultRailCount change.
+  const nurbsCache = $derived.by(() => {
+    if (!showNurbs) return [];
+    return sorted.map(h => {
       const rails = getRails(h);
       if (rails.length < 2) return null;
       try {
         const params = railsToNURBS(rails, { sampleArcLength, nX, nDepth, nStrike });
         if (!params) return null;
-        const { positions, indices, resolution } = gpgpu.evaluate(params);
+        const { positions, indices, resolution } = cpu.evaluate(params);
         const geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.BufferAttribute(positions.slice(), 3));
-        geo.setIndex(new THREE.BufferAttribute(indices, 1));
+        geo.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
         geo.computeVertexNormals();
         return { geo, positions, resolution, color: h.colour ?? '#c8e6c9' };
       } catch (e) {
@@ -388,8 +371,10 @@
         return null;
       }
     }).filter(Boolean);
-
-    untrack(() => { nurbsCache = next; });
+  });
+  $effect(() => {
+    const snap = nurbsCache;
+    return () => { for (const d of snap) d?.geo?.dispose(); };
   });
 
   // Slice intersection curves — CPU extract from cached vertex grid
