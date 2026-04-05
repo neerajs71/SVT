@@ -242,11 +242,16 @@
     if (!h || !h.points.length) return;
     const curZ = h.points.reduce((s, p) => s + p.y, 0) / h.points.length;
     const delta = newZ - curZ;
-    horizons = horizons.map(hz =>
-      hz.id === id
-        ? { ...hz, points: hz.points.map(p => ({ ...p, y: Math.max(domY.min, Math.min(domY.max, p.y + delta)) })) }
-        : hz
-    );
+    const clamp = y => Math.max(domY.min, Math.min(domY.max, y + delta));
+    horizons = horizons.map(hz => {
+      if (hz.id !== id) return hz;
+      const points = hz.points.map(p => ({ ...p, y: clamp(p.y) }));
+      // Shift rail points by the same delta so the 3D surface moves too
+      const rails = hz.rails
+        ? hz.rails.map(r => ({ ...r, points: r.points.map(p => ({ ...p, y: clamp(p.y) })) }))
+        : hz.rails;
+      return { ...hz, points, rails };
+    });
     dirty = true;
   }
 
