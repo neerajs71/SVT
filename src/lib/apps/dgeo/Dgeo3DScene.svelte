@@ -45,33 +45,47 @@
     ];
   }
 
-  function interpY(sortedPts, x) {
-    if (!sortedPts.length) return (domY.min + domY.max) / 2;
-    if (x <= sortedPts[0].x) return sortedPts[0].y;
-    if (x >= sortedPts[sortedPts.length - 1].x) return sortedPts[sortedPts.length - 1].y;
-    for (let i = 0; i < sortedPts.length - 1; i++) {
-      const p1 = sortedPts[i], p2 = sortedPts[i + 1];
-      if (x >= p1.x && x <= p2.x) {
-        const t = (x - p1.x) / (p2.x - p1.x);
-        return p1.y + t * (p2.y - p1.y);
-      }
+  // ── Arc-length parameterisation ───────────────────────────────────────────
+  // Samples nSamples evenly-spaced points along the polyline's arc length.
+  // Works for folded / non-monotonic curves that X-interpolation cannot handle.
+  function sampleArcLength(rawPts, nSamples) {
+    if (!rawPts.length) return Array(nSamples).fill({ x: (domX.min+domX.max)/2, y: (domY.min+domY.max)/2 });
+    if (rawPts.length === 1) return Array(nSamples).fill(rawPts[0]);
+
+    // Cumulative chord lengths
+    const lens = [0];
+    for (let i = 1; i < rawPts.length; i++) {
+      const dx = rawPts[i].x - rawPts[i-1].x;
+      const dy = rawPts[i].y - rawPts[i-1].y;
+      lens.push(lens[i-1] + Math.sqrt(dx*dx + dy*dy));
     }
-    return sortedPts[sortedPts.length - 1].y;
+    const total = lens[lens.length - 1];
+
+    const out = [];
+    for (let s = 0; s < nSamples; s++) {
+      const t = (s / (nSamples - 1)) * total;
+      let i = 0;
+      while (i < lens.length - 2 && lens[i+1] < t) i++;
+      const seg = lens[i+1] - lens[i];
+      const frac = seg > 0 ? (t - lens[i]) / seg : 0;
+      out.push({
+        x: rawPts[i].x + frac * (rawPts[i+1].x - rawPts[i].x),
+        y: rawPts[i].y + frac * (rawPts[i+1].y - rawPts[i].y),
+      });
+    }
+    return out;
   }
 
-  // ── Surface geometry: bilinear grid interpolation from rails ──────────────
+  // ── Surface geometry: arc-length grid (handles folds) ─────────────────────
   function buildGridGeo(rails, nX = 50) {
     const sr = [...rails].sort((a, b) => a.z - b.z);
     if (sr.length < 2) return null;
 
     const nR = sr.length;
-    const xSamples = Array.from({ length: nX }, (_, i) =>
-      domX.min + (i / (nX - 1)) * (domX.max - domX.min)
-    );
 
     const grid = sr.map(rail => {
-      const sp = [...rail.points].sort((a, b) => a.x - b.x);
-      return xSamples.map(x => [nx(x), ny(interpY(sp, x)), nz_km(rail.z)]);
+      const sampled = sampleArcLength(rail.points, nX);
+      return sampled.map(p => [nx(p.x), ny(p.y), nz_km(rail.z)]);
     });
 
     const verts = new Float32Array(nR * nX * 3);

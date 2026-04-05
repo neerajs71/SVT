@@ -44,10 +44,10 @@
     })
   );
 
-  function polyStr(pts) {
-    if (!pts || pts.length < 2) return '';
-    const sorted = [...pts].sort((a, b) => a.x - b.x);
-    return sorted.map(p => `${toSvgX(p.x).toFixed(1)},${toSvgY(p.y).toFixed(1)}`).join(' ');
+  // Context-line helper — no sort, preserves fold order
+  function polyStr(ps) {
+    if (!ps || ps.length < 2) return '';
+    return ps.map(p => `${toSvgX(p.x).toFixed(1)},${toSvgY(p.y).toFixed(1)}`).join(' ');
   }
 
   function svgCoords(e) {
@@ -97,10 +97,8 @@
     tool === 'delete' ? 'not-allowed' : 'default'
   );
 
-  // Active points sorted for display
-  const sortedPts = $derived(
-    rail ? [...(rail.points ?? [])].sort((a, b) => a.x - b.x) : []
-  );
+  // Points in insertion order — no X-sort so folds are preserved
+  const pts = $derived(rail?.points ?? []);
 </script>
 
 <div class="flex flex-col h-full bg-white select-none">
@@ -168,27 +166,17 @@
         {/if}
       {/each}
 
-      <!-- Active rail polyline -->
-      {#if sortedPts.length >= 2}
-        <polyline
-          points={sortedPts.map(p => `${toSvgX(p.x).toFixed(1)},${toSvgY(p.y).toFixed(1)}`).join(' ')}
-          fill="none"
-          stroke="#2563eb"
-          stroke-width="2.5"
-          stroke-linejoin="round"
-          stroke-linecap="round"/>
-        <!-- Slight dark border for depth -->
-        <polyline
-          points={sortedPts.map(p => `${toSvgX(p.x).toFixed(1)},${toSvgY(p.y).toFixed(1)}`).join(' ')}
-          fill="none"
-          stroke="#1e3a8a"
-          stroke-width="0.7"
-          opacity="0.4"
-          stroke-linejoin="round"/>
+      <!-- Active rail polyline — drawn in insertion order so folds work -->
+      {#if pts.length >= 2}
+        {@const pStr = pts.map(p => `${toSvgX(p.x).toFixed(1)},${toSvgY(p.y).toFixed(1)}`).join(' ')}
+        <polyline points={pStr} fill="none" stroke="#2563eb"
+          stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+        <polyline points={pStr} fill="none" stroke="#1e3a8a"
+          stroke-width="0.7" opacity="0.4" stroke-linejoin="round"/>
       {/if}
 
-      <!-- Control points -->
-      {#each (rail?.points ?? []) as pt, i}
+      <!-- Control points (in insertion order, numbered) -->
+      {#each pts as pt, i}
         {@const isActive = dragIdx === i}
         <circle
           cx={toSvgX(pt.x)}
