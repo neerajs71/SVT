@@ -69,14 +69,15 @@ function buildSolidManifold(mf, rails, { WX, WY, strikeW, sampleArcLength, nX, n
   const nXn = nXsamp;
 
   // Surface grid: surfGrid[r][col] = world-Z depth at (rail r, arc-col col)
-  // Sort each rail's points by X and snap endpoints to domain walls before sampling
+  // Arc-length (insertion) order preserved; fold-back in X is supported.
   const surfGrid = sr.map(rail => {
-    const sortedPts = [...rail.points].sort((a, b) => a.x - b.x);
-    if (domX && sortedPts.length > 0) {
-      sortedPts[0].x = domX.min;
-      sortedPts[sortedPts.length - 1].x = domX.max;
+    const rawPts = [...rail.points];
+    // Snap first/last to domain walls before sampling
+    if (domX && rawPts.length > 0) {
+      rawPts[0] = { ...rawPts[0], x: domX.min };
+      rawPts[rawPts.length - 1] = { ...rawPts[rawPts.length - 1], x: domX.max };
     }
-    const pts = sampleArcLength(sortedPts, nXn);
+    const pts = sampleArcLength(rawPts, nXn);
     return pts.map(p => Math.max(0.01, Math.min(WY * 0.99, nDepth(p.y))));
   });
 

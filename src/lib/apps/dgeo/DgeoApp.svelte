@@ -321,11 +321,11 @@
     const cy = Math.max(domY.min, Math.min(domY.max, y));
     horizons = horizons.map(h => {
       if (h.id !== dragState.horizonId) return h;
-      // Identify which point is the left/right boundary (by X value, not array index)
-      const byX       = h.points.map((p, i) => ({ i, x: p.x })).sort((a, b) => a.x - b.x);
-      const leftIdx   = byX[0].i;
-      const rightIdx  = byX[byX.length - 1].i;
-      // Boundary endpoints are locked to the domain walls — only depth (y) is free
+      // First and last points (by array index) are the boundary endpoints —
+      // locked to the domain walls so the surface always spans the full width.
+      // Only depth (y) is free for these two; middle points are fully free.
+      const leftIdx  = 0;
+      const rightIdx = h.points.length - 1;
       const finalX = dragState.pointIdx === leftIdx  ? domX.min
                    : dragState.pointIdx === rightIdx ? domX.max
                    : cx;

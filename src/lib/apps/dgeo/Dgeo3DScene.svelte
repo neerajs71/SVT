@@ -107,10 +107,9 @@
     const nR = sr.length;
 
     const grid = sr.map(rail => {
-      // Sort points by X before arc-length sampling so the surface sweeps left→right
-      const sortedPts = [...rail.points].sort((a, b) => a.x - b.x);
-      const sampled = sampleArcLength(sortedPts, nSamples);
-      // Snap first/last sampled points to exact domain boundaries
+      // Preserve arc-length (insertion) order so folds are rendered correctly
+      const sampled = sampleArcLength(rail.points, nSamples);
+      // Snap first/last to exact domain walls (boundary endpoints are always at domain edge)
       if (sampled.length > 0) sampled[0].x = domX.min;
       if (sampled.length > 1) sampled[sampled.length - 1].x = domX.max;
       return sampled.map(p => [nX(p.x), nStrike(rail.z), nDepth(p.y)]);
@@ -273,10 +272,9 @@
     const newX = Math.max(domX.min, Math.min(domX.max, fromNX(e.point.x)));
     const newY = Math.max(domY.min, Math.min(domY.max, fromNDepth(e.point.z)));
 
-    // Identify left/right boundary points by X value; lock their X to the domain walls
-    const byX      = activeRail.points.map((p, i) => ({ i, x: p.x })).sort((a, b) => a.x - b.x);
-    const leftIdx  = byX[0].i;
-    const rightIdx = byX[byX.length - 1].i;
+    // First and last array entries are the boundary endpoints — X locked to domain walls
+    const leftIdx  = 0;
+    const rightIdx = activeRail.points.length - 1;
     const finalX   = dragPointIdx === leftIdx  ? domX.min
                    : dragPointIdx === rightIdx ? domX.max
                    : newX;

@@ -56,11 +56,11 @@ export function railsToNURBS(rails, { sampleArcLength, nX, nDepth, nStrike, domX
   const degreeV = Math.min(3, nCtrlV - 1);   // cubic when ≥ 4 rails
 
   // ── Control points: nCtrlV rows × nCtrlU cols, world-space [x,y,z] ────────
+  // Arc-length (insertion) order is preserved so folds are handled correctly.
+  // U = 0..1 follows the curve; the surface can double back in X.
   const controlPoints = sorted.flatMap(rail => {
-    // Sort by X so the surface sweeps left→right (consistent with 2D display)
-    const sortedPts = [...rail.points].sort((a, b) => a.x - b.x);
-    const pts = sampleArcLength(sortedPts, nCtrlU);
-    // Snap first/last control points to exact domain walls to prevent edge gaps
+    const pts = sampleArcLength(rail.points, nCtrlU);
+    // Snap first/last to domain walls — boundary endpoints always touch the sides
     if (domX && pts.length > 0) {
       pts[0].x = domX.min;
       pts[pts.length - 1].x = domX.max;

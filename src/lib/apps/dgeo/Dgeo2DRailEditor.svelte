@@ -62,9 +62,22 @@
   function onSvgClick(e) {
     if (tool !== 'add' || !rail) return;
     const { x, y } = svgCoords(e);
-    // Insert at the correct X position so the profile stays left→right
-    const newPts = [...(rail.points ?? []), { x, y }]
-      .sort((a, b) => a.x - b.x);
+    // Find the best insertion position between adjacent points by arc proximity
+    const existing = rail.points ?? [];
+    if (existing.length < 2) {
+      onUpdatePoints?.([...existing, { x, y }]);
+      return;
+    }
+    // Insert between the two consecutive points whose segment is closest to click
+    let bestIdx = existing.length, bestDist = Infinity;
+    for (let i = 0; i < existing.length - 1; i++) {
+      const mx = (existing[i].x + existing[i+1].x) / 2;
+      const my = (existing[i].y + existing[i+1].y) / 2;
+      const d  = Math.hypot(x - mx, y - my);
+      if (d < bestDist) { bestDist = d; bestIdx = i + 1; }
+    }
+    const newPts = [...existing];
+    newPts.splice(bestIdx, 0, { x, y });
     onUpdatePoints?.(newPts);
   }
 
@@ -100,10 +113,8 @@
     tool === 'delete' ? 'not-allowed' : 'default'
   );
 
-  // Points in original order for drag/delete index tracking
+  // Points in arc-length (insertion) order — supports folds that double back in X
   const pts = $derived(rail?.points ?? []);
-  // Sorted by X for the connecting polyline — always draws left→right
-  const ptsLine = $derived([...pts].sort((a, b) => a.x - b.x));
 </script>
 
 <div class="flex flex-col h-full bg-white select-none">
@@ -171,9 +182,9 @@
         {/if}
       {/each}
 
-      <!-- Active rail polyline — drawn sorted left→right -->
-      {#if ptsLine.length >= 2}
-        {@const pStr = ptsLine.map(p => `${toSvgX(p.x).toFixed(1)},${toSvgY(p.y).toFixed(1)}`).join(' ')}
+      <!-- Active rail polyline — drawn in arc-length (insertion) order so folds show -->
+      {#if pts.length >= 2}
+        {@const pStr = pts.map(p => `${toSvgX(p.x).toFixed(1)},${toSvgY(p.y).toFixed(1)}`).join(' ')}
         <polyline points={pStr} fill="none" stroke="#2563eb"
           stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
         <polyline points={pStr} fill="none" stroke="#1e3a8a"
