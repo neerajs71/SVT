@@ -264,40 +264,38 @@
         <T.Mesh geometry={geoSurf} position={[0, 0, -0.05]}>
           <T.MeshPhongMaterial color="#7c3aed" side={2} transparent opacity={0.7} shininess={60}/>
         </T.Mesh>
+        <T.Mesh geometry={geoSurf} position={[0, 0, -0.05]}>
+          <T.MeshBasicMaterial color="#000000" wireframe />
+        </T.Mesh>
       {/if}
 
       <!-- Approach A: direct mesh -->
       {#if showA && geoA}
         <T.Mesh geometry={geoA} position={[-12, 0, 0]}>
-          <T.MeshPhongMaterial color="#ef4444" side={2} transparent opacity={0.75} shininess={30}/>
+          <T.MeshPhongMaterial color="#ef4444" side={2} transparent opacity={0.85} shininess={30}/>
         </T.Mesh>
         <T.Mesh geometry={geoA} position={[-12, 0, 0]}>
-          <T.MeshBasicMaterial color="#fee2e2" wireframe transparent opacity={0.1}/>
-        </T.Mesh>
-        <!-- Label helper -->
-        <T.Mesh position={[-12, 0, -1]}>
-          <T.SphereGeometry args={[0.15]} />
-          <T.MeshBasicMaterial color="#f87171" />
+          <T.MeshBasicMaterial color="#000000" wireframe />
         </T.Mesh>
       {/if}
 
       <!-- Approach B: cube warp -->
       {#if showB && geoB}
         <T.Mesh geometry={geoB}>
-          <T.MeshPhongMaterial color="#3b82f6" side={2} transparent opacity={0.75} shininess={30}/>
+          <T.MeshPhongMaterial color="#3b82f6" side={2} transparent opacity={0.85} shininess={30}/>
         </T.Mesh>
         <T.Mesh geometry={geoB}>
-          <T.MeshBasicMaterial color="#bfdbfe" wireframe transparent opacity={0.08}/>
+          <T.MeshBasicMaterial color="#000000" wireframe />
         </T.Mesh>
       {/if}
 
       <!-- B CSG result -->
       {#if showCSG && geoBcsg}
         <T.Mesh geometry={geoBcsg} position={[12, 0, 0]}>
-          <T.MeshPhongMaterial color="#10b981" side={2} transparent opacity={0.8} shininess={40}/>
+          <T.MeshPhongMaterial color="#10b981" side={2} transparent opacity={0.85} shininess={40}/>
         </T.Mesh>
         <T.Mesh geometry={geoBcsg} position={[12, 0, 0]}>
-          <T.MeshBasicMaterial color="#d1fae5" wireframe transparent opacity={0.1}/>
+          <T.MeshBasicMaterial color="#000000" wireframe />
         </T.Mesh>
       {/if}
 
