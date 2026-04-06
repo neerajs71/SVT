@@ -20,6 +20,8 @@
   let geoSurf = $state(null);
   // Approach D: orange minus sphere (manifold validity test)
   let geoCsphere = $state(null);
+  // Approach E: two NURBS fold solids subtracted — replicates DGeo CSG scenario
+  let geoE       = $state(null);
 
   let showA      = $state(false);
   let showC      = $state(true);
@@ -27,6 +29,7 @@
   let showB      = $state(false);
   let showSurf   = $state(true);
   let showCsphere= $state(true);
+  let showE      = $state(true);
 
   // ── Console panel ──────────────────────────────────────────────────────────
   let consoleLogs  = $state([]);
@@ -87,6 +90,39 @@
         pos[i * 3]     = foldX(u);
         pos[i * 3 + 1] = yWorld;
         pos[i * 3 + 2] = Math.max(0.1, Math.min(WY - 0.1, foldZ(u)));
+      }
+    }
+    return pos;
+  }
+
+  // ── Second fold: same x profile, shallower z (simulates a second horizon) ───
+  function makeFoldPositions2() {
+    const pos = new Float32Array(N * 3);
+    function foldX(u) {
+      const pts = FOLD_FWD_RAW;
+      const t = u * (pts.length - 1);
+      const i = Math.min(pts.length - 2, Math.floor(t));
+      const ft = t - i;
+      return (pts[i][0] * (1 - ft) + pts[i + 1][0] * ft) * WX;
+    }
+    function foldZ2(u) {
+      const pts = FOLD_FWD_RAW;
+      const t = u * (pts.length - 1);
+      const i = Math.min(pts.length - 2, Math.floor(t));
+      const ft = t - i;
+      const d = pts[i][1] * (1 - ft) + pts[i + 1][1] * ft;
+      // Shallower: z offset reduced by 2 units vs makeFoldPositions
+      return 1.5 + d * 2;
+    }
+    for (let row = 0; row < R; row++) {
+      const v = row / resolution;
+      const yWorld = v * strikeW;
+      for (let col = 0; col < R; col++) {
+        const u = col / resolution;
+        const i = row * R + col;
+        pos[i * 3]     = foldX(u);
+        pos[i * 3 + 1] = yWorld;
+        pos[i * 3 + 2] = Math.max(0.1, Math.min(WY - 0.1, foldZ2(u)));
       }
     }
     return pos;
@@ -333,6 +369,28 @@
         console.log('[B] param warp status:', solidB.status(), 'vol:', solidB.volume().toFixed(2));
       } catch(e) { console.error('[B] param warp failed:', e); }
 
+      // Approach E: two NURBS fold solids subtracted — DGeo CSG scenario
+      // positions  = deeper fold   (z ≈ 1.5..3.5)
+      // positions2 = shallower fold (z ≈ -0.5..1.5, clamped to 0.1..1.5)
+      // solidE_deep   spans deep-horizon   → WY  (smaller volume)
+      // solidE_shallow spans shallow-horizon → WY  (larger volume)
+      // Result = solidE_shallow.subtract(solidE_deep) = band between the two surfaces
+      try {
+        const positions2 = makeFoldPositions2();
+        const solidE_deep    = buildSolidEarClip(mf, positions);   // deeper (same as solidC)
+        const solidE_shallow = buildSolidEarClip(mf, positions2);  // shallower
+        console.log('[E] deep status:', solidE_deep.status(), 'vol:', solidE_deep.volume().toFixed(2));
+        console.log('[E] shallow status:', solidE_shallow.status(), 'vol:', solidE_shallow.volume().toFixed(2));
+        const solidE = solidE_shallow.subtract(solidE_deep);
+        const stE = solidE.status();
+        console.log('[E] fold-minus-fold CSG status:', stE, 'vol:', solidE.volume().toFixed(2));
+        if (stE === 'NoError') {
+          geoE = meshToGeo(solidE.getMesh());
+        } else {
+          console.error('[E] CSG failed — two fold solids cannot be subtracted, status:', stE);
+        }
+      } catch(e) { console.error('[E] fold-minus-fold failed:', e); }
+
       status = 'Done ✓ — C (orange) = ear-clip fold solid | toggle others to compare';
 
     } catch (e) {
@@ -374,6 +432,10 @@
     <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
       <input type="checkbox" bind:checked={showCsphere} />
       <span style="color:#fbbf24">■</span> D: C − Sphere (manifold test)
+    </label>
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+      <input type="checkbox" bind:checked={showE} />
+      <span style="color:#e879f9">■</span> E: Two fold solids CSG (DGeo scenario)
     </label>
     <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
       <input type="checkbox" bind:checked={showA} />
@@ -454,6 +516,16 @@
         </T.Mesh>
       {/if}
 
+      <!-- Approach E: two fold solids CSG (DGeo scenario) -->
+      {#if showE && geoE}
+        <T.Mesh geometry={geoE} position={[36, 0, 0]}>
+          <T.MeshPhongMaterial color="#e879f9" side={2} transparent opacity={0.85} shininess={40}/>
+        </T.Mesh>
+        <T.Mesh geometry={geoE} position={[36, 0, 0]}>
+          <T.MeshBasicMaterial color="#000000" wireframe />
+        </T.Mesh>
+      {/if}
+
       <!-- Approach A: quad-strip (left, for comparison) -->
       {#if showA && geoA}
         <T.Mesh geometry={geoA} position={[-12, 0, 0]}>
@@ -482,11 +554,12 @@
   <div style="padding:8px 16px;background:#1e293b;border-top:1px solid #334155;font-size:11px;color:#94a3b8;flex-shrink:0">
     Fold profile: x goes 0→7.8→5.8→10 (fold-back at u≈0.5..0.65) | WX={WX} WY={WY} strikeW={strikeW} | resolution={resolution}×{resolution}
     <br/>
-    <b style="color:#f97316">C (orange, centre):</b> ear-clip walls — correct concave polygon triangulation, fold shape preserved &nbsp;|&nbsp;
-    <b style="color:#34d399">C-CSG (green, right):</b> fold layer minus flat layer &nbsp;|&nbsp;
-    <b style="color:#fbbf24">D (yellow, far-right):</b> C minus sphere — if solid is manifold, shows spherical hole; if broken, missing + console error &nbsp;|&nbsp;
-    <b style="color:#f87171">A (red, left):</b> quad-strip walls — broken for folds (enable to compare) &nbsp;|&nbsp;
-    <b style="color:#60a5fa">B (blue, far-left):</b> cube warp — no fold in x-pos (enable to compare)
+    <b style="color:#f97316">C (orange, centre):</b> ear-clip walls — correct fold shape &nbsp;|&nbsp;
+    <b style="color:#34d399">C-CSG (green):</b> fold minus flat layer &nbsp;|&nbsp;
+    <b style="color:#fbbf24">D (yellow):</b> C minus sphere — manifold validity test &nbsp;|&nbsp;
+    <b style="color:#e879f9">E (fuchsia, far-right):</b> two fold solids subtracted (DGeo scenario) — NoError = CSG works; missing = fails &nbsp;|&nbsp;
+    <b style="color:#f87171">A (red, left):</b> quad-strip walls — broken for folds &nbsp;|&nbsp;
+    <b style="color:#60a5fa">B (blue, far-left):</b> cube warp — no fold in x-pos
   </div>
 
 </div>
