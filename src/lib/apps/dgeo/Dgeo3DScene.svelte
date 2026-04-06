@@ -1,7 +1,7 @@
 <script lang="ts">
   import { T, useThrelte } from '@threlte/core';
   import { OrbitControls, interactivity, HTML } from '@threlte/extras';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { railsToNURBS } from './nurbs/railsToNURBS.ts';
   import * as THREE from 'three';
   import { NurbsEvaluatorChain } from './state/NurbsEvaluatorChain.svelte.ts';
@@ -150,11 +150,17 @@
   });
 
   // ── Grid solid blocks — built by GeologicalModel ─────────────────────────
+  // Capture reactive deps first, then call model in untrack() so that
+  // model.gridBuilding / model.errors reads inside rebuildGrid don't become
+  // dependencies of this effect — otherwise the effect loops when the async
+  // function completes and writes gridBuilding = false.
   $effect(() => {
     const flag     = showSolids;
     const strikeWv = strikeW;
+    const hs       = horizons;
+    const dx       = domX;
     if (!flag) return;
-    model.rebuildGrid(horizons, { WX, WY, strikeW: strikeWv, domX, sampleArcLength, nX, nDepth }, getRails);
+    untrack(() => model.rebuildGrid(hs, { WX, WY, strikeW: strikeWv, domX: dx, sampleArcLength, nX, nDepth }, getRails));
   });
 
   // Propagate model errors to the solidErrors $bindable prop
@@ -401,13 +407,15 @@
     return () => { for (const d of snap) d?.geo?.dispose(); };
   });
 
-  // ── NURBS solid rebuild when showSolids toggles on ────────────────────────
+  // ── NURBS solid rebuild when showSolids toggles on or cache fills ─────────
+  // untrack() prevents model.nurbsBuilding reads from creating a dependency.
   $effect(() => {
     const doSolids  = showSolids;
-    const hasNurbs  = nurbsCache.length > 0;  // reactive: re-runs when cache fills
+    const hasNurbs  = nurbsCache.length > 0;
     const strikeWv  = strikeW;
+    const hs        = horizons;
     if (!doSolids || !hasNurbs) return;
-    model.rebuildNurbs(horizons, { WX, WY, strikeW: strikeWv });
+    untrack(() => model.rebuildNurbs(hs, { WX, WY, strikeW: strikeWv }));
   });
 
   // Slice intersection curves — CPU extract from cached vertex grid
