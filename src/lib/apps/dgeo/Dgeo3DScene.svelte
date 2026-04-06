@@ -7,7 +7,7 @@
   import { NurbsCpu }     from './nurbs/nurbsCpu.js';
   import { railsToNURBS } from './nurbs/railsToNURBS.js';
   import * as THREE from 'three';
-  import { buildLayerSolids } from './manifoldSolid.js';
+  import { buildLayerSolids, buildNurbsLayerSolids } from './manifoldSolid.js';
 
   let {
     horizons          = [],
@@ -419,7 +419,7 @@
             geo.setAttribute('position', new THREE.BufferAttribute(r.positions.slice(), 3));
             geo.setIndex(new THREE.BufferAttribute(new Uint32Array(r.indices), 1));
             geo.computeVertexNormals();
-            return { geo, positions: r.positions, resolution: r.resolution, color: h.colour ?? '#c8e6c9' };
+            return { geo, positions: r.positions, resolution: r.resolution, color: h.colour ?? '#c8e6c9', id: h.id };
           } catch (e) {
             console.warn('[Dgeo3DScene] NURBS eval failed on', ev.constructor?.name, 'for', h.name, e);
           }
@@ -437,6 +437,41 @@
   $effect(() => {
     const snap = nurbsCache;
     return () => { for (const d of snap) d?.geo?.dispose(); };
+  });
+
+  // ── NURBS-based manifold solids with CSG ──────────────────────────────────
+  // Built from the GPU-evaluated NURBS positions whenever the nurbsCache or
+  // showSolids changes.  Sorting and CSG mirrors buildLayerSolids (deepest first,
+  // Layer[i] = solid[i].subtract(solid[i-1])).
+  let nurbsSolidBlocks    = $state(/** @type {Array<{geo,color,id}>} */ ([]));
+  let nurbsSolidsBuilding = $state(false);
+
+  $effect(() => {
+    const entries  = nurbsCache;   // reactive dep: rebuild when NURBS surfaces change
+    const doSolids = showSolids;   // reactive dep: only build when solids are wanted
+    if (!doSolids || entries.length === 0) {
+      nurbsSolidBlocks = [];
+      return;
+    }
+    let cancelled = false;
+    nurbsSolidsBuilding = true;
+    buildNurbsLayerSolids(entries, { WX, WY, strikeW }).then(blocks => {
+      if (!cancelled) {
+        for (const b of nurbsSolidBlocks) b.geo?.dispose();
+        nurbsSolidBlocks    = blocks;
+        nurbsSolidsBuilding = false;
+      }
+    }).catch(e => {
+      if (!cancelled) {
+        console.error('[Dgeo3DScene] buildNurbsLayerSolids error', e);
+        nurbsSolidsBuilding = false;
+      }
+    });
+    return () => { cancelled = true; };
+  });
+  $effect(() => {
+    const snap = nurbsSolidBlocks;
+    return () => { for (const b of snap) b.geo?.dispose(); };
   });
 
   // Slice intersection curves — CPU extract from cached vertex grid
@@ -642,20 +677,34 @@
 {#if showNurbs}
   <!-- Offset the NURBS group so it sits beside the cube (not overlapping) -->
   <T.Group position={[WX + 1.5, 0, 0]}>
-    {#each nurbsCache as nd (nd.geo.uuid)}
-      <T.Mesh geometry={nd.geo}>
-        <T.MeshLambertMaterial
-          color={nd.color}
-          transparent opacity={0.75}
-          side={THREE.DoubleSide}
-        />
-      </T.Mesh>
-      <T.Mesh geometry={nd.geo}>
-        <T.MeshBasicMaterial
-          color={nd.color} wireframe transparent opacity={0.25}
-        />
-      </T.Mesh>
-    {/each}
+
+    <!-- NURBS solid blocks (CSG layers) — shown when Solidify is on -->
+    {#if showSolids && nurbsSolidBlocks.length > 0}
+      {#each nurbsSolidBlocks as b (b.geo.uuid)}
+        <T.Mesh geometry={b.geo}>
+          <T.MeshPhongMaterial
+            color={b.color} transparent opacity={0.82}
+            side={THREE.DoubleSide} shininess={30}
+          />
+        </T.Mesh>
+        <T.Mesh geometry={b.geo}>
+          <T.MeshBasicMaterial color="#1e293b" wireframe transparent opacity={0.08} />
+        </T.Mesh>
+      {/each}
+    {:else}
+      <!-- Fallback: show raw NURBS surfaces while solids are building or Solidify is off -->
+      {#each nurbsCache as nd (nd.geo.uuid)}
+        <T.Mesh geometry={nd.geo}>
+          <T.MeshLambertMaterial
+            color={nd.color} transparent opacity={0.75}
+            side={THREE.DoubleSide}
+          />
+        </T.Mesh>
+        <T.Mesh geometry={nd.geo}>
+          <T.MeshBasicMaterial color={nd.color} wireframe transparent opacity={0.25} />
+        </T.Mesh>
+      {/each}
+    {/if}
 
     <!-- Slice intersection curves -->
     {#each sliceCurves as sc (sc.geo.uuid)}

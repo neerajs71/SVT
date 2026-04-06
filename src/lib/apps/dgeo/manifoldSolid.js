@@ -110,7 +110,108 @@ function buildSolidManifold(mf, rails, { WX, WY, strikeW, sampleArcLength, nX, n
   return warped; // Manifold
 }
 
-// ── Build all layer solids ─────────────────────────────────────────────────────
+// ── Build a Manifold solid from NURBS-evaluated surface positions ─────────────
+//
+// `positions` is the Float32Array from the NURBS evaluator:
+//   layout: (resolution+1) × (resolution+1) rows, each [x, y, z]
+//   x ∈ [0,WX], y ∈ [0,strikeW], z ∈ [0,WY]
+//
+// We bilinearly interpolate the NURBS Z grid to get the depth at any (cx,cy)
+// inside the warp function — same technique as buildSolidManifold but using
+// the high-quality GPU surface instead of the bilinear rail grid.
+//
+function buildNurbsSolid(mf, positions, resolution, { WX, WY, strikeW, refineN = 5 }) {
+  const W = resolution + 1;   // columns (U = horizontal profile)
+  const H = resolution + 1;   // rows    (V = along-strike)
+
+  // Extract the Z column from the flat positions array into a 2-D grid
+  const grid = [];
+  for (let v = 0; v < H; v++) {
+    const row = new Float32Array(W);
+    for (let u = 0; u < W; u++) {
+      row[u] = positions[(v * W + u) * 3 + 2];   // Z = depth
+    }
+    grid.push(row);
+  }
+
+  function nurbsDepth(cx, cy) {
+    const uFrac = Math.max(0, Math.min(W - 1, (cx / WX) * (W - 1)));
+    const u0    = Math.min(W - 2, Math.floor(uFrac)), ut = uFrac - u0;
+    const vFrac = Math.max(0, Math.min(H - 1, (cy / strikeW) * (H - 1)));
+    const v0    = Math.min(H - 2, Math.floor(vFrac)), vt = vFrac - v0;
+    return grid[v0][u0]     * (1-vt)*(1-ut)
+         + grid[v0][u0+1]   * (1-vt)*  ut
+         + grid[v0+1][u0]   *    vt *(1-ut)
+         + grid[v0+1][u0+1] *    vt *   ut;
+  }
+
+  const cube    = mf.Manifold.cube([WX, strikeW, WY], false);
+  const refined = cube.refine(refineN);
+  const warped  = refined.warp(vert => {
+    const hz = Math.max(0.01, Math.min(WY * 0.99, nurbsDepth(vert[0], vert[1])));
+    vert[2]   = hz + (WY - hz) * vert[2] / WY;
+  });
+  return warped;
+}
+
+// ── Average Z depth of a NURBS surface (used for sorting) ────────────────────
+function avgNurbsZ(positions) {
+  if (!positions || positions.length === 0) return 0;
+  let sum = 0, n = 0;
+  for (let i = 2; i < positions.length; i += 3) { sum += positions[i]; n++; }
+  return n > 0 ? sum / n : 0;
+}
+
+// ── Build all NURBS-based layer solids with CSG ───────────────────────────────
+//
+// `nurbsEntries` — array of { positions: Float32Array, resolution, color, id }
+// from the NURBS evaluator cache.  Sorting and CSG mirrors buildLayerSolids:
+// deepest first, Layer[0] = basement solid, Layer[i] = solid[i] - solid[i-1].
+//
+// Returns Promise<Array<{ geo: BufferGeometry, color, id }>>
+//
+export async function buildNurbsLayerSolids(nurbsEntries, { WX, WY, strikeW }) {
+  const mf = await getMF();
+  if (!nurbsEntries || nurbsEntries.length === 0) return [];
+
+  // Sort deepest first (largest average surface Z = deepest horizon)
+  const sorted = [...nurbsEntries].sort((a, b) =>
+    avgNurbsZ(b.positions) - avgNurbsZ(a.positions)
+  );
+
+  const manifolds = sorted.map(entry => {
+    try {
+      return buildNurbsSolid(mf, entry.positions, entry.resolution, { WX, WY, strikeW });
+    } catch (e) {
+      console.warn('[manifoldSolid] NURBS solid build failed for', entry.id, e);
+      return null;
+    }
+  });
+
+  const blocks = [];
+  for (let i = 0; i < sorted.length; i++) {
+    if (!manifolds[i]) continue;
+    let result = manifolds[i];
+    if (i > 0 && manifolds[i - 1]) {
+      try {
+        result = manifolds[i].subtract(manifolds[i - 1]);
+      } catch (e) {
+        console.warn('[manifoldSolid] NURBS subtract failed at layer', i, e);
+        continue;
+      }
+    }
+    try {
+      const mesh = result.getMesh();
+      if (!mesh || mesh.triVerts.length === 0) continue;
+      blocks.push({ geo: manifoldMeshToGeo(mesh), color: sorted[i].color, id: sorted[i].id });
+    } catch (e) {
+      console.warn('[manifoldSolid] NURBS getMesh failed at layer', i, e);
+    }
+  }
+  return blocks;
+}
+
+
 //
 // Returns Promise<Array<{ geo: BufferGeometry, color, name, id }>>
 //
