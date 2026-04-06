@@ -2,12 +2,10 @@
   import { T, useThrelte } from '@threlte/core';
   import { OrbitControls, interactivity, HTML } from '@threlte/extras';
   import { onDestroy } from 'svelte';
-  import { NurbsWebGpu }  from './nurbs/nurbsWebGpu.js';
-  import { NurbsGpgpu }   from './nurbs/nurbsGpgpu.js';
-  import { NurbsCpu }     from './nurbs/nurbsCpu.js';
-  import { railsToNURBS } from './nurbs/railsToNURBS.js';
+  import { railsToNURBS } from './nurbs/railsToNURBS.ts';
   import * as THREE from 'three';
   import { buildLayerSolids, buildNurbsLayerSolids } from './manifoldSolid.js';
+  import { NurbsEvaluatorChain } from './state/NurbsEvaluatorChain.svelte.ts';
 
   let {
     horizons          = [],
@@ -25,24 +23,13 @@
     onUpdateRails     = null,
   } = $props();
 
-  // Evaluator chain: WebGPU → WebGL GPGPU → CPU.
-  // All stored as plain (non-reactive) variables to avoid reactive loops.
+  // ── NURBS evaluator chain: WebGPU → WebGL GPGPU → CPU ────────────────────
+  // NurbsEvaluatorChain encapsulates the priority fallback and exposes a
+  // single `.ready` reactive flag (true once WebGPU resolves) so the
+  // nurbsCache effect re-runs automatically when the GPU is available.
   const { renderer } = useThrelte();
-  const cpu = new NurbsCpu(40);
-  let gpgpu = null;
-  try { gpgpu = new NurbsGpgpu(renderer, 40); } catch (e) {
-    console.warn('[Dgeo3DScene] WebGL NURBS unavailable, using CPU', e);
-  }
-  onDestroy(() => gpgpu?.dispose());
-
-  // WebGPU — async init; webgpuReady is the only $state here so Svelte
-  // knows to re-trigger the nurbsCache effect once the device is ready.
-  let webgpu = null;
-  let webgpuReady = $state(false);
-  NurbsWebGpu.create(40)
-    .then(g => { webgpu = g; webgpuReady = true; })
-    .catch(e => console.warn('[Dgeo3DScene] WebGPU NURBS unavailable:', e));
-  onDestroy(() => webgpu?.destroy());
+  const chain = new NurbsEvaluatorChain(renderer);
+  onDestroy(() => chain.destroy());
 
   // Enable Threlte raycasting
   interactivity();
@@ -398,7 +385,7 @@
     }
     // Capture reactive deps synchronously before entering async context
     const snap     = sorted;
-    const _wgReady = webgpuReady;   // subscribe so we re-run when GPU is ready
+    const _ready   = chain.ready;   // subscribe so we re-run when WebGPU is ready
     let cancelled  = false;
 
     (async () => {
@@ -412,20 +399,16 @@
         const nCtrlU = Math.min(36, Math.max(8, maxPts));
         const params = railsToNURBS(rails, { sampleArcLength, nX, nDepth, nStrike, domX, nCtrlU });
         if (!params) return null;
-        // Priority: WebGPU (async) → WebGL GPGPU (sync) → CPU (sync)
-        for (const ev of [webgpu, gpgpu, cpu]) {
-          if (!ev) continue;
-          try {
-            const r = await Promise.resolve(ev.evaluate(params));
-            if (cancelled) return null;   // showNurbs toggled off while evaluating
-            const geo = new THREE.BufferGeometry();
-            geo.setAttribute('position', new THREE.BufferAttribute(r.positions.slice(), 3));
-            geo.setIndex(new THREE.BufferAttribute(new Uint32Array(r.indices), 1));
-            geo.computeVertexNormals();
-            return { geo, positions: r.positions, resolution: r.resolution, color: h.colour ?? '#c8e6c9', id: h.id };
-          } catch (e) {
-            console.warn('[Dgeo3DScene] NURBS eval failed on', ev.constructor?.name, 'for', h.name, e);
-          }
+        try {
+          const r = await chain.evaluate(params);
+          if (cancelled) return null;
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute('position', new THREE.BufferAttribute(r.positions.slice(), 3));
+          geo.setIndex(new THREE.BufferAttribute(new Uint32Array(r.indices), 1));
+          geo.computeVertexNormals();
+          return { geo, positions: r.positions, resolution: r.resolution, color: h.colour ?? '#c8e6c9', id: h.id };
+        } catch (e) {
+          console.warn('[Dgeo3DScene] NURBS eval failed for', h.name, e);
         }
         return null;
       }));

@@ -187,7 +187,7 @@ function earClip2D(poly) {
 //   Front/Back walls: ear-clipping on the concave 2D polygon in xz-space
 //                     (handles fold-back without self-intersecting panels)
 //
-function buildNurbsSolidDirect(mf, positions, resolution, WY) {
+function buildNurbsSolidDirect(mf, positions, resolution, WY, WX, strikeW) {
   const R = resolution + 1;   // vertices per side
   const N = R * R;             // total surface vertices
 
@@ -218,6 +218,29 @@ function buildNurbsSolidDirect(mf, positions, resolution, WY) {
     verts[(N + i) * 3]     = positions[i * 3];
     verts[(N + i) * 3 + 1] = positions[i * 3 + 1];
     verts[(N + i) * 3 + 2] = WY;
+  }
+
+  // ── Boundary-snap fix ──────────────────────────────────────────────────────
+  // NURBS Float32 evaluation at u=0/1 and v=0/1 can have tiny errors (e.g.
+  // x=0.000003 instead of 0.0).  Snapping closes microscopic gaps between the
+  // front/back/left/right walls that would otherwise make the mesh non-manifold.
+  if (WX != null && strikeW != null) {
+    for (let r = 0; r < R; r++) {
+      // Left edge (c=0): x → 0
+      verts[r * R * 3]       = 0;
+      verts[(N + r * R) * 3] = 0;
+      // Right edge (c=resolution): x → WX
+      verts[(r * R + resolution) * 3]         = WX;
+      verts[(N + r * R + resolution) * 3]     = WX;
+    }
+    for (let c = 0; c < R; c++) {
+      // Front row (r=0): y → 0
+      verts[c * 3 + 1]         = 0;
+      verts[(N + c) * 3 + 1]   = 0;
+      // Back row (r=resolution): y → strikeW
+      verts[(resolution * R + c) * 3 + 1]         = strikeW;
+      verts[(N + resolution * R + c) * 3 + 1]     = strikeW;
+    }
   }
 
   const tris = [];
@@ -325,7 +348,7 @@ export async function buildNurbsLayerSolids(nurbsEntries, { WX, WY, strikeW }) {
 
   const manifolds = sorted.map((entry, i) => {
     try {
-      const m = buildNurbsSolidDirect(mf, entry.positions, entry.resolution, WY);
+      const m = buildNurbsSolidDirect(mf, entry.positions, entry.resolution, WY, WX, strikeW);
       const st = m.status();
       if (st !== 'NoError') {
         const msg = `[manifoldSolid] Layer ${i} (${entry.id}): build status = ${st}`;
