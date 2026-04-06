@@ -15,6 +15,7 @@ import WsonApp from './wson/WsonApp.svelte';
 import TplApp from './tpl/TplApp.svelte';
 import DgeoApp from './dgeo/DgeoApp.svelte';
 import WorkflowApp from './workflow/WorkflowApp.svelte';
+import CustomApp from './custom/CustomApp.svelte';
 
 export const appRegistry = {
   // DLIS well-log files
@@ -31,6 +32,8 @@ export const appRegistry = {
   '.dgeo':  DgeoApp,
   // Petrophysics workflow (node-based dataflow)
   '.wflow': WorkflowApp,
+  // AI-generated dynamic components
+  '.svelte': CustomApp,
   // text / markup
   '.txt':  GenericApp,
   '.md':   GenericApp,

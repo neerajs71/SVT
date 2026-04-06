@@ -4,6 +4,11 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   plugins: [tailwindcss(), sveltekit()],
+  ssr: {
+    // Bundle svelte/compiler into the server output so it's available in
+    // production (where devDependencies are not installed).
+    noExternal: ['svelte/compiler'],
+  },
   test: {
     globals: true,
     environment: 'jsdom',
