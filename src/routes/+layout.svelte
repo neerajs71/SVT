@@ -1,6 +1,7 @@
 <script>
   import '../app.css';
   import { NavMenu } from '$lib/components/NavMenu';
+  import ChatPanel from '$lib/ai/ChatPanel.svelte';
   import { onMount } from 'svelte';
 
   let { children } = $props();
@@ -13,6 +14,7 @@
 </script>
 
 <NavMenu />
+<ChatPanel />
 <div class="h-full overflow-hidden">
   {@render children()}
 </div>
