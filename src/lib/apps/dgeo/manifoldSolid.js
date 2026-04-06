@@ -111,49 +111,105 @@ function buildSolidManifold(mf, rails, { WX, WY, strikeW, sampleArcLength, nX, n
   return warped; // Manifold
 }
 
-// ── Build a Manifold solid from NURBS-evaluated surface positions ─────────────
+// ── Build a closed Manifold solid directly from NURBS surface positions ───────
 //
-// `positions` is the Float32Array from the NURBS evaluator:
-//   layout: (resolution+1) × (resolution+1) rows, each [x, y, z]
-//   x ∈ [0,WX], y ∈ [0,strikeW], z ∈ [0,WY]
+// Instead of warping a cube by looking up depth at (x,z) — which fails for
+// folds because a folded surface has multiple depths at the same (x,z) —
+// we construct the closed solid directly:
 //
-// We bilinearly interpolate the NURBS Z grid to get the depth at any (cx,cy)
-// inside the warp function — same technique as buildSolidManifold but using
-// the high-quality GPU surface instead of the bilinear rail grid.
+//   Top face:   the NURBS surface mesh (exactly preserves fold geometry)
+//   Bottom face: same x,y positions but z = WY (base of domain)
+//   Four walls:  connecting the perimeter of the top face to the bottom
 //
-function buildNurbsSolid(mf, positions, resolution, { WX, WY, strikeW, refineN = 5 }) {
-  const W = resolution + 1;   // columns (U = horizontal profile)
-  const H = resolution + 1;   // rows    (V = along-strike)
+// This is the same concept used in geostore.ts / mfgoms.ts but without the
+// bilinear/kriging lookup that loses fold detail.
+//
+// Winding (right-hand rule, CCW = outward normal):
+//   Top face:    reversed NURBS winding → normal in -Z (upward)
+//   Bottom face: NURBS winding          → normal in +Z (downward)
+//   Front (v=0): t0,t1,b0 / t1,b1,b0  → normal in -Y
+//   Back (v=R):  t0,b0,t1 / t1,b0,b1  → normal in +Y
+//   Left (u=0):  t0,b0,t1 / t1,b0,b1  → normal in -X
+//   Right (u=R): t0,t1,b0 / t1,b1,b0  → normal in +X
+//
+function buildNurbsSolidDirect(mf, positions, resolution, WY) {
+  const R = resolution + 1;   // vertices per side (grid dimension)
+  const N = R * R;             // total surface vertices
 
-  // Extract the Z column from the flat positions array into a 2-D grid
-  const grid = [];
-  for (let v = 0; v < H; v++) {
-    const row = new Float32Array(W);
-    for (let u = 0; u < W; u++) {
-      row[u] = positions[(v * W + u) * 3 + 2];   // Z = depth
+  // Vertex buffer: top surface (N vertices) + bottom face (N vertices)
+  const verts = new Float32Array(N * 2 * 3);
+
+  // Top vertices (indices 0..N-1): copy NURBS surface positions as-is
+  for (let i = 0; i < N * 3; i++) verts[i] = positions[i];
+
+  // Bottom vertices (indices N..2N-1): same x,y but z = WY (domain bottom)
+  for (let i = 0; i < N; i++) {
+    verts[(N + i) * 3]     = positions[i * 3];     // x
+    verts[(N + i) * 3 + 1] = positions[i * 3 + 1]; // y (strike)
+    verts[(N + i) * 3 + 2] = WY;                   // z = bottom
+  }
+
+  const tris = [];
+
+  // TOP face — reversed NURBS winding → outward normal in -Z (upward/outward)
+  for (let r = 0; r < resolution; r++) {
+    for (let c = 0; c < resolution; c++) {
+      const a = r * R + c, b = a + 1, d = a + R, e = d + 1;
+      tris.push(a, e, b);  // reversed from NURBS (a,b,e)
+      tris.push(a, d, e);  // reversed from NURBS (a,e,d)
     }
-    grid.push(row);
   }
 
-  function nurbsDepth(cx, cy) {
-    const uFrac = Math.max(0, Math.min(W - 1, (cx / WX) * (W - 1)));
-    const u0    = Math.min(W - 2, Math.floor(uFrac)), ut = uFrac - u0;
-    const vFrac = Math.max(0, Math.min(H - 1, (cy / strikeW) * (H - 1)));
-    const v0    = Math.min(H - 2, Math.floor(vFrac)), vt = vFrac - v0;
-    return grid[v0][u0]     * (1-vt)*(1-ut)
-         + grid[v0][u0+1]   * (1-vt)*  ut
-         + grid[v0+1][u0]   *    vt *(1-ut)
-         + grid[v0+1][u0+1] *    vt *   ut;
+  // BOTTOM face — NURBS winding → outward normal in +Z (downward/outward)
+  for (let r = 0; r < resolution; r++) {
+    for (let c = 0; c < resolution; c++) {
+      const a = N + r * R + c, b = a + 1, d = a + R, e = d + 1;
+      tris.push(a, b, e);
+      tris.push(a, e, d);
+    }
   }
 
-  const cube    = mf.Manifold.cube([WX, strikeW, WY], false);
-  const refined = cube.refine(refineN);
-  const warped  = refined.warp(vert => {
-    const hz = Math.max(0.01, Math.min(WY * 0.99, nurbsDepth(vert[0], vert[1])));
-    vert[2]   = hz + (WY - hz) * vert[2] / WY;
-  });
-  return warped;
+  // FRONT wall (r=0 row) — outward normal ≈ -Y
+  for (let c = 0; c < resolution; c++) {
+    const t0 = c, t1 = c + 1;
+    const b0 = N + c, b1 = N + c + 1;
+    tris.push(t0, t1, b0);
+    tris.push(t1, b1, b0);
+  }
+
+  // BACK wall (r=resolution row) — outward normal ≈ +Y
+  for (let c = 0; c < resolution; c++) {
+    const t0 = resolution * R + c, t1 = resolution * R + c + 1;
+    const b0 = N + resolution * R + c, b1 = N + resolution * R + c + 1;
+    tris.push(t0, b0, t1);
+    tris.push(t1, b0, b1);
+  }
+
+  // LEFT wall (c=0 column) — outward normal ≈ -X
+  for (let r = 0; r < resolution; r++) {
+    const t0 = r * R, t1 = (r + 1) * R;
+    const b0 = N + r * R, b1 = N + (r + 1) * R;
+    tris.push(t0, b0, t1);
+    tris.push(t1, b0, b1);
+  }
+
+  // RIGHT wall (c=resolution column) — outward normal ≈ +X
+  for (let r = 0; r < resolution; r++) {
+    const t0 = r * R + resolution, t1 = (r + 1) * R + resolution;
+    const b0 = N + r * R + resolution, b1 = N + (r + 1) * R + resolution;
+    tris.push(t0, t1, b0);
+    tris.push(t1, b1, b0);
+  }
+
+  const mesh = {
+    numProp: 3,
+    vertProperties: verts,
+    triVerts: new Int32Array(tris),
+  };
+
+  return new mf.Manifold(mesh);
 }
+
 
 // ── Average Z depth of a NURBS surface (used for sorting) ────────────────────
 function avgNurbsZ(positions) {
@@ -182,7 +238,7 @@ export async function buildNurbsLayerSolids(nurbsEntries, { WX, WY, strikeW }) {
 
   const manifolds = sorted.map(entry => {
     try {
-      return buildNurbsSolid(mf, entry.positions, entry.resolution, { WX, WY, strikeW });
+      return buildNurbsSolidDirect(mf, entry.positions, entry.resolution, WY);
     } catch (e) {
       console.warn('[manifoldSolid] NURBS solid build failed for', entry.id, e);
       return null;
