@@ -58,17 +58,16 @@
     return h.points.reduce((s, p) => s + p.y, 0) / h.points.length;
   }
 
-  // Build SVG polyline string for a horizon
+  // Build SVG polyline string for a horizon (arc-length / insertion order)
   function polyStr(h) {
     if (!h.points.length) return '';
-    const sorted = [...h.points].sort((a, b) => a.x - b.x);
-    return sorted.map(p => `${toSvgX(p.x).toFixed(1)},${toSvgY(p.y).toFixed(1)}`).join(' ');
+    return h.points.map(p => `${toSvgX(p.x).toFixed(1)},${toSvgY(p.y).toFixed(1)}`).join(' ');
   }
 
   // Build filled band polygon between two consecutive horizons
   function bandPath(upper, lower) {
-    const uPts = [...upper.points].sort((a, b) => a.x - b.x);
-    const lPts = [...lower.points].sort((a, b) => a.x - b.x);
+    const uPts = upper.points;
+    const lPts = lower.points;
     if (!uPts.length || !lPts.length) return '';
 
     const xMin = PAD, xMax = PAD + CHART_W;
@@ -632,11 +631,10 @@
 
           <!-- Horizon lines + points -->
           {#each horizons as h (h.id)}
-            {@const sorted = [...h.points].sort((a, b) => a.x - b.x)}
             {@const isActive = activeId === h.id}
             {@const stroke = horizonStroke(h)}
 
-            {#if sorted.length >= 2}
+            {#if h.points.length >= 2}
               <polyline
                 points={polyStr(h)}
                 fill="none"
@@ -657,8 +655,8 @@
                 stroke-linecap="round"/>
             {/if}
 
-            {#if sorted.length > 0}
-              {@const lastPt = sorted[sorted.length - 1]}
+            {#if h.points.length > 0}
+              {@const lastPt = h.points[h.points.length - 1]}
               <text
                 x={toSvgX(lastPt.x) + 5}
                 y={toSvgY(lastPt.y) + 4}
