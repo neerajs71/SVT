@@ -47,8 +47,8 @@ export class NurbsGpgpu {
       stencilBuffer: false,
     });
 
-    // Pre-allocate uniform vectors (avoids per-frame GC)
-    const cpUniforms = Array.from({ length: 64 }, () => new THREE.Vector4(0, 0, 0, 1));
+    // Pre-allocate uniform vectors (avoids per-frame GC); matches MAX_CP in GLSL
+    const cpUniforms = Array.from({ length: 512 }, () => new THREE.Vector4(0, 0, 0, 1));
 
     this.#mat = new THREE.ShaderMaterial({
       vertexShader:   fullscreenVert,
@@ -60,8 +60,8 @@ export class NurbsGpgpu {
         uNCtrlV:        { value: 4 },
         uResolution:    { value: resolution },
         uControlPoints: { value: cpUniforms },
-        uKnotsU:        { value: new Float32Array(16) },
-        uKnotsV:        { value: new Float32Array(16) },
+        uKnotsU:        { value: new Float32Array(40) },
+        uKnotsV:        { value: new Float32Array(40) },
       },
     });
 
@@ -110,7 +110,7 @@ export class NurbsGpgpu {
     u.uResolution.value = this.#res;
 
     const cpArr = u.uControlPoints.value;
-    const nCP   = Math.min(controlPoints.length, 64);
+    const nCP   = Math.min(controlPoints.length, 512);
     for (let i = 0; i < nCP; i++) {
       const [x, y, z] = controlPoints[i];
       cpArr[i].set(
@@ -121,8 +121,8 @@ export class NurbsGpgpu {
       );
     }
 
-    const ku = new Float32Array(16); ku.set(uKnots.slice(0, 16));
-    const kv = new Float32Array(16); kv.set(vKnots.slice(0, 16));
+    const ku = new Float32Array(40); ku.set(uKnots.slice(0, 40));
+    const kv = new Float32Array(40); kv.set(vKnots.slice(0, 40));
     u.uKnotsU.value = ku;
     u.uKnotsV.value = kv;
     this.#mat.needsUpdate = true;

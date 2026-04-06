@@ -405,7 +405,11 @@
         if (h.visible === false) return null;
         const rails = getRails(h);
         if (rails.length < 2) return null;
-        const params = railsToNURBS(rails, { sampleArcLength, nX, nDepth, nStrike, domX });
+        // Use actual point count so folds are captured; clamp to [8, 36]
+        // (36 + degree 3 + 1 = 40 knots, matching MAX_KNOT in GLSL shader)
+        const maxPts = Math.max(...rails.map(r => r.points?.length ?? 0));
+        const nCtrlU = Math.min(36, Math.max(8, maxPts));
+        const params = railsToNURBS(rails, { sampleArcLength, nX, nDepth, nStrike, domX, nCtrlU });
         if (!params) return null;
         // Priority: WebGPU (async) → WebGL GPGPU (sync) → CPU (sync)
         for (const ev of [webgpu, gpgpu, cpu]) {

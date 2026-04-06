@@ -8,10 +8,10 @@
  * gl_FragCoord.xy / uResolution → (u, v) ∈ [0,1]²
  * Output: gl_FragColor = vec4(x, y, z, 1.0)  (world-space surface point)
  *
- * Limits (sufficient for geological horizons):
- *   MAX_CP   = 64  control points  (e.g. 8 U × 8 V)
- *   MAX_KNOT = 16  knots per axis
- *   MAX_DEG  = 9   basis functions (degree ≤ 9)
+ * Limits (sufficient for geological horizons with folds):
+ *   MAX_CP   = 512  control points  (e.g. 32 U × 16 V)
+ *   MAX_KNOT = 40   knots per axis  (up to 36 ctrl pts with degree 3)
+ *   MAX_DEG  = 10   basis functions (degree ≤ 9)
  */
 
 export const fullscreenVert = /* glsl */`
@@ -24,8 +24,8 @@ void main() {
 export const nurbsEvalFrag = /* glsl */`
 precision highp float;
 
-#define MAX_CP   64
-#define MAX_KNOT 16
+#define MAX_CP   512
+#define MAX_KNOT 40
 #define MAX_DEG  10
 
 uniform int   uDegreeU;
