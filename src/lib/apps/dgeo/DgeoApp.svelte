@@ -172,16 +172,83 @@
 
   onMount(() => { loadFile(); });
 
+  // ── Preset dialog ─────────────────────────────────────────────────────────
+  let presetDialog = $state(null); // null | { depth, idx }
+
+  const PRESETS = [
+    { key: 'flat',      label: 'Flat',             icon: 'M4,20 h52'  },
+    { key: 'dome',      label: 'Dome',             icon: 'M4,22 Q30,4 56,22' },
+    { key: 'undulating',label: 'Undulating',       icon: 'M4,15 Q16,5 30,15 Q44,25 56,15' },
+    { key: 'fold',      label: 'Fold',             icon: 'M4,22 Q20,4 30,14 Q42,24 56,6' },
+    { key: 'fold_fwd',  label: 'Fold forward',     icon: 'M4,20 C16,20 22,6 34,6 C42,6 46,14 38,18 C30,22 32,28 44,24 L56,20' },
+    { key: 'fold_bwd',  label: 'Fold backward',    icon: 'M4,20 L16,24 C28,28 30,22 22,18 C14,14 18,6 26,6 C38,6 44,20 56,20' },
+  ];
+
+  function generatePresetPoints(preset, baseDepth) {
+    const xL = domX.min, xR = domX.max, xRange = xR - xL, xMid = (xL + xR) / 2;
+    const amp = (domY.max - domY.min) * 0.12;
+    const N = 20;
+    const clampY = y => Math.max(domY.min, Math.min(domY.max, y));
+
+    if (preset === 'flat') {
+      return Array.from({ length: 5 }, (_, i) => ({ x: xL + xRange * i / 4, y: baseDepth }));
+    }
+    if (preset === 'dome') {
+      const sigma = xRange * 0.25;
+      return Array.from({ length: N }, (_, i) => {
+        const x = xL + xRange * i / (N - 1);
+        return { x, y: clampY(baseDepth - amp * Math.exp(-((x - xMid) ** 2) / (2 * sigma ** 2))) };
+      });
+    }
+    if (preset === 'undulating') {
+      const freq = 2.5;
+      return Array.from({ length: N }, (_, i) => {
+        const t = i / (N - 1);
+        return { x: xL + xRange * t, y: clampY(baseDepth + amp * 0.8 * Math.sin(2 * Math.PI * freq * t)) };
+      });
+    }
+    if (preset === 'fold') {
+      // Simple anticline-syncline (single period sine)
+      return Array.from({ length: N }, (_, i) => {
+        const t = i / (N - 1);
+        return { x: xL + xRange * t, y: clampY(baseDepth - amp * 1.2 * Math.sin(Math.PI * t)) };
+      });
+    }
+    if (preset === 'fold_fwd') {
+      // Right-vergent overturned fold: x doubles back (decreases) in the middle
+      const raw = [
+        [0.00,  0.00], [0.15, -0.30], [0.35, -0.80], [0.55, -1.00],
+        [0.72, -0.85], [0.78, -0.55],
+        [0.68, -0.25], // ← x decreases here (fold-back)
+        [0.58,  0.00], [0.70,  0.10], [0.85,  0.05], [1.00,  0.00],
+      ];
+      return raw.map(([tx, ty]) => ({ x: xL + tx * xRange, y: clampY(baseDepth + ty * amp * 1.8) }));
+    }
+    if (preset === 'fold_bwd') {
+      // Left-vergent overturned fold: mirror of fold_fwd
+      const raw = [
+        [0.00,  0.00], [0.15,  0.05], [0.30,  0.10], [0.42,  0.00],
+        [0.32, -0.25], // ← x decreases here (fold-back)
+        [0.22, -0.55], [0.28, -0.85], [0.45, -1.00],
+        [0.65, -0.80], [0.85, -0.30], [1.00,  0.00],
+      ];
+      return raw.map(([tx, ty]) => ({ x: xL + tx * xRange, y: clampY(baseDepth + ty * amp * 1.8) }));
+    }
+    return [{ x: xL, y: baseDepth }, { x: xMid, y: baseDepth }, { x: xR, y: baseDepth }];
+  }
+
   // ── Horizon management ────────────────────────────────────────────────────
   function addHorizon() {
     const idx   = horizons.length;
     const depth = domY.min + (domY.max - domY.min) * ((idx + 1) / (horizons.length + 2));
-    const xL    = domX.min + (domX.max - domX.min) * 0.05;
-    const xR    = domX.max - (domX.max - domX.min) * 0.05;
-    const xMid  = (domX.min + domX.max) / 2;
-    const basePts = [{ x: xL, y: depth }, { x: xMid, y: depth + 50 }, { x: xR, y: depth }];
+    presetDialog = { depth, idx };
+  }
 
-    // Generate defaultRailCount evenly-spaced rails across the strike extent
+  function confirmAddHorizon(preset) {
+    const { depth, idx } = presetDialog;
+    presetDialog = null;
+    const basePts = generatePresetPoints(preset, depth);
+
     const n     = Math.max(2, defaultRailCount);
     const rails = Array.from({ length: n }, (_, i) => ({
       z:      (i / (n - 1)) * strikeKm,
@@ -199,7 +266,7 @@
     };
     horizons = [...horizons, h];
     activeId = h.id;
-    tool = 'add-point';
+    tool = 'select';
     dirty = true;
   }
 
@@ -815,6 +882,42 @@
       </div>
     {/snippet}
   </FloatingPanel>
+
+  <!-- ── Preset shape picker dialog ──────────────────────────────────────── -->
+  {#if presetDialog}
+    <!-- backdrop -->
+    <div
+      style="position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:1000;display:flex;align-items:center;justify-content:center"
+      onclick={() => presetDialog = null}
+      role="dialog"
+      aria-modal="true">
+      <!-- card -->
+      <div
+        onclick={e => e.stopPropagation()}
+        style="background:white;border-radius:12px;padding:20px 24px;width:420px;max-width:95vw;box-shadow:0 8px 32px rgba(0,0,0,0.22)">
+        <p style="font-size:14px;font-weight:600;color:#1e293b;margin:0 0 14px">Choose surface shape</p>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+          {#each PRESETS as p}
+            <button
+              onclick={() => confirmAddHorizon(p.key)}
+              style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 6px;border:1.5px solid #e2e8f0;border-radius:8px;background:white;cursor:pointer;transition:all .15s"
+              onmouseenter={e => e.currentTarget.style.borderColor='#3b82f6'}
+              onmouseleave={e => e.currentTarget.style.borderColor='#e2e8f0'}>
+              <svg width="60" height="36" viewBox="0 0 60 36" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d={p.icon}/>
+              </svg>
+              <span style="font-size:11px;color:#374151;font-weight:500">{p.label}</span>
+            </button>
+          {/each}
+        </div>
+        <button
+          onclick={() => presetDialog = null}
+          style="margin-top:14px;width:100%;padding:6px;font-size:12px;color:#6b7280;border:1px solid #e2e8f0;border-radius:6px;background:white;cursor:pointer">
+          Cancel
+        </button>
+      </div>
+    </div>
+  {/if}
 
 </div>
 
