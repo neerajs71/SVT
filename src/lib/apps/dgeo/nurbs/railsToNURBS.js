@@ -24,7 +24,7 @@ const MIN_RAILS = 4;
  * }} opts
  * @returns {object|null}  NURBSSurfaceParams, or null if < 2 rails
  */
-export function railsToNURBS(rails, { sampleArcLength, nX, nDepth, nStrike, nCtrlU = 8 }) {
+export function railsToNURBS(rails, { sampleArcLength, nX, nDepth, nStrike, domX, nCtrlU = 8 }) {
   let sorted = [...rails].sort((a, b) => a.z - b.z);
   if (sorted.length < 2) return null;
 
@@ -57,7 +57,14 @@ export function railsToNURBS(rails, { sampleArcLength, nX, nDepth, nStrike, nCtr
 
   // ── Control points: nCtrlV rows × nCtrlU cols, world-space [x,y,z] ────────
   const controlPoints = sorted.flatMap(rail => {
-    const pts = sampleArcLength(rail.points, nCtrlU);
+    // Sort by X so the surface sweeps left→right (consistent with 2D display)
+    const sortedPts = [...rail.points].sort((a, b) => a.x - b.x);
+    const pts = sampleArcLength(sortedPts, nCtrlU);
+    // Snap first/last control points to exact domain walls to prevent edge gaps
+    if (domX && pts.length > 0) {
+      pts[0].x = domX.min;
+      pts[pts.length - 1].x = domX.max;
+    }
     return pts.map(p => [nX(p.x), nStrike(rail.z), nDepth(p.y)]);
   });
 

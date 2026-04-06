@@ -321,8 +321,16 @@
     const cy = Math.max(domY.min, Math.min(domY.max, y));
     horizons = horizons.map(h => {
       if (h.id !== dragState.horizonId) return h;
+      // Identify which point is the left/right boundary (by X value, not array index)
+      const byX       = h.points.map((p, i) => ({ i, x: p.x })).sort((a, b) => a.x - b.x);
+      const leftIdx   = byX[0].i;
+      const rightIdx  = byX[byX.length - 1].i;
+      // Boundary endpoints are locked to the domain walls — only depth (y) is free
+      const finalX = dragState.pointIdx === leftIdx  ? domX.min
+                   : dragState.pointIdx === rightIdx ? domX.max
+                   : cx;
       const pts = h.points.map((p, i) =>
-        i === dragState.pointIdx ? { x: cx, y: cy } : p
+        i === dragState.pointIdx ? { x: finalX, y: cy } : p
       );
       return { ...h, points: pts };
     });

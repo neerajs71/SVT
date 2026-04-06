@@ -107,7 +107,12 @@
     const nR = sr.length;
 
     const grid = sr.map(rail => {
-      const sampled = sampleArcLength(rail.points, nSamples);
+      // Sort points by X before arc-length sampling so the surface sweeps left→right
+      const sortedPts = [...rail.points].sort((a, b) => a.x - b.x);
+      const sampled = sampleArcLength(sortedPts, nSamples);
+      // Snap first/last sampled points to exact domain boundaries
+      if (sampled.length > 0) sampled[0].x = domX.min;
+      if (sampled.length > 1) sampled[sampled.length - 1].x = domX.max;
       return sampled.map(p => [nX(p.x), nStrike(rail.z), nDepth(p.y)]);
     });
 
@@ -176,6 +181,7 @@
       strikeW: sw,
       sampleArcLength,
       nX, nDepth, nStrike,
+      domX,
     }).then(blocks => {
       for (const b of solidBlocks) b.geo?.dispose();
       solidBlocks = blocks;
@@ -267,12 +273,20 @@
     const newX = Math.max(domX.min, Math.min(domX.max, fromNX(e.point.x)));
     const newY = Math.max(domY.min, Math.min(domY.max, fromNDepth(e.point.z)));
 
+    // Identify left/right boundary points by X value; lock their X to the domain walls
+    const byX      = activeRail.points.map((p, i) => ({ i, x: p.x })).sort((a, b) => a.x - b.x);
+    const leftIdx  = byX[0].i;
+    const rightIdx = byX[byX.length - 1].i;
+    const finalX   = dragPointIdx === leftIdx  ? domX.min
+                   : dragPointIdx === rightIdx ? domX.max
+                   : newX;
+
     const newRails = editRailsSorted.map((rail, ri) => {
       if (ri !== editRailIdx) return rail;
       return {
         ...rail,
         points: rail.points.map((p, pi) =>
-          pi === dragPointIdx ? { ...p, x: newX, y: newY } : p
+          pi === dragPointIdx ? { ...p, x: finalX, y: newY } : p
         ),
       };
     });
@@ -393,7 +407,7 @@
         if (h.visible === false) return null;
         const rails = getRails(h);
         if (rails.length < 2) return null;
-        const params = railsToNURBS(rails, { sampleArcLength, nX, nDepth, nStrike });
+        const params = railsToNURBS(rails, { sampleArcLength, nX, nDepth, nStrike, domX });
         if (!params) return null;
         // Priority: WebGPU (async) → WebGL GPGPU (sync) → CPU (sync)
         for (const ev of [webgpu, gpgpu, cpu]) {

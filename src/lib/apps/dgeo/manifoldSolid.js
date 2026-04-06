@@ -62,15 +62,21 @@ function avgRailDepth(h, getRails) {
 //
 // nDepth(p.y) maps geological depth → world Z ∈ [0, WY]
 //
-function buildSolidManifold(mf, rails, { WX, WY, strikeW, sampleArcLength, nX, nDepth, nXsamp = 40, refineN = 5 }) {
+function buildSolidManifold(mf, rails, { WX, WY, strikeW, sampleArcLength, nX, nDepth, domX, nXsamp = 40, refineN = 5 }) {
   const sr = [...rails].sort((a, b) => a.z - b.z);
   if (sr.length < 2) return null;
   const nR  = sr.length;
   const nXn = nXsamp;
 
   // Surface grid: surfGrid[r][col] = world-Z depth at (rail r, arc-col col)
+  // Sort each rail's points by X and snap endpoints to domain walls before sampling
   const surfGrid = sr.map(rail => {
-    const pts = sampleArcLength(rail.points, nXn);
+    const sortedPts = [...rail.points].sort((a, b) => a.x - b.x);
+    if (domX && sortedPts.length > 0) {
+      sortedPts[0].x = domX.min;
+      sortedPts[sortedPts.length - 1].x = domX.max;
+    }
+    const pts = sampleArcLength(sortedPts, nXn);
     return pts.map(p => Math.max(0.01, Math.min(WY * 0.99, nDepth(p.y))));
   });
 
@@ -118,9 +124,10 @@ export async function buildLayerSolids({
   nX,
   nDepth,
   nStrike,
+  domX,
 }) {
   const mf = await getMF();
-  const opts = { WX, WY, strikeW, sampleArcLength, nX, nDepth };
+  const opts = { WX, WY, strikeW, sampleArcLength, nX, nDepth, domX };
 
   const valid = horizons.filter(h => getRails(h).length >= 2);
   if (valid.length === 0) return [];
