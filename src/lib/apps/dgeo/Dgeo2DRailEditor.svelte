@@ -62,7 +62,10 @@
   function onSvgClick(e) {
     if (tool !== 'add' || !rail) return;
     const { x, y } = svgCoords(e);
-    onUpdatePoints?.([...(rail.points ?? []), { x, y }]);
+    // Insert at the correct X position so the profile stays left→right
+    const newPts = [...(rail.points ?? []), { x, y }]
+      .sort((a, b) => a.x - b.x);
+    onUpdatePoints?.(newPts);
   }
 
   // ── Pointer-event drag (replaces mouse events) ────────────────────────────
@@ -97,8 +100,10 @@
     tool === 'delete' ? 'not-allowed' : 'default'
   );
 
-  // Points in insertion order — no X-sort so folds are preserved
+  // Points in original order for drag/delete index tracking
   const pts = $derived(rail?.points ?? []);
+  // Sorted by X for the connecting polyline — always draws left→right
+  const ptsLine = $derived([...pts].sort((a, b) => a.x - b.x));
 </script>
 
 <div class="flex flex-col h-full bg-white select-none">
@@ -166,9 +171,9 @@
         {/if}
       {/each}
 
-      <!-- Active rail polyline — drawn in insertion order so folds work -->
-      {#if pts.length >= 2}
-        {@const pStr = pts.map(p => `${toSvgX(p.x).toFixed(1)},${toSvgY(p.y).toFixed(1)}`).join(' ')}
+      <!-- Active rail polyline — drawn sorted left→right -->
+      {#if ptsLine.length >= 2}
+        {@const pStr = ptsLine.map(p => `${toSvgX(p.x).toFixed(1)},${toSvgY(p.y).toFixed(1)}`).join(' ')}
         <polyline points={pStr} fill="none" stroke="#2563eb"
           stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
         <polyline points={pStr} fill="none" stroke="#1e3a8a"

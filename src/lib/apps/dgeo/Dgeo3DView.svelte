@@ -39,11 +39,13 @@
     if (editHorizon.rails && editHorizon.rails.length >= 2) {
       return [...editHorizon.rails].sort((a, b) => a.z - b.z);
     }
+    // No saved rails — generate defaultRailCount evenly-spaced rails
     const pts = editHorizon.points ?? [];
-    return [
-      { z: 0,        points: pts },
-      { z: strikeKm, points: pts },
-    ];
+    const n   = Math.max(2, defaultRailCount);
+    return Array.from({ length: n }, (_, i) => ({
+      z:      (i / (n - 1)) * strikeKm,
+      points: pts.map(p => ({ ...p })),
+    }));
   });
 
   const activeRail = $derived(

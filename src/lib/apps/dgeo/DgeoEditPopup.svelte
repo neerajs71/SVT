@@ -35,7 +35,8 @@
 
   function onDragMove(e) {
     if (!dragging) return;
-    pos = { x: pos.x + e.movementX, y: pos.y + e.movementY };
+    // Lock horizontal position — popup is always full-width; only Y is draggable
+    pos = { x: 8, y: Math.max(0, pos.y + e.movementY) };
   }
 
   function onDragEnd() {
@@ -53,7 +54,7 @@
 <div
   class="absolute z-40 rounded-xl shadow-2xl border border-gray-200 flex flex-col
          overflow-hidden select-none"
-  style="left:{pos.x}px; top:{pos.y}px; width:min(560px, calc(100vw - 16px)); background:white;"
+  style="left:8px; right:8px; top:{pos.y}px; width:calc(100% - 16px); background:white;"
 >
 
   <!-- ── Header (drag handle) ──────────────────────────────────────────────── -->
@@ -120,7 +121,7 @@
   </div>
 
   <!-- ── 2D cross-section editor body ──────────────────────────────────────── -->
-  <div style="height:270px">
+  <div style="height:300px">
     <Dgeo2DRailEditor
       {rail}
       {allRails}
