@@ -280,6 +280,47 @@ function avgNurbsZ(positions) {
   return n > 0 ? sum / n : 0;
 }
 
+// ── Build a closed Manifold solid from NURBS positions using cube-warp ────────
+//
+// Warps a [WX × strikeW × WY] manifold cube so the top face follows the NURBS
+// surface depth. The z-grid is indexed in (u,v) parameter space, not world
+// space, so fold-back in world-X works correctly. Cube topology is preserved
+// through the warp → always produces a valid manifold → CSG subtract reliable.
+//
+// positions layout: row-major Float32Array, row = V (strike), col = U (arc-length)
+// positions[(row * R + col) * 3 + 2] = world-Z at parameter (u=col/(R-1), v=row/(R-1))
+//
+function buildNurbsSolidParamWarp(mf, positions, resolution, WY, WX, strikeW, refineN = 6) {
+  const R = resolution + 1;
+
+  // Extract z-grid in (v_row, u_col) parameter space
+  const grid = new Float32Array(R * R);
+  for (let row = 0; row < R; row++) {
+    for (let col = 0; col < R; col++) {
+      grid[row * R + col] = positions[(row * R + col) * 3 + 2];
+    }
+  }
+
+  // Bilinear interpolation in (u,v) parameter space [0..1] × [0..1]
+  function paramZ(uFrac, vFrac) {
+    const cf = Math.max(0, Math.min(R - 1, uFrac * (R - 1)));
+    const c0 = Math.min(R - 2, Math.floor(cf)), ct = cf - c0;
+    const rf = Math.max(0, Math.min(R - 1, vFrac * (R - 1)));
+    const r0 = Math.min(R - 2, Math.floor(rf)), rt = rf - r0;
+    return grid[r0 * R + c0]       * (1 - rt) * (1 - ct)
+         + grid[r0 * R + c0 + 1]   * (1 - rt) *       ct
+         + grid[(r0 + 1) * R + c0] *       rt  * (1 - ct)
+         + grid[(r0 + 1) * R + c0 + 1] *   rt  *       ct;
+  }
+
+  // Warp cube: top face (z=0) → NURBS depth surface, base (z=WY) → stays at WY
+  const cube = mf.Manifold.cube([WX, strikeW, WY], false);
+  return cube.refine(refineN).warp(vert => {
+    const hz = Math.max(0.01, Math.min(WY * 0.99, paramZ(vert[0] / WX, vert[1] / strikeW)));
+    vert[2] = hz + (WY - hz) * vert[2] / WY;
+  });
+}
+
 // ── Build all NURBS-based layer solids with CSG ───────────────────────────────
 //
 // `nurbsEntries` — array of { positions: Float32Array, resolution, color, id }
@@ -301,7 +342,7 @@ export async function buildNurbsLayerSolids(nurbsEntries, { WX, WY, strikeW }) {
 
   const manifolds = sorted.map((entry, i) => {
     try {
-      const m = buildNurbsSolidDirect(mf, entry.positions, entry.resolution, WY);
+      const m = buildNurbsSolidParamWarp(mf, entry.positions, entry.resolution, WY, WX, strikeW);
       const st = m.status();
       if (st !== 'NoError') {
         errors.push(`Layer ${i} (${entry.id}): build status = ${st}`);
