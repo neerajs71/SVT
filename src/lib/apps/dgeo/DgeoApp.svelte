@@ -1,18 +1,20 @@
-<script>
+<script lang="ts">
   import { onMount } from 'svelte';
   import { tabStore } from '$lib/tabs/tabs.svelte.js';
   import { saveToHandle, downloadBlob } from '$lib/apps/shared/fileActions.js';
   import Dgeo3DView from './Dgeo3DView.svelte';
   import { FloatingPanel } from '$lib/components/FloatingPanel';
+  import { HorizonState } from './state/HorizonState.svelte.ts';
+  import type { HorizonOperator, Point2D, Rail } from './types.ts';
 
   const { tab } = $props();
 
   // ── View mode ──────────────────────────────────────────────────────────────
-  let viewMode      = $state('3d');    // '2d' | '3d'
-  let showSolids    = $state(true);    // manifold solid blocks in 3D view
-  let showHzPanel   = $state(false);   // horizons floating panel
+  let viewMode      = $state<'2d' | '3d'>('3d');
+  let showSolids    = $state(true);
+  let showHzPanel   = $state(false);
 
-  // ── Colour palette for formations ─────────────────────────────────────────
+  // ── Colour palette ─────────────────────────────────────────────────────────
   const FORMATION_COLOURS = [
     '#c8e6c9','#fff9c4','#ffe0b2','#f8bbd0','#e1bee7',
     '#b3e5fc','#dcedc8','#fff8e1','#fce4ec','#e8eaf6',
@@ -20,64 +22,57 @@
   ];
 
   // ── State ─────────────────────────────────────────────────────────────────
-  let horizons         = $state([]);      // [{ id, name, colour, operator, points, rails }]
+  /** Reactive array of HorizonState instances — mutations on instances drive re-renders */
+  let horizons: HorizonState[] = $state([]);
   let dirty            = $state(false);
   let loadErr          = $state('');
   let saveErr          = $state('');
-  let strikeKm         = $state(5);       // bound to Dgeo3DView
-  let defaultRailCount = $state(10);      // bound to Dgeo3DView
+  let strikeKm         = $state(5);
+  let defaultRailCount = $state(10);
 
   $effect(() => { tabStore.setDirty(tab.id, dirty); });
 
-  // Tool: 'select' | 'add-point' | 'delete'
-  let tool        = $state('select');
-  let activeId    = $state(null);   // selected horizon id
-  let dragState   = $state(null);   // { horizonId, pointIdx, startX, startY }
+  let tool      = $state<'select' | 'add-point' | 'delete'>('select');
+  let activeId  = $state<string | null>(null);
+  let dragState = $state<{ horizonId: string; pointIdx: number } | null>(null);
 
-  // Viewport
+  // ── Viewport ───────────────────────────────────────────────────────────────
   const W = 900, H = 600, PAD = 60;
   const CHART_W = $derived(W - PAD);
   const CHART_H = $derived(H - PAD);
 
-  // Domain: 0–10 km horizontal, 0–5000 m depth
-  let domX  = $state({ min: 0, max: 10 });
-  let domY  = $state({ min: 0, max: 5000 });
+  let domX = $state({ min: 0, max: 10 });
+  let domY = $state({ min: 0, max: 5000 });
 
-  function toSvgX(v) { return PAD + ((v - domX.min) / (domX.max - domX.min)) * CHART_W; }
-  function toSvgY(v) { return PAD/2 + ((v - domY.min) / (domY.max - domY.min)) * CHART_H; }
-  function fromSvgX(px) { return domX.min + ((px - PAD) / CHART_W) * (domX.max - domX.min); }
-  function fromSvgY(py) { return domY.min + ((py - PAD/2) / CHART_H) * (domY.max - domY.min); }
+  function toSvgX(v: number)  { return PAD + ((v - domX.min) / (domX.max - domX.min)) * CHART_W; }
+  function toSvgY(v: number)  { return PAD/2 + ((v - domY.min) / (domY.max - domY.min)) * CHART_H; }
+  function fromSvgX(px: number) { return domX.min + ((px - PAD) / CHART_W) * (domX.max - domX.min); }
+  function fromSvgY(py: number) { return domY.min + ((py - PAD/2) / CHART_H) * (domY.max - domY.min); }
 
-  // Sorted horizon list (shallowest avg depth first)
+  // Sort by 2D points only (for SVG display order)
   const sortedHorizons = $derived(
-    [...horizons].sort((a, b) => avgDepth(a) - avgDepth(b))
+    [...horizons].sort((a, b) => avg2DDepth(a) - avg2DDepth(b))
   );
 
-  function avgDepth(h) {
+  function avg2DDepth(h: HorizonState): number {
     if (!h.points.length) return 0;
     return h.points.reduce((s, p) => s + p.y, 0) / h.points.length;
   }
 
-  // Build SVG polyline string for a horizon (arc-length / insertion order)
-  function polyStr(h) {
+  function polyStr(h: HorizonState): string {
     if (!h.points.length) return '';
     return h.points.map(p => `${toSvgX(p.x).toFixed(1)},${toSvgY(p.y).toFixed(1)}`).join(' ');
   }
 
-  // Build filled band polygon between two consecutive horizons
-  function bandPath(upper, lower) {
-    const uPts = upper.points;
-    const lPts = lower.points;
+  function bandPath(upper: HorizonState, lower: HorizonState): string {
+    const uPts = upper.points, lPts = lower.points;
     if (!uPts.length || !lPts.length) return '';
-
     const xMin = PAD, xMax = PAD + CHART_W;
-    // Top edge: left cap → upper horizon points → right cap
     const top = [
       `${xMin},${toSvgY(uPts[0].y).toFixed(1)}`,
       ...uPts.map(p => `${toSvgX(p.x).toFixed(1)},${toSvgY(p.y).toFixed(1)}`),
       `${xMax},${toSvgY(uPts[uPts.length - 1].y).toFixed(1)}`,
     ];
-    // Bottom edge: right cap → lower horizon reversed → left cap
     const bot = [
       `${xMax},${toSvgY(lPts[lPts.length - 1].y).toFixed(1)}`,
       ...[...lPts].reverse().map(p => `${toSvgX(p.x).toFixed(1)},${toSvgY(p.y).toFixed(1)}`),
@@ -93,20 +88,23 @@
       const text = await tab.file.text();
       if (!text.trim()) { initDefault(); return; }
       const data = JSON.parse(text);
-      horizons = (data.horizons ?? []).map(h => ({
-        id:       h.id ?? crypto.randomUUID(),
-        name:     h.name ?? 'Horizon',
-        colour:   h.colour ?? FORMATION_COLOURS[0],
-        operator: h.operator ?? 'none',
-        points:   h.points ?? [],
-        rails:    h.rails  ?? null,
-      }));
+      horizons = (data.horizons ?? []).map((h: any) =>
+        HorizonState.fromJSON({
+          id:       h.id       ?? crypto.randomUUID(),
+          name:     h.name     ?? 'Horizon',
+          colour:   h.colour   ?? FORMATION_COLOURS[0],
+          operator: h.operator ?? 'none',
+          visible:  h.visible  ?? true,
+          points:   h.points   ?? [],
+          rails:    h.rails    ?? [],
+        })
+      );
       if (data.domain) {
         domX = data.domain.x ?? domX;
         domY = data.domain.y ?? domY;
       }
       dirty = false;
-    } catch (e) {
+    } catch (e: any) {
       loadErr = `Parse error: ${e.message}`;
       initDefault();
     }
@@ -117,48 +115,33 @@
     const xL  = domX.min + (domX.max - domX.min) * 0.05;
     const xR  = domX.max - (domX.max - domX.min) * 0.05;
     horizons = [
-      { id: crypto.randomUUID(), name: 'Seabed',        colour: FORMATION_COLOURS[0], operator: 'none', visible: true,
-        points: [{ x: xL, y: 200 }, { x: mid, y: 220 }, { x: xR, y: 210 }] },
-      { id: crypto.randomUUID(), name: 'Top Sand A',    colour: FORMATION_COLOURS[1], operator: 'none', visible: true,
-        points: [{ x: xL, y: 800 }, { x: mid, y: 900 }, { x: xR, y: 850 }] },
-      { id: crypto.randomUUID(), name: 'Top Shale B',   colour: FORMATION_COLOURS[2], operator: 'none', visible: true,
-        points: [{ x: xL, y: 1600 }, { x: mid, y: 1700 }, { x: xR, y: 1650 }] },
-      { id: crypto.randomUUID(), name: 'Top Reservoir', colour: FORMATION_COLOURS[3], operator: 'none', visible: true,
-        points: [{ x: xL, y: 2400 }, { x: mid, y: 2500 }, { x: xR, y: 2450 }] },
+      HorizonState.fromJSON({ id: crypto.randomUUID(), name: 'Seabed',        colour: FORMATION_COLOURS[0], operator: 'none', visible: true, points: [{ x: xL, y: 200 }, { x: mid, y: 220 }, { x: xR, y: 210 }], rails: [] }),
+      HorizonState.fromJSON({ id: crypto.randomUUID(), name: 'Top Sand A',    colour: FORMATION_COLOURS[1], operator: 'none', visible: true, points: [{ x: xL, y: 800 }, { x: mid, y: 900 }, { x: xR, y: 850 }], rails: [] }),
+      HorizonState.fromJSON({ id: crypto.randomUUID(), name: 'Top Shale B',   colour: FORMATION_COLOURS[2], operator: 'none', visible: true, points: [{ x: xL, y: 1600 }, { x: mid, y: 1700 }, { x: xR, y: 1650 }], rails: [] }),
+      HorizonState.fromJSON({ id: crypto.randomUUID(), name: 'Top Reservoir', colour: FORMATION_COLOURS[3], operator: 'none', visible: true, points: [{ x: xL, y: 2400 }, { x: mid, y: 2500 }, { x: xR, y: 2450 }], rails: [] }),
     ];
     dirty = false;
   }
 
-  function toJSON() {
+  function toJSON(): string {
     return JSON.stringify({
       version: '1.0',
       domain:  { x: domX, y: domY },
-      horizons: horizons.map(h => ({
-        id: h.id, name: h.name, colour: h.colour,
-        operator: h.operator ?? 'none',
-        points: h.points,
-        ...(h.rails ? { rails: h.rails } : {}),
-      })),
+      horizons: horizons.map(h => h.toJSON()),
     }, null, 2);
   }
 
-  // ── Rail editing callback (from 3D view) ───────────────────────────────────
-  function onUpdateRails(horizonId, newRails) {
-    horizons = horizons.map(h =>
-      h.id === horizonId ? { ...h, rails: newRails } : h
-    );
-    dirty = true;
+  // ── Rail editing callback (from 3D view) ──────────────────────────────────
+  function onUpdateRails(horizonId: string, newRails: Rail[]) {
+    const h = horizons.find(h => h.id === horizonId);
+    if (h) { h.rails = newRails; h.nurbsDirty = true; dirty = true; }
   }
 
   async function saveFile() {
     const json = toJSON();
     if (tab.handle) {
-      try {
-        await saveToHandle(tab.handle, json);
-        dirty = false;
-      } catch (e) {
-        saveErr = e.message;
-      }
+      try { await saveToHandle(tab.handle, json); dirty = false; }
+      catch (e: any) { saveErr = e.message; }
     } else {
       downloadBlob(tab.name || 'geology.dgeo', json, 'application/json');
       dirty = false;
@@ -173,26 +156,25 @@
   onMount(() => { loadFile(); });
 
   // ── Preset dialog ─────────────────────────────────────────────────────────
-  let presetDialog = $state(null); // null | { depth, idx }
+  let presetDialog = $state<{ depth: number; idx: number } | null>(null);
 
   const PRESETS = [
-    { key: 'flat',      label: 'Flat',             icon: 'M4,20 h52'  },
-    { key: 'dome',      label: 'Dome',             icon: 'M4,22 Q30,4 56,22' },
-    { key: 'undulating',label: 'Undulating',       icon: 'M4,15 Q16,5 30,15 Q44,25 56,15' },
-    { key: 'fold',      label: 'Fold',             icon: 'M4,22 Q20,4 30,14 Q42,24 56,6' },
-    { key: 'fold_fwd',  label: 'Fold forward',     icon: 'M4,20 C16,20 22,6 34,6 C42,6 46,14 38,18 C30,22 32,28 44,24 L56,20' },
-    { key: 'fold_bwd',  label: 'Fold backward',    icon: 'M4,20 L16,24 C28,28 30,22 22,18 C14,14 18,6 26,6 C38,6 44,20 56,20' },
+    { key: 'flat',       label: 'Flat',          icon: 'M4,20 h52' },
+    { key: 'dome',       label: 'Dome',          icon: 'M4,22 Q30,4 56,22' },
+    { key: 'undulating', label: 'Undulating',    icon: 'M4,15 Q16,5 30,15 Q44,25 56,15' },
+    { key: 'fold',       label: 'Fold',          icon: 'M4,22 Q20,4 30,14 Q42,24 56,6' },
+    { key: 'fold_fwd',   label: 'Fold forward',  icon: 'M4,20 C16,20 22,6 34,6 C42,6 46,14 38,18 C30,22 32,28 44,24 L56,20' },
+    { key: 'fold_bwd',   label: 'Fold backward', icon: 'M4,20 L16,24 C28,28 30,22 22,18 C14,14 18,6 26,6 C38,6 44,20 56,20' },
   ];
 
-  function generatePresetPoints(preset, baseDepth) {
+  function generatePresetPoints(preset: string, baseDepth: number): Point2D[] {
     const xL = domX.min, xR = domX.max, xRange = xR - xL, xMid = (xL + xR) / 2;
     const amp = (domY.max - domY.min) * 0.12;
     const N = 20;
-    const clampY = y => Math.max(domY.min, Math.min(domY.max, y));
+    const clampY = (y: number) => Math.max(domY.min, Math.min(domY.max, y));
 
-    if (preset === 'flat') {
+    if (preset === 'flat')
       return Array.from({ length: 5 }, (_, i) => ({ x: xL + xRange * i / 4, y: baseDepth }));
-    }
     if (preset === 'dome') {
       const sigma = xRange * 0.25;
       return Array.from({ length: N }, (_, i) => {
@@ -207,30 +189,24 @@
         return { x: xL + xRange * t, y: clampY(baseDepth + amp * 0.8 * Math.sin(2 * Math.PI * freq * t)) };
       });
     }
-    if (preset === 'fold') {
-      // Simple anticline-syncline (single period sine)
+    if (preset === 'fold')
       return Array.from({ length: N }, (_, i) => {
         const t = i / (N - 1);
         return { x: xL + xRange * t, y: clampY(baseDepth - amp * 1.2 * Math.sin(Math.PI * t)) };
       });
-    }
     if (preset === 'fold_fwd') {
-      // Right-vergent overturned fold: x doubles back (decreases) in the middle
-      const raw = [
-        [0.00,  0.00], [0.15, -0.30], [0.35, -0.80], [0.55, -1.00],
-        [0.72, -0.85], [0.78, -0.55],
-        [0.68, -0.25], // ← x decreases here (fold-back)
-        [0.58,  0.00], [0.70,  0.10], [0.85,  0.05], [1.00,  0.00],
+      const raw: [number,number][] = [
+        [0.00, 0.00],[0.15,-0.30],[0.35,-0.80],[0.55,-1.00],
+        [0.72,-0.85],[0.78,-0.55],[0.68,-0.25],
+        [0.58, 0.00],[0.70, 0.10],[0.85, 0.05],[1.00, 0.00],
       ];
       return raw.map(([tx, ty]) => ({ x: xL + tx * xRange, y: clampY(baseDepth + ty * amp * 1.8) }));
     }
     if (preset === 'fold_bwd') {
-      // Left-vergent overturned fold: mirror of fold_fwd
-      const raw = [
-        [0.00,  0.00], [0.15,  0.05], [0.30,  0.10], [0.42,  0.00],
-        [0.32, -0.25], // ← x decreases here (fold-back)
-        [0.22, -0.55], [0.28, -0.85], [0.45, -1.00],
-        [0.65, -0.80], [0.85, -0.30], [1.00,  0.00],
+      const raw: [number,number][] = [
+        [0.00, 0.00],[0.15, 0.05],[0.30, 0.10],[0.42, 0.00],
+        [0.32,-0.25],[0.22,-0.55],[0.28,-0.85],[0.45,-1.00],
+        [0.65,-0.80],[0.85,-0.30],[1.00, 0.00],
       ];
       return raw.map(([tx, ty]) => ({ x: xL + tx * xRange, y: clampY(baseDepth + ty * amp * 1.8) }));
     }
@@ -244,18 +220,16 @@
     presetDialog = { depth, idx };
   }
 
-  function confirmAddHorizon(preset) {
-    const { depth, idx } = presetDialog;
+  function confirmAddHorizon(preset: string) {
+    const { depth, idx } = presetDialog!;
     presetDialog = null;
     const basePts = generatePresetPoints(preset, depth);
-
-    const n     = Math.max(2, defaultRailCount);
-    const rails = Array.from({ length: n }, (_, i) => ({
+    const n  = Math.max(2, defaultRailCount);
+    const rails: Rail[] = Array.from({ length: n }, (_, i) => ({
       z:      (i / (n - 1)) * strikeKm,
       points: basePts.map(p => ({ ...p })),
     }));
-
-    const h = {
+    const h = new HorizonState({
       id:       crypto.randomUUID(),
       name:     `Horizon ${idx + 1}`,
       colour:   FORMATION_COLOURS[idx % FORMATION_COLOURS.length],
@@ -263,42 +237,41 @@
       visible:  true,
       points:   basePts,
       rails,
-    };
+    });
     horizons = [...horizons, h];
     activeId = h.id;
     tool = 'select';
     dirty = true;
   }
 
-  function deleteHorizon(id) {
+  function deleteHorizon(id: string) {
     horizons = horizons.filter(h => h.id !== id);
     if (activeId === id) activeId = null;
     dirty = true;
   }
 
-  function renameHorizon(id, name) {
-    horizons = horizons.map(h => h.id === id ? { ...h, name } : h);
-    dirty = true;
+  // Direct field mutations on HorizonState ($state fields) — no array rebuild needed
+  function renameHorizon(id: string, name: string) {
+    const h = horizons.find(h => h.id === id);
+    if (h) { h.name = name; dirty = true; }
   }
 
-  function recolourHorizon(id, colour) {
-    horizons = horizons.map(h => h.id === id ? { ...h, colour } : h);
-    dirty = true;
+  function recolourHorizon(id: string, colour: string) {
+    const h = horizons.find(h => h.id === id);
+    if (h) { h.colour = colour; dirty = true; }
   }
 
-  function setOperator(id, op) {
-    horizons = horizons.map(h => h.id === id ? { ...h, operator: op } : h);
-    dirty = true;
+  function setOperator(id: string, op: string) {
+    const h = horizons.find(h => h.id === id);
+    if (h) { h.operator = op as HorizonOperator; dirty = true; }
   }
 
-  function toggleVisibility(id) {
-    horizons = horizons.map(h =>
-      h.id === id ? { ...h, visible: !(h.visible ?? true) } : h
-    );
-    dirty = true;
+  function toggleVisibility(id: string) {
+    const h = horizons.find(h => h.id === id);
+    if (h) { h.visible = !h.visible; dirty = true; }
   }
 
-  function moveHorizon(id, dir) {
+  function moveHorizon(id: string, dir: 'up' | 'down') {
     const idx = horizons.findIndex(h => h.id === id);
     if (idx < 0) return;
     if (dir === 'up'   && idx === 0) return;
@@ -310,27 +283,21 @@
     dirty = true;
   }
 
-  // Shift all points of a horizon so its average depth becomes newZ
-  function adjustDepth(id, newZ) {
+  function adjustDepth(id: string, newZ: number) {
     const h = horizons.find(h => h.id === id);
     if (!h || !h.points.length) return;
-    const curZ = h.points.reduce((s, p) => s + p.y, 0) / h.points.length;
+    const curZ  = h.points.reduce((s, p) => s + p.y, 0) / h.points.length;
     const delta = newZ - curZ;
-    const clamp = y => Math.max(domY.min, Math.min(domY.max, y + delta));
-    horizons = horizons.map(hz => {
-      if (hz.id !== id) return hz;
-      const points = hz.points.map(p => ({ ...p, y: clamp(p.y) }));
-      // Shift rail points by the same delta so the 3D surface moves too
-      const rails = hz.rails
-        ? hz.rails.map(r => ({ ...r, points: r.points.map(p => ({ ...p, y: clamp(p.y) })) }))
-        : hz.rails;
-      return { ...hz, points, rails };
-    });
+    const clamp = (y: number) => Math.max(domY.min, Math.min(domY.max, y + delta));
+    h.points = h.points.map(p => ({ ...p, y: clamp(p.y) }));
+    if (h.rails?.length) {
+      h.rails = h.rails.map(r => ({ ...r, points: r.points.map(p => ({ ...p, y: clamp(p.y) })) }));
+    }
+    h.nurbsDirty = true;
     dirty = true;
   }
 
-  // Returns stroke attributes for a horizon line based on its operator
-  function horizonStroke(h) {
+  function horizonStroke(h: HorizonState) {
     const op = h.operator ?? 'none';
     if (op === 'RA' || op === 'RAI') return { dasharray: '8 4', width: 2 };
     if (op === 'RB' || op === 'RBI') return { dasharray: 'none', width: 3.5 };
@@ -338,74 +305,59 @@
   }
 
   // ── SVG interaction ───────────────────────────────────────────────────────
-  let svgRef = $state(null);
-  let editingName = $state(null);  // horizon id being renamed inline
+  let svgRef = $state<SVGSVGElement | null>(null);
 
-  function svgCoords(e) {
-    const rect = svgRef.getBoundingClientRect();
-    const scaleX = W / rect.width;
-    const scaleY = H / rect.height;
+  function svgCoords(e: MouseEvent) {
+    const rect = svgRef!.getBoundingClientRect();
     return {
-      x: fromSvgX((e.clientX - rect.left) * scaleX),
-      y: fromSvgY((e.clientY - rect.top)  * scaleY),
+      x: fromSvgX((e.clientX - rect.left) * (W / rect.width)),
+      y: fromSvgY((e.clientY - rect.top)  * (H / rect.height)),
     };
   }
 
-  function onSvgClick(e) {
+  function onSvgClick(e: MouseEvent) {
     if (tool !== 'add-point' || !activeId) return;
+    const h = horizons.find(h => h.id === activeId);
+    if (!h) return;
     const { x, y } = svgCoords(e);
-    // Clamp to domain
-    const cx = Math.max(domX.min, Math.min(domX.max, x));
-    const cy = Math.max(domY.min, Math.min(domY.max, y));
-    horizons = horizons.map(h =>
-      h.id === activeId ? { ...h, points: [...h.points, { x: cx, y: cy }] } : h
-    );
+    h.points = [...h.points, {
+      x: Math.max(domX.min, Math.min(domX.max, x)),
+      y: Math.max(domY.min, Math.min(domY.max, y)),
+    }];
     dirty = true;
   }
 
-  function onPointMouseDown(e, horizonId, pointIdx) {
+  function onPointMouseDown(e: MouseEvent, horizonId: string, pointIdx: number) {
     if (tool !== 'select') return;
     e.stopPropagation();
-    activeId = horizonId;
+    activeId  = horizonId;
     dragState = { horizonId, pointIdx };
   }
 
-  function onPointClick(e, horizonId, pointIdx) {
+  function onPointClick(e: MouseEvent, horizonId: string, pointIdx: number) {
     if (tool !== 'delete') return;
     e.stopPropagation();
-    horizons = horizons.map(h => {
-      if (h.id !== horizonId) return h;
-      return { ...h, points: h.points.filter((_, i) => i !== pointIdx) };
-    });
-    dirty = true;
+    const h = horizons.find(h => h.id === horizonId);
+    if (h) { h.points = h.points.filter((_, i) => i !== pointIdx); dirty = true; }
   }
 
-  function onSvgMouseMove(e) {
+  function onSvgMouseMove(e: MouseEvent) {
     if (!dragState) return;
+    const h = horizons.find(h => h.id === dragState!.horizonId);
+    if (!h) return;
     const { x, y } = svgCoords(e);
     const cx = Math.max(domX.min, Math.min(domX.max, x));
     const cy = Math.max(domY.min, Math.min(domY.max, y));
-    horizons = horizons.map(h => {
-      if (h.id !== dragState.horizonId) return h;
-      // First and last points (by array index) are the boundary endpoints —
-      // locked to the domain walls so the surface always spans the full width.
-      // Only depth (y) is free for these two; middle points are fully free.
-      const leftIdx  = 0;
-      const rightIdx = h.points.length - 1;
-      const finalX = dragState.pointIdx === leftIdx  ? domX.min
-                   : dragState.pointIdx === rightIdx ? domX.max
-                   : cx;
-      const pts = h.points.map((p, i) =>
-        i === dragState.pointIdx ? { x: finalX, y: cy } : p
-      );
-      return { ...h, points: pts };
-    });
+    const leftIdx  = 0;
+    const rightIdx = h.points.length - 1;
+    const finalX   = dragState!.pointIdx === leftIdx  ? domX.min
+                   : dragState!.pointIdx === rightIdx ? domX.max : cx;
+    h.points = h.points.map((p, i) => i === dragState!.pointIdx ? { x: finalX, y: cy } : p);
     dirty = true;
   }
 
   function onSvgMouseUp() { dragState = null; }
 
-  // X-axis ticks (km)
   const xTicks = $derived(
     Array.from({ length: 6 }, (_, i) => {
       const v = domX.min + (i / 5) * (domX.max - domX.min);
@@ -413,7 +365,6 @@
     })
   );
 
-  // Y-axis ticks (depth)
   const yTicks = $derived(
     Array.from({ length: 6 }, (_, i) => {
       const v = domY.min + (i / 5) * (domY.max - domY.min);
@@ -423,7 +374,6 @@
 
   const activeHorizon = $derived(horizons.find(h => h.id === activeId));
 
-  // Cursor per tool
   const cursor = $derived(
     tool === 'add-point' ? 'crosshair' :
     tool === 'delete'    ? 'not-allowed' : 'default'

@@ -26,8 +26,11 @@ export interface DomainBounds {
 
 // ── Horizon data ──────────────────────────────────────────────────────────────
 
-/** Deposition operator — mirrors pyenthu/dlis geostore conventions */
-export type HorizonOperator = 'RA' | 'RAI' | 'RB' | 'RBI';
+/**
+ * Deposition operator — mirrors pyenthu/dlis geostore conventions.
+ * 'none' = conformable deposit (default).
+ */
+export type HorizonOperator = 'none' | 'RA' | 'RAI' | 'RB' | 'RBI';
 
 /** Plain serialisable horizon record (JSON shape) */
 export interface HorizonData {
