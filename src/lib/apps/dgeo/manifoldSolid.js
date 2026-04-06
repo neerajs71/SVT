@@ -286,22 +286,30 @@ function avgNurbsZ(positions) {
 // from the NURBS evaluator cache.  Sorting and CSG mirrors buildLayerSolids:
 // deepest first, Layer[0] = basement solid, Layer[i] = solid[i] - solid[i-1].
 //
-// Returns Promise<Array<{ geo: BufferGeometry, color, id }>>
+// Returns Promise<{ blocks: Array<{geo,color,id}>, errors: string[] }>
 //
 export async function buildNurbsLayerSolids(nurbsEntries, { WX, WY, strikeW }) {
   const mf = await getMF();
-  if (!nurbsEntries || nurbsEntries.length === 0) return [];
+  const errors = [];
+
+  if (!nurbsEntries || nurbsEntries.length === 0) return { blocks: [], errors };
 
   // Sort deepest first (largest average surface Z = deepest horizon)
   const sorted = [...nurbsEntries].sort((a, b) =>
     avgNurbsZ(b.positions) - avgNurbsZ(a.positions)
   );
 
-  const manifolds = sorted.map(entry => {
+  const manifolds = sorted.map((entry, i) => {
     try {
-      return buildNurbsSolidDirect(mf, entry.positions, entry.resolution, WY);
+      const m = buildNurbsSolidDirect(mf, entry.positions, entry.resolution, WY);
+      const st = m.status();
+      if (st !== 'NoError') {
+        errors.push(`Layer ${i} (${entry.id}): build status = ${st}`);
+        return null;
+      }
+      return m;
     } catch (e) {
-      console.warn('[manifoldSolid] NURBS solid build failed for', entry.id, e);
+      errors.push(`Layer ${i} (${entry.id}): build failed — ${e.message ?? e}`);
       return null;
     }
   });
@@ -313,20 +321,28 @@ export async function buildNurbsLayerSolids(nurbsEntries, { WX, WY, strikeW }) {
     if (i > 0 && manifolds[i - 1]) {
       try {
         result = manifolds[i].subtract(manifolds[i - 1]);
+        const st = result.status();
+        if (st !== 'NoError') {
+          errors.push(`Layer ${i}: subtract status = ${st}, using unsub solid`);
+          result = manifolds[i];   // fall back to uncut solid
+        }
       } catch (e) {
-        console.warn('[manifoldSolid] NURBS subtract failed at layer', i, e);
-        continue;
+        errors.push(`Layer ${i}: subtract threw — ${e.message ?? e}`);
+        result = manifolds[i];
       }
     }
     try {
       const mesh = result.getMesh();
-      if (!mesh || mesh.triVerts.length === 0) continue;
+      if (!mesh || mesh.triVerts.length === 0) {
+        errors.push(`Layer ${i}: empty mesh (vol=${result.volume().toFixed(1)})`);
+        continue;
+      }
       blocks.push({ geo: manifoldMeshToGeo(mesh), color: sorted[i].color, id: sorted[i].id });
     } catch (e) {
-      console.warn('[manifoldSolid] NURBS getMesh failed at layer', i, e);
+      errors.push(`Layer ${i}: getMesh failed — ${e.message ?? e}`);
     }
   }
-  return blocks;
+  return { blocks, errors };
 }
 
 

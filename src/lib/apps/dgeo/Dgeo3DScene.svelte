@@ -21,6 +21,7 @@
     sliceY            = 0,
     editHorizonId     = $bindable(null),
     editRailIdx       = $bindable(null),
+    solidErrors       = $bindable([]),
     onUpdateRails     = null,
   } = $props();
 
@@ -447,26 +448,32 @@
   // Layer[i] = solid[i].subtract(solid[i-1])).
   let nurbsSolidBlocks    = $state(/** @type {Array<{geo,color,id}>} */ ([]));
   let nurbsSolidsBuilding = $state(false);
+  let nurbsSolidErrors    = $state(/** @type {string[]} */ ([]));
 
   $effect(() => {
-    const entries  = nurbsCache;   // reactive dep: rebuild when NURBS surfaces change
-    const doSolids = showSolids;   // reactive dep: only build when solids are wanted
+    const entries  = nurbsCache;
+    const doSolids = showSolids;
     if (!doSolids || entries.length === 0) {
-      nurbsSolidBlocks = [];
+      nurbsSolidBlocks  = [];
+      nurbsSolidErrors  = [];
       return;
     }
     let cancelled = false;
     nurbsSolidsBuilding = true;
-    buildNurbsLayerSolids(entries, { WX, WY, strikeW }).then(blocks => {
+    buildNurbsLayerSolids(entries, { WX, WY, strikeW }).then(({ blocks, errors }) => {
       if (!cancelled) {
         for (const b of nurbsSolidBlocks) b.geo?.dispose();
         nurbsSolidBlocks    = blocks;
+        nurbsSolidErrors    = errors;
+        solidErrors         = errors;
         nurbsSolidsBuilding = false;
+        if (errors.length) console.warn('[manifoldSolid]', errors.join(' | '));
       }
     }).catch(e => {
       if (!cancelled) {
-        console.error('[Dgeo3DScene] buildNurbsLayerSolids error', e);
+        nurbsSolidErrors    = [`Fatal: ${e?.message ?? e}`];
         nurbsSolidsBuilding = false;
+        console.error('[Dgeo3DScene] buildNurbsLayerSolids error', e);
       }
     });
     return () => { cancelled = true; };

@@ -12,9 +12,10 @@
     strikeKm          = $bindable(5),
     defaultRailCount  = $bindable(10),
   } = $props();
-  let solidsBuilding = $state(false);
-  let editHorizonId = $state(null);
-  let editRailIdx   = $state(null);
+  let solidsBuilding  = $state(false);
+  let solidErrors     = $state([]);
+  let editHorizonId   = $state(null);
+  let editRailIdx     = $state(null);
   let resetKey      = $state(0);
   let showPopup     = $state(false);
   let showRuler     = $state(false);
@@ -195,7 +196,7 @@
   </div>
 
   <!-- ── 3D canvas (full height) ───────────────────────────────────────────── -->
-  <div class="flex-1 overflow-hidden touch-none min-h-0">
+  <div class="flex-1 overflow-hidden touch-none min-h-0 relative">
     {#key resetKey}
       <Canvas>
         <Dgeo3DScene
@@ -210,10 +211,22 @@
           {sliceY}
           bind:editHorizonId
           bind:editRailIdx
+          bind:solidErrors
           {onUpdateRails}
         />
       </Canvas>
     {/key}
+
+    <!-- Manifold error overlay -->
+    {#if solidErrors.length > 0}
+      <div style="position:absolute;bottom:8px;left:8px;right:8px;pointer-events:none;z-index:10">
+        {#each solidErrors as err}
+          <div style="background:rgba(220,38,38,0.88);color:#fff;font-size:10px;font-family:monospace;padding:3px 7px;border-radius:3px;margin-top:2px;line-height:1.4;word-break:break-all">
+            ⚠ {err}
+          </div>
+        {/each}
+      </div>
+    {/if}
   </div>
 
   <!-- ── Floating rail-editor popup (analogous to pyenthu PopupEditSurface) ── -->
