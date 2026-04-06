@@ -340,14 +340,23 @@ export async function buildNurbsLayerSolids(nurbsEntries, { WX, WY, strikeW }) {
     }
   });
 
+  // Log volumes of each manifold for diagnostics
+  manifolds.forEach((m, i) => {
+    if (m) console.log(`  manifold[${i}] vol=${m.volume().toFixed(2)} status=${m.status()}`);
+    else console.warn(`  manifold[${i}] is null`);
+  });
+
   const blocks = [];
   for (let i = 0; i < sorted.length; i++) {
     if (!manifolds[i]) continue;
     let result = manifolds[i];
     if (i > 0 && manifolds[i - 1]) {
+      const volBefore = manifolds[i].volume();
       try {
         result = manifolds[i].subtract(manifolds[i - 1]);
         const st = result.status();
+        const volAfter = result.volume();
+        console.log(`  Layer ${i}: subtract vol ${volBefore.toFixed(2)} → ${volAfter.toFixed(2)} (removed ${(volBefore-volAfter).toFixed(2)}) status=${st}`);
         if (st !== 'NoError') {
           const msg = `[manifoldSolid] Layer ${i}: subtract status = ${st}`;
           errors.push(msg); console.warn(msg);
@@ -371,6 +380,7 @@ export async function buildNurbsLayerSolids(nurbsEntries, { WX, WY, strikeW }) {
       errors.push(`Layer ${i}: getMesh failed — ${e.message ?? e}`);
     }
   }
+  console.log(`[manifoldSolid] produced ${blocks.length} blocks`);
   return { blocks, errors };
 }
 
