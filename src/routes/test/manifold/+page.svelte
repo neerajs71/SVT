@@ -18,12 +18,35 @@
   let geoB    = $state(null);
   // The NURBS surface itself (for reference)
   let geoSurf = $state(null);
+  // Approach D: orange minus sphere (manifold validity test)
+  let geoCsphere = $state(null);
 
-  let showA   = $state(false);
-  let showC   = $state(true);
-  let showCSG = $state(true);
-  let showB   = $state(false);
-  let showSurf= $state(true);
+  let showA      = $state(false);
+  let showC      = $state(true);
+  let showCSG    = $state(true);
+  let showB      = $state(false);
+  let showSurf   = $state(true);
+  let showCsphere= $state(true);
+
+  // ── Console panel ──────────────────────────────────────────────────────────
+  let consoleLogs  = $state([]);
+  let showConsole  = $state(false);
+  const errorCount = $derived(consoleLogs.filter(e => e.level === 'error' || e.level === 'warn').length);
+
+  $effect(() => {
+    const orig = { log: console.log, warn: console.warn, error: console.error };
+    const cap = (level) => (...args) => {
+      orig[level](...args);
+      const msg = args.map(a => {
+        if (a instanceof Error) return a.message;
+        if (typeof a === 'object' && a !== null) { try { return JSON.stringify(a); } catch { return String(a); } }
+        return String(a);
+      }).join(' ');
+      consoleLogs = [...consoleLogs.slice(-299), { level, msg, ts: new Date().toLocaleTimeString() }];
+    };
+    console.log = cap('log'); console.warn = cap('warn'); console.error = cap('error');
+    return () => Object.assign(console, orig);
+  });
 
   const WX = 10, WY = 8, strikeW = 6;
   const resolution = 20;
@@ -289,6 +312,18 @@
         const solidCcsg = solidC.subtract(flatC);
         geoCcsg = meshToGeo(solidCcsg.getMesh());
         console.log('[C-csg] subtract status:', solidCcsg.status(), 'vol:', solidCcsg.volume().toFixed(2));
+
+        // D: orange minus sphere — manifold validity test
+        // Sphere at [5, 3, 6]: centre of domain in x/y, z=6 is below fold surface and above WY=8 base
+        const sphere = mf.Manifold.sphere(1.5, 32).translate([5, 3, 6]);
+        const solidCsphere = solidC.subtract(sphere);
+        const sphereSt = solidCsphere.status();
+        console.log('[C-sphere] status:', sphereSt, 'vol:', solidCsphere.volume().toFixed(2));
+        if (sphereSt === 'NoError') {
+          geoCsphere = meshToGeo(solidCsphere.getMesh());
+        } else {
+          console.error('[C-sphere] CSG failed — orange solid is NOT manifold, status:', sphereSt);
+        }
       } catch(e) { console.error('[C] ear-clip failed:', e); }
 
       // Approach B: cube warp (no fold in x-pos)
@@ -312,7 +347,14 @@
 
   <!-- Status bar -->
   <div style="padding:8px 16px;background:#1e293b;border-bottom:1px solid #334155;font-size:12px;font-family:monospace;flex-shrink:0;display:flex;gap:16px;align-items:center">
-    <span style="color:{error ? '#f87171' : '#4ade80'}">{status}</span>
+    <span style="color:{error ? '#f87171' : '#4ade80'};flex:1">{status}</span>
+    <button onclick={() => showConsole = !showConsole}
+      style="position:relative;padding:2px 8px;border:1px solid {showConsole ? '#475569' : '#334155'};border-radius:4px;font-size:11px;cursor:pointer;background:{showConsole ? '#334155' : 'transparent'};color:{showConsole ? '#e2e8f0' : '#64748b'}">
+      🖥 Console
+      {#if errorCount > 0}
+        <span style="position:absolute;top:-5px;right:-5px;background:#ef4444;color:#fff;font-size:9px;border-radius:50%;width:14px;height:14px;display:flex;align-items:center;justify-content:center;line-height:1">{errorCount > 9 ? '9+' : errorCount}</span>
+      {/if}
+    </button>
   </div>
 
   <!-- Controls -->
@@ -330,6 +372,10 @@
       <span style="color:#34d399">■</span> C CSG: fold layer minus flat layer
     </label>
     <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+      <input type="checkbox" bind:checked={showCsphere} />
+      <span style="color:#fbbf24">■</span> D: C − Sphere (manifold test)
+    </label>
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
       <input type="checkbox" bind:checked={showA} />
       <span style="color:#f87171">■</span> A: Quad-strip walls (broken — self-intersecting)
     </label>
@@ -340,7 +386,25 @@
   </div>
 
   <!-- 3D canvas -->
-  <div style="flex:1;min-height:0">
+  <div style="flex:1;min-height:0;position:relative">
+    {#if showConsole}
+      <div style="position:absolute;top:8px;right:8px;width:360px;max-height:55%;display:flex;flex-direction:column;background:#0f172a;border:1px solid #334155;border-radius:6px;z-index:20;font-family:monospace;font-size:10px;color:#e2e8f0">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 10px;border-bottom:1px solid #334155;flex-shrink:0">
+          <span style="color:#94a3b8">Console ({consoleLogs.length})</span>
+          <div style="display:flex;gap:10px">
+            <button onclick={() => consoleLogs = []} style="color:#64748b;cursor:pointer;background:none;border:none">Clear</button>
+            <button onclick={() => showConsole = false} style="color:#64748b;cursor:pointer;background:none;border:none">✕</button>
+          </div>
+        </div>
+        <div style="overflow-y:auto;flex:1">
+          {#each consoleLogs as entry}
+            <div style="padding:2px 8px;border-bottom:1px solid #1e293b;color:{entry.level==='error'?'#f87171':entry.level==='warn'?'#fbbf24':'#64748b'};word-break:break-all;line-height:1.5">
+              <span style="color:#334155">{entry.ts} </span>{entry.msg}
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
     <Canvas>
       <T.PerspectiveCamera makeDefault position={[5, -12, 8]} fov={50}>
         <OrbitControls enableDamping dampingFactor={0.07} target={[5, 3, 4]} />
@@ -380,6 +444,16 @@
         </T.Mesh>
       {/if}
 
+      <!-- D: orange minus sphere (manifold test, far right) -->
+      {#if showCsphere && geoCsphere}
+        <T.Mesh geometry={geoCsphere} position={[24, 0, 0]}>
+          <T.MeshPhongMaterial color="#fbbf24" side={2} transparent opacity={0.85} shininess={40}/>
+        </T.Mesh>
+        <T.Mesh geometry={geoCsphere} position={[24, 0, 0]}>
+          <T.MeshBasicMaterial color="#000000" wireframe />
+        </T.Mesh>
+      {/if}
+
       <!-- Approach A: quad-strip (left, for comparison) -->
       {#if showA && geoA}
         <T.Mesh geometry={geoA} position={[-12, 0, 0]}>
@@ -410,6 +484,7 @@
     <br/>
     <b style="color:#f97316">C (orange, centre):</b> ear-clip walls — correct concave polygon triangulation, fold shape preserved &nbsp;|&nbsp;
     <b style="color:#34d399">C-CSG (green, right):</b> fold layer minus flat layer &nbsp;|&nbsp;
+    <b style="color:#fbbf24">D (yellow, far-right):</b> C minus sphere — if solid is manifold, shows spherical hole; if broken, missing + console error &nbsp;|&nbsp;
     <b style="color:#f87171">A (red, left):</b> quad-strip walls — broken for folds (enable to compare) &nbsp;|&nbsp;
     <b style="color:#60a5fa">B (blue, far-left):</b> cube warp — no fold in x-pos (enable to compare)
   </div>
