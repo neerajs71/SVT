@@ -8,18 +8,21 @@
   let status  = $state('Loading manifold-3d WASM…');
   let error   = $state(null);
 
-  // Approach A: direct mesh (current buildNurbsSolidDirect)
+  // Approach A: direct mesh with quad-strip walls (BROKEN for folds)
   let geoA    = $state(null);
-  // Approach B: cube warp via (u,v) parameter lookup
+  // Approach C: direct mesh with ear-clip walls (CORRECT fold shape)
+  let geoC    = $state(null);
+  // Approach C CSG: fold layer minus flat layer
+  let geoCcsg = $state(null);
+  // Approach B: cube warp via (u,v) parameter lookup (no fold in x-pos)
   let geoB    = $state(null);
-  // Approach B CSG: B_fold subtract B_flat
-  let geoBcsg = $state(null);
   // The NURBS surface itself (for reference)
   let geoSurf = $state(null);
 
-  let showA   = $state(true);
-  let showB   = $state(true);
+  let showA   = $state(false);
+  let showC   = $state(true);
   let showCSG = $state(true);
+  let showB   = $state(false);
   let showSurf= $state(true);
 
   const WX = 10, WY = 8, strikeW = 6;
@@ -76,7 +79,87 @@
     return g;
   }
 
-  // ── Approach A: direct mesh (current impl) ────────────────────────────────
+  // ── Ear clipping for 2D concave polygon (xz-plane) ───────────────────────
+  function earClip2D(poly) {
+    const n = poly.length;
+    if (n < 3) return [];
+    if (n === 3) return [[0, 1, 2]];
+    let area = 0;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      area += poly[i][0] * poly[j][1] - poly[j][0] * poly[i][1];
+    }
+    const ccw = area > 0;
+    function cross(a, b, c) {
+      return (b[0]-a[0])*(c[1]-a[1]) - (b[1]-a[1])*(c[0]-a[0]);
+    }
+    function inTriangle(p, a, b, c) {
+      const d1=cross(a,b,p), d2=cross(b,c,p), d3=cross(c,a,p);
+      return !((d1<0||d2<0||d3<0) && (d1>0||d2>0||d3>0));
+    }
+    const rem = Array.from({length:n},(_,i)=>i);
+    const result = [];
+    while (rem.length > 3) {
+      let cut = false;
+      for (let i = 0; i < rem.length; i++) {
+        const pi=(i-1+rem.length)%rem.length, ni=(i+1)%rem.length;
+        const prev=rem[pi], curr=rem[i], next=rem[ni];
+        const c=cross(poly[prev],poly[curr],poly[next]);
+        if (ccw ? c<=0 : c>=0) continue;
+        let inside=false;
+        for (let j=0; j<rem.length; j++) {
+          if (j===pi||j===i||j===ni) continue;
+          if (inTriangle(poly[rem[j]],poly[prev],poly[curr],poly[next])) { inside=true; break; }
+        }
+        if (inside) continue;
+        result.push([prev,curr,next]); rem.splice(i,1); cut=true; break;
+      }
+      if (!cut) { result.push([rem[0],rem[1],rem[2]]); rem.splice(1,1); }
+    }
+    result.push([rem[0],rem[1],rem[2]]);
+    return result;
+  }
+
+  // ── Approach C: direct mesh with ear-clip walls (CORRECT for folds) ──────
+  function buildSolidEarClip(mf, positions) {
+    const verts = new Float32Array(N * 2 * 3);
+    for (let i = 0; i < N * 3; i++) verts[i] = positions[i];
+    for (let i = 0; i < N; i++) {
+      verts[(N+i)*3]   = positions[i*3];
+      verts[(N+i)*3+1] = positions[i*3+1];
+      verts[(N+i)*3+2] = WY;
+    }
+    const tris = [];
+    for (let r=0;r<resolution;r++) for (let c=0;c<resolution;c++) {
+      const a=r*R+c,b=a+1,d=a+R,e=d+1;
+      tris.push(a,e,b); tris.push(a,d,e);
+    }
+    for (let r=0;r<resolution;r++) for (let c=0;c<resolution;c++) {
+      const a=N+r*R+c,b=a+1,d=a+R,e=d+1;
+      tris.push(a,b,e); tris.push(a,e,d);
+    }
+    { const poly=[],idx=[];
+      for (let c=0;c<=resolution;c++) { idx.push(c); poly.push([positions[c*3],positions[c*3+2]]); }
+      for (let c=resolution;c>=0;c--) { idx.push(N+c); poly.push([positions[c*3],WY]); }
+      for (const [a,b,c] of earClip2D(poly)) tris.push(idx[a],idx[b],idx[c]);
+    }
+    { const poly=[],idx=[],row=resolution*R;
+      for (let c=resolution;c>=0;c--) { idx.push(row+c); poly.push([positions[(row+c)*3],positions[(row+c)*3+2]]); }
+      for (let c=0;c<=resolution;c++) { idx.push(N+row+c); poly.push([positions[(row+c)*3],WY]); }
+      for (const [a,b,c] of earClip2D(poly)) tris.push(idx[a],idx[b],idx[c]);
+    }
+    for (let r=0;r<resolution;r++) {
+      const t0=r*R,t1=(r+1)*R,b0=N+r*R,b1=N+(r+1)*R;
+      tris.push(t0,b0,t1); tris.push(t1,b0,b1);
+    }
+    for (let r=0;r<resolution;r++) {
+      const t0=r*R+resolution,t1=(r+1)*R+resolution,b0=N+r*R+resolution,b1=N+(r+1)*R+resolution;
+      tris.push(t0,t1,b0); tris.push(t1,b1,b0);
+    }
+    return new mf.Manifold({numProp:3,vertProperties:verts,triVerts:new Int32Array(tris)});
+  }
+
+  // ── Approach A: direct mesh with quad-strip walls (BROKEN for folds) ─────
   function buildSolidDirect(mf, positions) {
     const verts = new Float32Array(N * 2 * 3);
     for (let i = 0; i < N * 3; i++) verts[i] = positions[i];
@@ -179,39 +262,43 @@
         geoSurf = g;
       }
 
-      // Approach A: direct mesh
+      // Approach A: direct mesh (quad-strip walls — broken)
       try {
         const solidA = buildSolidDirect(mf, positions);
-        const meshA  = solidA.getMesh();
-        geoA = meshToGeo(meshA);
-        const statusA = solidA.status();
-        console.log('[A] direct mesh status:', statusA, 'vol:', solidA.volume().toFixed(2));
+        geoA = meshToGeo(solidA.getMesh());
+        console.log('[A] quad-strip status:', solidA.status(), 'vol:', solidA.volume().toFixed(2));
       } catch(e) { console.error('[A] direct mesh failed:', e); }
 
-      // Approach B: cube warp
+      // Approach C: ear-clip walls (correct fold shape)
       try {
-        const solidB = buildSolidParamWarp(mf, positions);
-        const meshB  = solidB.getMesh();
-        geoB = meshToGeo(meshB);
-        console.log('[B] param warp status:', solidB.status(), 'vol:', solidB.volume().toFixed(2));
+        const solidC = buildSolidEarClip(mf, positions);
+        geoC = meshToGeo(solidC.getMesh());
+        console.log('[C] ear-clip status:', solidC.status(), 'vol:', solidC.volume().toFixed(2));
 
-        // CSG: fold layer minus flat base layer (simulates deposition operator)
+        // CSG: fold layer minus flat layer
         const flatPos = new Float32Array(N * 3);
         for (let row = 0; row < R; row++) {
           for (let col = 0; col < R; col++) {
             const i = row*R+col;
             flatPos[i*3]   = (col/resolution)*WX;
             flatPos[i*3+1] = (row/resolution)*strikeW;
-            flatPos[i*3+2] = 5.5;   // flat layer at z=5.5
+            flatPos[i*3+2] = 5.5;
           }
         }
-        const solidFlat = buildSolidParamWarp(mf, flatPos);
-        const solidBcsg = solidB.subtract(solidFlat);
-        geoBcsg = meshToGeo(solidBcsg.getMesh());
-        console.log('[B-csg] subtract status:', solidBcsg.status(), 'vol:', solidBcsg.volume().toFixed(2));
+        const flatC = buildSolidEarClip(mf, flatPos);
+        const solidCcsg = solidC.subtract(flatC);
+        geoCcsg = meshToGeo(solidCcsg.getMesh());
+        console.log('[C-csg] subtract status:', solidCcsg.status(), 'vol:', solidCcsg.volume().toFixed(2));
+      } catch(e) { console.error('[C] ear-clip failed:', e); }
+
+      // Approach B: cube warp (no fold in x-pos)
+      try {
+        const solidB = buildSolidParamWarp(mf, positions);
+        geoB = meshToGeo(solidB.getMesh());
+        console.log('[B] param warp status:', solidB.status(), 'vol:', solidB.volume().toFixed(2));
       } catch(e) { console.error('[B] param warp failed:', e); }
 
-      status = 'Done ✓ — use toggles to compare approaches';
+      status = 'Done ✓ — C (orange) = ear-clip fold solid | toggle others to compare';
 
     } catch (e) {
       error  = e?.message ?? String(e);
@@ -235,16 +322,20 @@
       <span style="color:#a78bfa">■</span> NURBS surface (reference)
     </label>
     <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-      <input type="checkbox" bind:checked={showA} />
-      <span style="color:#f87171">■</span> A: Direct mesh (current — may have self-intersecting walls)
-    </label>
-    <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-      <input type="checkbox" bind:checked={showB} />
-      <span style="color:#60a5fa">■</span> B: Cube warp via (u,v) param lookup (no fold in x-pos)
+      <input type="checkbox" bind:checked={showC} />
+      <span style="color:#f97316">■</span> C: Ear-clip walls (correct fold solid)
     </label>
     <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
       <input type="checkbox" bind:checked={showCSG} />
-      <span style="color:#34d399">■</span> B CSG: fold layer minus flat layer
+      <span style="color:#34d399">■</span> C CSG: fold layer minus flat layer
+    </label>
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+      <input type="checkbox" bind:checked={showA} />
+      <span style="color:#f87171">■</span> A: Quad-strip walls (broken — self-intersecting)
+    </label>
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+      <input type="checkbox" bind:checked={showB} />
+      <span style="color:#60a5fa">■</span> B: Cube warp (no fold in x-pos)
     </label>
   </div>
 
@@ -259,7 +350,7 @@
       <T.DirectionalLight position={[10, -8, 12]} intensity={0.9} />
       <T.DirectionalLight position={[-6, 10, -4]} intensity={0.4} />
 
-      <!-- NURBS surface mesh (reference, offset above) -->
+      <!-- NURBS surface mesh (reference) -->
       {#if showSurf && geoSurf}
         <T.Mesh geometry={geoSurf} position={[0, 0, -0.05]}>
           <T.MeshPhongMaterial color="#7c3aed" side={2} transparent opacity={0.7} shininess={60}/>
@@ -269,7 +360,27 @@
         </T.Mesh>
       {/if}
 
-      <!-- Approach A: direct mesh -->
+      <!-- Approach C: ear-clip direct mesh (centre) -->
+      {#if showC && geoC}
+        <T.Mesh geometry={geoC}>
+          <T.MeshPhongMaterial color="#f97316" side={2} transparent opacity={0.85} shininess={30}/>
+        </T.Mesh>
+        <T.Mesh geometry={geoC}>
+          <T.MeshBasicMaterial color="#000000" wireframe />
+        </T.Mesh>
+      {/if}
+
+      <!-- C CSG result (right) -->
+      {#if showCSG && geoCcsg}
+        <T.Mesh geometry={geoCcsg} position={[12, 0, 0]}>
+          <T.MeshPhongMaterial color="#10b981" side={2} transparent opacity={0.85} shininess={40}/>
+        </T.Mesh>
+        <T.Mesh geometry={geoCcsg} position={[12, 0, 0]}>
+          <T.MeshBasicMaterial color="#000000" wireframe />
+        </T.Mesh>
+      {/if}
+
+      <!-- Approach A: quad-strip (left, for comparison) -->
       {#if showA && geoA}
         <T.Mesh geometry={geoA} position={[-12, 0, 0]}>
           <T.MeshPhongMaterial color="#ef4444" side={2} transparent opacity={0.85} shininess={30}/>
@@ -279,22 +390,12 @@
         </T.Mesh>
       {/if}
 
-      <!-- Approach B: cube warp -->
+      <!-- Approach B: cube warp (far left) -->
       {#if showB && geoB}
-        <T.Mesh geometry={geoB}>
+        <T.Mesh geometry={geoB} position={[-24, 0, 0]}>
           <T.MeshPhongMaterial color="#3b82f6" side={2} transparent opacity={0.85} shininess={30}/>
         </T.Mesh>
-        <T.Mesh geometry={geoB}>
-          <T.MeshBasicMaterial color="#000000" wireframe />
-        </T.Mesh>
-      {/if}
-
-      <!-- B CSG result -->
-      {#if showCSG && geoBcsg}
-        <T.Mesh geometry={geoBcsg} position={[12, 0, 0]}>
-          <T.MeshPhongMaterial color="#10b981" side={2} transparent opacity={0.85} shininess={40}/>
-        </T.Mesh>
-        <T.Mesh geometry={geoBcsg} position={[12, 0, 0]}>
+        <T.Mesh geometry={geoB} position={[-24, 0, 0]}>
           <T.MeshBasicMaterial color="#000000" wireframe />
         </T.Mesh>
       {/if}
@@ -307,9 +408,10 @@
   <div style="padding:8px 16px;background:#1e293b;border-top:1px solid #334155;font-size:11px;color:#94a3b8;flex-shrink:0">
     Fold profile: x goes 0→7.8→5.8→10 (fold-back at u≈0.5..0.65) | WX={WX} WY={WY} strikeW={strikeW} | resolution={resolution}×{resolution}
     <br/>
-    A (red, left): direct mesh — walls may self-intersect at fold-back &nbsp;|&nbsp;
-    B (blue, centre): cube warp — always manifold, fold visible only in z-depth &nbsp;|&nbsp;
-    B-CSG (green, right): fold layer minus flat layer
+    <b style="color:#f97316">C (orange, centre):</b> ear-clip walls — correct concave polygon triangulation, fold shape preserved &nbsp;|&nbsp;
+    <b style="color:#34d399">C-CSG (green, right):</b> fold layer minus flat layer &nbsp;|&nbsp;
+    <b style="color:#f87171">A (red, left):</b> quad-strip walls — broken for folds (enable to compare) &nbsp;|&nbsp;
+    <b style="color:#60a5fa">B (blue, far-left):</b> cube warp — no fold in x-pos (enable to compare)
   </div>
 
 </div>

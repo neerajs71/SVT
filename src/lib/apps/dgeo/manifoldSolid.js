@@ -111,56 +111,106 @@ function buildSolidManifold(mf, rails, { WX, WY, strikeW, sampleArcLength, nX, n
   return warped; // Manifold
 }
 
+// ── Ear-clipping triangulation for simple 2D concave polygons ─────────────────
+//
+// Used by buildNurbsSolidDirect to correctly triangulate the front and back
+// walls of fold-back NURBS solids.  Simple quad strips break for folds because
+// the wall panels overlap; ear clipping produces non-overlapping triangles for
+// any simple (non-self-intersecting) polygon.
+//
+// poly: [[x, z], …] — 2D vertex positions in traversal order
+// Returns: [[i, j, k], …] — triangle index triples, same winding as input
+//
+function earClip2D(poly) {
+  const n = poly.length;
+  if (n < 3) return [];
+  if (n === 3) return [[0, 1, 2]];
+
+  // Signed area (shoelace); > 0 = CCW in xz, < 0 = CW
+  let area = 0;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    area += poly[i][0] * poly[j][1] - poly[j][0] * poly[i][1];
+  }
+  const ccw = area > 0;
+
+  // 2D signed area of triangle a→b→c (positive = CCW)
+  function cross(a, b, c) {
+    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  }
+
+  // True if point p is inside (or on edge of) triangle (a, b, c)
+  function inTriangle(p, a, b, c) {
+    const d1 = cross(a, b, p), d2 = cross(b, c, p), d3 = cross(c, a, p);
+    return !((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0));
+  }
+
+  const rem = Array.from({ length: n }, (_, i) => i);
+  const result = [];
+
+  while (rem.length > 3) {
+    let cut = false;
+    for (let i = 0; i < rem.length; i++) {
+      const pi = (i - 1 + rem.length) % rem.length;
+      const ni = (i + 1) % rem.length;
+      const prev = rem[pi], curr = rem[i], next = rem[ni];
+      const c = cross(poly[prev], poly[curr], poly[next]);
+      // Convex ear: left turn for CCW, right turn for CW
+      if (ccw ? c <= 0 : c >= 0) continue;
+      // No other polygon vertex inside this ear
+      let inside = false;
+      for (let j = 0; j < rem.length; j++) {
+        if (j === pi || j === i || j === ni) continue;
+        if (inTriangle(poly[rem[j]], poly[prev], poly[curr], poly[next])) { inside = true; break; }
+      }
+      if (inside) continue;
+      result.push([prev, curr, next]);
+      rem.splice(i, 1);
+      cut = true;
+      break;
+    }
+    // Degenerate fallback: force-cut to avoid infinite loop on near-collinear polygons
+    if (!cut) { result.push([rem[0], rem[1], rem[2]]); rem.splice(1, 1); }
+  }
+  result.push([rem[0], rem[1], rem[2]]);
+  return result;
+}
+
 // ── Build a closed Manifold solid directly from NURBS surface positions ───────
 //
-// Instead of warping a cube by looking up depth at (x,z) — which fails for
-// folds because a folded surface has multiple depths at the same (x,z) —
-// we construct the closed solid directly:
+// Constructs the closed solid from the NURBS surface mesh, preserving all
+// fold geometry including fold-back in world-x.
 //
-//   Top face:   the NURBS surface mesh (exactly preserves fold geometry)
-//   Bottom face: same x,y positions but z = WY (base of domain)
-//   Four walls:  connecting the perimeter of the top face to the bottom
-//
-// This is the same concept used in geostore.ts / mfgoms.ts but without the
-// bilinear/kriging lookup that loses fold detail.
-//
-// Winding (right-hand rule, CCW = outward normal):
-//   Top face:    reversed NURBS winding → normal in -Z (upward)
-//   Bottom face: NURBS winding          → normal in +Z (downward)
-//   Front (v=0): t0,t1,b0 / t1,b1,b0  → normal in -Y
-//   Back (v=R):  t0,b0,t1 / t1,b0,b1  → normal in +Y
-//   Left (u=0):  t0,b0,t1 / t1,b0,b1  → normal in -X
-//   Right (u=R): t0,t1,b0 / t1,b1,b0  → normal in +X
+//   Top face:    NURBS surface mesh (reversed winding → normal -Z upward)
+//   Bottom face: same x,y positions but z = WY (normal +Z downward)
+//   Left/Right walls: quad strips along V direction (never fold back)
+//   Front/Back walls: ear-clipping on the concave 2D polygon in xz-space
+//                     (handles fold-back without self-intersecting panels)
 //
 function buildNurbsSolidDirect(mf, positions, resolution, WY) {
-  const R = resolution + 1;   // vertices per side (grid dimension)
+  const R = resolution + 1;   // vertices per side
   const N = R * R;             // total surface vertices
 
-  // Vertex buffer: top surface (N vertices) + bottom face (N vertices)
   const verts = new Float32Array(N * 2 * 3);
-
-  // Top vertices (indices 0..N-1): copy NURBS surface positions as-is
   for (let i = 0; i < N * 3; i++) verts[i] = positions[i];
-
-  // Bottom vertices (indices N..2N-1): same x,y but z = WY (domain bottom)
   for (let i = 0; i < N; i++) {
-    verts[(N + i) * 3]     = positions[i * 3];     // x
-    verts[(N + i) * 3 + 1] = positions[i * 3 + 1]; // y (strike)
-    verts[(N + i) * 3 + 2] = WY;                   // z = bottom
+    verts[(N + i) * 3]     = positions[i * 3];
+    verts[(N + i) * 3 + 1] = positions[i * 3 + 1];
+    verts[(N + i) * 3 + 2] = WY;
   }
 
   const tris = [];
 
-  // TOP face — reversed NURBS winding → outward normal in -Z (upward/outward)
+  // TOP face — reversed NURBS winding → normal -Z (upward/outward)
   for (let r = 0; r < resolution; r++) {
     for (let c = 0; c < resolution; c++) {
       const a = r * R + c, b = a + 1, d = a + R, e = d + 1;
-      tris.push(a, e, b);  // reversed from NURBS (a,b,e)
-      tris.push(a, d, e);  // reversed from NURBS (a,e,d)
+      tris.push(a, e, b);
+      tris.push(a, d, e);
     }
   }
 
-  // BOTTOM face — NURBS winding → outward normal in +Z (downward/outward)
+  // BOTTOM face — NURBS winding → normal +Z (downward/outward)
   for (let r = 0; r < resolution; r++) {
     for (let c = 0; c < resolution; c++) {
       const a = N + r * R + c, b = a + 1, d = a + R, e = d + 1;
@@ -169,23 +219,40 @@ function buildNurbsSolidDirect(mf, positions, resolution, WY) {
     }
   }
 
-  // FRONT wall (r=0 row) — outward normal ≈ -Y
-  for (let c = 0; c < resolution; c++) {
-    const t0 = c, t1 = c + 1;
-    const b0 = N + c, b1 = N + c + 1;
-    tris.push(t0, t1, b0);
-    tris.push(t1, b1, b0);
+  // FRONT wall (r=0 row) — concave polygon triangulated with ear clipping
+  // Polygon in CCW xz order → -Y outward normal
+  // Traversal: t_0→…→t_R (fold profile), then b_R→…→b_0 (bottom reversed)
+  {
+    const poly = [], idx = [];
+    for (let c = 0; c <= resolution; c++) {
+      idx.push(c);
+      poly.push([positions[c * 3], positions[c * 3 + 2]]);
+    }
+    for (let c = resolution; c >= 0; c--) {
+      idx.push(N + c);
+      poly.push([positions[c * 3], WY]);
+    }
+    for (const [a, b, c] of earClip2D(poly)) tris.push(idx[a], idx[b], idx[c]);
   }
 
-  // BACK wall (r=resolution row) — outward normal ≈ +Y
-  for (let c = 0; c < resolution; c++) {
-    const t0 = resolution * R + c, t1 = resolution * R + c + 1;
-    const b0 = N + resolution * R + c, b1 = N + resolution * R + c + 1;
-    tris.push(t0, b0, t1);
-    tris.push(t1, b0, b1);
+  // BACK wall (r=resolution row) — concave polygon triangulated with ear clipping
+  // Polygon in CW xz order → +Y outward normal
+  // Traversal: t_R→…→t_0 (fold profile reversed), then b_0→…→b_R (bottom forward)
+  {
+    const poly = [], idx = [];
+    const row = resolution * R;
+    for (let c = resolution; c >= 0; c--) {
+      idx.push(row + c);
+      poly.push([positions[(row + c) * 3], positions[(row + c) * 3 + 2]]);
+    }
+    for (let c = 0; c <= resolution; c++) {
+      idx.push(N + row + c);
+      poly.push([positions[(row + c) * 3], WY]);
+    }
+    for (const [a, b, c] of earClip2D(poly)) tris.push(idx[a], idx[b], idx[c]);
   }
 
-  // LEFT wall (c=0 column) — outward normal ≈ -X
+  // LEFT wall (c=0 column) — quad strips along V; no fold-back → normal -X
   for (let r = 0; r < resolution; r++) {
     const t0 = r * R, t1 = (r + 1) * R;
     const b0 = N + r * R, b1 = N + (r + 1) * R;
@@ -193,7 +260,7 @@ function buildNurbsSolidDirect(mf, positions, resolution, WY) {
     tris.push(t1, b0, b1);
   }
 
-  // RIGHT wall (c=resolution column) — outward normal ≈ +X
+  // RIGHT wall (c=resolution column) — quad strips along V; no fold-back → normal +X
   for (let r = 0; r < resolution; r++) {
     const t0 = r * R + resolution, t1 = (r + 1) * R + resolution;
     const b0 = N + r * R + resolution, b1 = N + (r + 1) * R + resolution;
@@ -201,13 +268,7 @@ function buildNurbsSolidDirect(mf, positions, resolution, WY) {
     tris.push(t1, b1, b0);
   }
 
-  const mesh = {
-    numProp: 3,
-    vertProperties: verts,
-    triVerts: new Int32Array(tris),
-  };
-
-  return new mf.Manifold(mesh);
+  return new mf.Manifold({ numProp: 3, vertProperties: verts, triVerts: new Int32Array(tris) });
 }
 
 

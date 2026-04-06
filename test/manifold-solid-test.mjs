@@ -63,6 +63,47 @@ function makeFoldPositions(strongFold = true) {
   return pos;
 }
 
+// ── Ear clipping for 2D concave polygon ──────────────────────────────────────
+function earClip2D(poly) {
+  const n = poly.length;
+  if (n < 3) return [];
+  if (n === 3) return [[0, 1, 2]];
+  let area = 0;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    area += poly[i][0] * poly[j][1] - poly[j][0] * poly[i][1];
+  }
+  const ccw = area > 0;
+  function cross(a, b, c) {
+    return (b[0]-a[0])*(c[1]-a[1]) - (b[1]-a[1])*(c[0]-a[0]);
+  }
+  function inTriangle(p, a, b, c) {
+    const d1 = cross(a,b,p), d2 = cross(b,c,p), d3 = cross(c,a,p);
+    return !((d1<0||d2<0||d3<0) && (d1>0||d2>0||d3>0));
+  }
+  const rem = Array.from({length:n},(_,i)=>i);
+  const result = [];
+  while (rem.length > 3) {
+    let cut = false;
+    for (let i = 0; i < rem.length; i++) {
+      const pi=(i-1+rem.length)%rem.length, ni=(i+1)%rem.length;
+      const prev=rem[pi], curr=rem[i], next=rem[ni];
+      const c=cross(poly[prev],poly[curr],poly[next]);
+      if (ccw ? c<=0 : c>=0) continue;
+      let inside=false;
+      for (let j=0; j<rem.length; j++) {
+        if (j===pi||j===i||j===ni) continue;
+        if (inTriangle(poly[rem[j]],poly[prev],poly[curr],poly[next])) { inside=true; break; }
+      }
+      if (inside) continue;
+      result.push([prev,curr,next]); rem.splice(i,1); cut=true; break;
+    }
+    if (!cut) { result.push([rem[0],rem[1],rem[2]]); rem.splice(1,1); }
+  }
+  result.push([rem[0],rem[1],rem[2]]);
+  return result;
+}
+
 // ── A) Current direct-mesh approach (BROKEN for folds) ────────────────────────
 function buildNurbsSolidDirect(mf, positions) {
   const verts = new Float32Array(N * 2 * 3);
@@ -119,6 +160,51 @@ function buildNurbsSolidDirect(mf, positions) {
 
   const mesh = { numProp: 3, vertProperties: verts, triVerts: new Int32Array(tris) };
   return new mf.Manifold(mesh);
+}
+
+// ── C) Direct mesh with ear-clip walls (CORRECT for folds) ───────────────────
+function buildNurbsSolidEarClip(mf, positions) {
+  const verts = new Float32Array(N * 2 * 3);
+  for (let i = 0; i < N * 3; i++) verts[i] = positions[i];
+  for (let i = 0; i < N; i++) {
+    verts[(N+i)*3]   = positions[i*3];
+    verts[(N+i)*3+1] = positions[i*3+1];
+    verts[(N+i)*3+2] = WY;
+  }
+  const tris = [];
+  // TOP
+  for (let r=0;r<resolution;r++) for (let c=0;c<resolution;c++) {
+    const a=r*R+c,b=a+1,d=a+R,e=d+1;
+    tris.push(a,e,b); tris.push(a,d,e);
+  }
+  // BOTTOM
+  for (let r=0;r<resolution;r++) for (let c=0;c<resolution;c++) {
+    const a=N+r*R+c,b=a+1,d=a+R,e=d+1;
+    tris.push(a,b,e); tris.push(a,e,d);
+  }
+  // FRONT wall — ear clip (CCW xz → -Y normal)
+  { const poly=[],idx=[];
+    for (let c=0;c<=resolution;c++) { idx.push(c); poly.push([positions[c*3],positions[c*3+2]]); }
+    for (let c=resolution;c>=0;c--) { idx.push(N+c); poly.push([positions[c*3],WY]); }
+    for (const [a,b,c] of earClip2D(poly)) tris.push(idx[a],idx[b],idx[c]);
+  }
+  // BACK wall — ear clip (CW xz → +Y normal)
+  { const poly=[],idx=[],row=resolution*R;
+    for (let c=resolution;c>=0;c--) { idx.push(row+c); poly.push([positions[(row+c)*3],positions[(row+c)*3+2]]); }
+    for (let c=0;c<=resolution;c++) { idx.push(N+row+c); poly.push([positions[(row+c)*3],WY]); }
+    for (const [a,b,c] of earClip2D(poly)) tris.push(idx[a],idx[b],idx[c]);
+  }
+  // LEFT wall
+  for (let r=0;r<resolution;r++) {
+    const t0=r*R,t1=(r+1)*R,b0=N+r*R,b1=N+(r+1)*R;
+    tris.push(t0,b0,t1); tris.push(t1,b0,b1);
+  }
+  // RIGHT wall
+  for (let r=0;r<resolution;r++) {
+    const t0=r*R+resolution,t1=(r+1)*R+resolution,b0=N+r*R+resolution,b1=N+(r+1)*R+resolution;
+    tris.push(t0,t1,b0); tris.push(t1,b1,b0);
+  }
+  return new mf.Manifold({numProp:3,vertProperties:verts,triVerts:new Int32Array(tris)});
 }
 
 // ── B) New parameter-space cube warp approach (CORRECT) ──────────────────────
@@ -190,8 +276,8 @@ async function main() {
   }
   console.log(`Fold-back at columns: [${foldBack.join(', ')}]\n`);
 
-  // ── Test A: direct mesh ───────────────────────────────────────────────────
-  console.log('Test A: buildNurbsSolidDirect (current implementation)');
+  // ── Test A: direct mesh (broken quad strip walls) ─────────────────────────
+  console.log('Test A: buildNurbsSolidDirect (quad strip walls — broken for folds)');
   let solidA;
   try {
     solidA = buildNurbsSolidDirect(mf, positions);
@@ -199,6 +285,14 @@ async function main() {
   } catch (e) {
     console.log(`  [A direct-mesh] ✗  construction exception: ${e.message}`);
   }
+
+  // ── Test C: ear-clip direct mesh ─────────────────────────────────────────
+  console.log('\nTest C: buildNurbsSolidEarClip (ear-clip walls — CORRECT for folds)');
+  let solidC;
+  try {
+    solidC = buildNurbsSolidEarClip(mf, positions);
+    checkManifold(mf, solidC, 'C ear-clip');
+  } catch(e) { console.log(`  [C ear-clip] ✗  exception: ${e.message}`); }
 
   // ── Test B: param warp ────────────────────────────────────────────────────
   console.log('\nTest B: buildNurbsSolidParamWarp (parameter-space cube warp)');
@@ -208,16 +302,6 @@ async function main() {
     checkManifold(mf, solidB, 'B param-warp');
   } catch (e) {
     console.log(`  [B param-warp] ✗  construction exception: ${e.message}`);
-  }
-
-  // ── Test B2: direct mesh with CONDITIONAL winding for fold-back ──────────
-  console.log('\nTest B2: buildNurbsSolidDirectFixed (conditional winding for fold-back)');
-  let solidB2;
-  try {
-    solidB2 = buildNurbsSolidDirectFixed(mf, positions);
-    checkManifold(mf, solidB2, 'B2 direct-fixed');
-  } catch (e) {
-    console.log(`  [B2 direct-fixed] ✗  exception: ${e.message}`);
   }
 
   // ── Test C: CSG subtract with direct-mesh fold ────────────────────────────
@@ -264,20 +348,29 @@ async function main() {
     }
   }
 
-  // ── Test E: check if direct mesh self-intersects (vol vs warp) ────────────
-  console.log('\nTest E: Volume comparison');
-  if (solidA && solidB) {
-    const volA = solidA.volume(), volB = solidB.volume();
-    console.log(`  Direct mesh vol: ${volA.toFixed(3)}`);
-    console.log(`  Param warp  vol: ${volB.toFixed(3)}`);
-    console.log(`  Difference: ${Math.abs(volA - volB).toFixed(3)} (>0 suggests self-intersection in A adds phantom volume)`);
-    // Check minGap between direct mesh and param warp
+  // ── Test E: volume comparison ─────────────────────────────────────────────
+  console.log('\nTest E: Volume comparison (C and B should match; A has phantom volume)');
+  const vA = solidA?.volume(), vB = solidB?.volume(), vC = solidC?.volume();
+  if (vA !== undefined) console.log(`  A quad-strip (broken): ${vA.toFixed(3)}`);
+  if (vC !== undefined) console.log(`  C ear-clip  (fixed):   ${vC.toFixed(3)}`);
+  if (vB !== undefined) console.log(`  B param-warp (correct): ${vB.toFixed(3)}`);
+  if (vC !== undefined && vB !== undefined)
+    console.log(`  C vs B difference: ${Math.abs(vC-vB).toFixed(3)} (should be small)`);
+
+  // ── Test F: CSG subtract with ear-clip solid ──────────────────────────────
+  if (solidC) {
+    console.log('\nTest F: CSG subtract using ear-clip solids');
     try {
-      const gap = solidA.minGap(solidB, 0.1);
-      console.log(`  minGap(A,B): ${gap.toFixed(4)}`);
-    } catch(e) {
-      console.log(`  minGap: n/a (${e.message})`);
-    }
+      const flatPos = new Float32Array(N * 3);
+      for (let row=0;row<R;row++) for (let col=0;col<R;col++) {
+        const i=row*R+col;
+        flatPos[i*3]=(col/resolution)*WX; flatPos[i*3+1]=(row/resolution)*strikeW; flatPos[i*3+2]=4.0;
+      }
+      const flatC = buildNurbsSolidEarClip(mf, flatPos);
+      checkManifold(mf, flatC, 'F flat (ear-clip)');
+      const subC = solidC.subtract(flatC);
+      checkManifold(mf, subC, 'F subtract(fold-C - flat-C)');
+    } catch(e) { console.log(`  [F CSG-C] ✗  exception: ${e.message}`); }
   }
 
   console.log('\nDone.');
