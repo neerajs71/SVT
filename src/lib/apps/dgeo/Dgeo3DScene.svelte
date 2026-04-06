@@ -19,6 +19,7 @@
     showSolids        = false,
     showRuler         = false,
     showNurbs         = false,
+    showNurbsWireframe = true,
     sliceY            = 0,
     editHorizonId     = $bindable(null as string | null),
     editRailIdx       = $bindable(null as number | null),
@@ -634,9 +635,11 @@
               side={THREE.DoubleSide} shininess={30}
             />
           </T.Mesh>
-          <T.Mesh geometry={layer.nurbsGeo}>
-            <T.MeshBasicMaterial color="#1e293b" wireframe transparent opacity={0.08} />
-          </T.Mesh>
+          {#if showNurbsWireframe}
+            <T.Mesh geometry={layer.nurbsGeo}>
+              <T.MeshBasicMaterial color="#1e293b" wireframe transparent opacity={0.08} />
+            </T.Mesh>
+          {/if}
         {/if}
       {/each}
     {:else}

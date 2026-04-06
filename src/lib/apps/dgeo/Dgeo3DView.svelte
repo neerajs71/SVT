@@ -39,7 +39,8 @@
   let resetKey      = $state(0);
   let showPopup     = $state(false);
   let showRuler     = $state(false);
-  let showNurbs     = $state(true);    // toggle NURBS overlay + slice curve
+  let showNurbs          = $state(true);   // toggle NURBS overlay + slice curve
+  let showNurbsWireframe = $state(true);  // wireframe overlay on NURBS solid blocks
 
   // ── Slice plane position (world-space Y, 0 .. strikeW) ───────────────────
   // strikeW = strikeKm / (domX.max - domX.min) * WX, where WX=10 and domX span defaults to 10
@@ -193,6 +194,19 @@
       〜 NURBS
     </button>
 
+    <!-- NURBS wireframe toggle (only useful when NURBS solids are visible) -->
+    {#if showNurbs}
+      <button
+        onclick={() => (showNurbsWireframe = !showNurbsWireframe)}
+        class="px-2 py-0.5 border rounded text-[10px] font-medium transition-colors
+               {showNurbsWireframe
+                 ? 'bg-slate-500 text-white border-slate-600 hover:bg-slate-600'
+                 : 'border-gray-200 text-gray-600 hover:bg-gray-100'}"
+        title="Toggle wireframe overlay on NURBS solids">
+        ⬡ Wire
+      </button>
+    {/if}
+
     <!-- Y slider — strike-direction slice (visible when NURBS on) -->
     {#if showNurbs}
       <label class="flex items-center gap-1.5">
@@ -237,6 +251,7 @@
           {showSolids}
           {showRuler}
           {showNurbs}
+          {showNurbsWireframe}
           {sliceY}
           bind:editHorizonId
           bind:editRailIdx
