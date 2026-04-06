@@ -1,0 +1,82 @@
+{
+  "version": "1.0",
+  "nodes": [
+    {
+      "id": "n_gr",
+      "type": "CurveSource",
+      "pos": { "x": 60, "y": 80 },
+      "params": { "slot": "F1", "curve": "GR" }
+    },
+    {
+      "id": "n_grmin",
+      "type": "Constant",
+      "pos": { "x": 60, "y": 200 },
+      "params": { "label": "GR min", "value": 10 }
+    },
+    {
+      "id": "n_grmax",
+      "type": "Constant",
+      "pos": { "x": 60, "y": 300 },
+      "params": { "label": "GR max", "value": 140 }
+    },
+    {
+      "id": "n_igr",
+      "type": "IGR",
+      "pos": { "x": 310, "y": 150 },
+      "params": {}
+    },
+    {
+      "id": "n_vcl",
+      "type": "Vclay",
+      "pos": { "x": 530, "y": 150 },
+      "params": { "method": "linear" }
+    },
+    {
+      "id": "n_phi",
+      "type": "CurveSource",
+      "pos": { "x": 310, "y": 380 },
+      "params": { "slot": "F1", "curve": "NPHI" }
+    },
+    {
+      "id": "n_rt",
+      "type": "CurveSource",
+      "pos": { "x": 310, "y": 480 },
+      "params": { "slot": "F1", "curve": "ILD" }
+    },
+    {
+      "id": "n_rw",
+      "type": "Constant",
+      "pos": { "x": 530, "y": 380 },
+      "params": { "label": "Rw", "value": 0.05 }
+    },
+    {
+      "id": "n_sw",
+      "type": "SwArchie",
+      "pos": { "x": 760, "y": 280 },
+      "params": { "rw": 0.05, "a": 1, "m": 2, "n": 2 }
+    },
+    {
+      "id": "n_track_vcl",
+      "type": "TrackDisplay",
+      "pos": { "x": 760, "y": 80 },
+      "params": { "label": "Vclay", "colour": "#d97706", "xMin": 0, "xMax": 1, "height": 300 }
+    },
+    {
+      "id": "n_track_sw",
+      "type": "TrackDisplay",
+      "pos": { "x": 980, "y": 280 },
+      "params": { "label": "Sw (Archie)", "colour": "#2563eb", "xMin": 0, "xMax": 1, "height": 300 }
+    }
+  ],
+  "wires": [
+    { "id": "w1",  "from": ["n_gr",    "out"], "to": ["n_igr", "gr"]    },
+    { "id": "w2",  "from": ["n_grmin", "val"], "to": ["n_igr", "grMin"] },
+    { "id": "w3",  "from": ["n_grmax", "val"], "to": ["n_igr", "grMax"] },
+    { "id": "w4",  "from": ["n_igr",   "igr"], "to": ["n_vcl", "igr"]   },
+    { "id": "w5",  "from": ["n_vcl",   "vcl"], "to": ["n_track_vcl", "data"] },
+    { "id": "w6",  "from": ["n_phi",   "out"], "to": ["n_sw",  "phi"]   },
+    { "id": "w7",  "from": ["n_rt",    "out"], "to": ["n_sw",  "rt"]    },
+    { "id": "w8",  "from": ["n_rw",    "val"], "to": ["n_sw",  "rw"]    },
+    { "id": "w9",  "from": ["n_sw",    "sw"],  "to": ["n_track_sw", "data"] }
+  ]
+}

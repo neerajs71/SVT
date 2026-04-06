@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { parseLASFile, processCurves, extractLasCurve, buildLasTracks } from './utils.js';
   import WellTrackView from '$lib/apps/shared/WellTrackView.svelte';
+  import { downloadBlob } from '$lib/apps/shared/fileActions.js';
 
   let { tab } = $props();
 
@@ -11,9 +12,14 @@
   let las         = $state(null);   // raw parse result
   let summary     = $state(null);   // processCurves() output
   let logView     = $state(null);   // buildLasTracks() output
+  let rawBuffer   = $state(null);   // kept for download
 
   let activeSection = $state('overview');
   let chart         = $state(null);  // null = closed
+
+  function download() {
+    if (rawBuffer) downloadBlob(tab.name, rawBuffer, 'text/plain');
+  }
 
   onMount(async () => {
     try {
@@ -28,6 +34,7 @@
         throw new Error('No file source available.');
       }
 
+      rawBuffer = buffer;
       las     = parseLASFile(buffer);
       summary = processCurves(las);
       logView = buildLasTracks(las);
@@ -134,6 +141,7 @@
       {#if fileSize}<span class="text-xs text-gray-400">{formatBytes(fileSize)}</span>{/if}
       <span class="text-xs text-gray-400">LAS {las.version ?? '?'}</span>
       <span class="text-xs text-gray-400">{summary.curves.length} curves</span>
+      <button onclick={download} class="text-xs px-2 py-0.5 rounded border border-gray-300 text-gray-500 hover:bg-gray-100 active:bg-gray-200" title="Download file">⬇ Download</button>
     </div>
 
     <!-- Section tabs -->

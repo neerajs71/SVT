@@ -1,10 +1,43 @@
 /**
  * LocalDataSource
- * Builds a file tree from browser File API (webkitdirectory input).
+ * Builds a file tree from either:
+ *   - The File System Access API (showDirectoryPicker → FileSystemDirectoryHandle)
+ *   - Legacy webkitdirectory input (FileList) as fallback
  */
 
 export class LocalDataSource {
-  /** @param {FileList|File[]} files */
+  /**
+   * Build tree from a FileSystemDirectoryHandle (File System Access API).
+   * Each node carries its handle so files can be read and deleted later.
+   *
+   * @param {FileSystemDirectoryHandle} dirHandle
+   * @returns {Promise<object>}
+   */
+  async buildTreeFromHandle(dirHandle) {
+    const root = { name: dirHandle.name, type: 'dir', handle: dirHandle, children: {} };
+    await this._populate(root, dirHandle);
+    return root;
+  }
+
+  async _populate(node, dirHandle) {
+    for await (const [name, handle] of dirHandle.entries()) {
+      if (handle.kind === 'directory') {
+        const child = { name, type: 'dir', handle, children: {} };
+        node.children[name] = child;
+        await this._populate(child, handle);
+      } else {
+        node.children[name] = { name, type: 'file', handle, file: null };
+      }
+    }
+  }
+
+  /**
+   * Legacy: build tree from webkitdirectory FileList.
+   * No handle — deletion not available in this mode.
+   *
+   * @param {FileList|File[]} files
+   * @returns {object}
+   */
   buildTree(files) {
     const root = { name: '', type: 'dir', children: {} };
     for (const file of files) {
@@ -49,8 +82,9 @@ export function flatten(node, expanded, depth = 0, parentPath = '') {
       type: child.type,
       depth,
       path,
-      id: child.id ?? null,
-      file: child.file ?? null,
+      id:     child.id     ?? null,
+      file:   child.file   ?? null,
+      handle: child.handle ?? null,   // FileSystemFileHandle | FileSystemDirectoryHandle
       hasChildren: child.type === 'dir' && Object.keys(child.children || {}).length > 0
     });
     if (child.type === 'dir' && child.children && expanded.has(path)) {

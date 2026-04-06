@@ -1,49 +1,40 @@
 # CLAUDE.md — src/routes/
 
-SvelteKit file-based routing. Each file here maps to a URL route.
+SvelteKit file-based routing. Each file/folder maps to a URL.
 
 ---
 
-## Files
+## Pages
 
-### `+layout.svelte`
-Root layout — wraps every page. Only responsibility is importing `app.css` so Tailwind and Flowbite styles are available globally.
+| File | URL | Purpose |
+|------|-----|---------|
+| `+layout.svelte` | all | Root layout — imports `app.css`, mounts `<NavMenu />`, injects `virtual-mouse.js` |
+| `+page.svelte` | `/` | Home — `<Sidebar>` + `<SimpleTabs>` side by side |
+| `about/+page.svelte` | `/about` | Static about page |
+| `apps/+page.svelte` | `/apps` | Placeholder |
 
-```svelte
-<script>
-  import '../app.css';
-</script>
-
-<slot />
-```
-
-**Important:** Do not add page-specific content here. Keep it as a pure CSS loader.
-
-### `+page.svelte`
-The single page at `/`. Renders the Hello World content and mounts the Sidebar.
-
-```svelte
-<script>
-  import { Sidebar } from '$lib/components/Sidebar';
-  let sidebarOpen = false;
-</script>
-
-<Sidebar bind:open={sidebarOpen} />
-
-<main class="p-8 pl-16">
-  <h1 class="text-3xl font-bold text-green-800">Hello, World!</h1>
-  <p class="mt-2 text-gray-600">Welcome to my SvelteKit app hosted on Railway.</p>
-</main>
-```
-
-**Key points:**
-- `sidebarOpen` is the single source of truth for sidebar state
-- `bind:open={sidebarOpen}` keeps parent and Sidebar in two-way sync
-- `pl-16` gives left padding so content clears the hamburger button
-- Heading colour is Tailwind `text-green-800` (dark green, `#006400`)
+### `+layout.svelte` responsibilities
+1. `import '../app.css'` — Tailwind + Flowbite globally
+2. `<NavMenu />` — fixed top-right on every page
+3. `onMount` injects `virtual-mouse.js` from `/static/` for tablet cursor emulation
 
 ---
 
-## Adding New Pages
+## API Endpoints
 
-Create `src/routes/about/+page.svelte` for `/about`, etc. Import and use the Sidebar the same way if the new page needs it.
+| Endpoint | File | Description |
+|----------|------|-------------|
+| `GET /api/drive` | `api/drive/+server.js` | Google Drive proxy. No params → folder tree; `?folderId=` → children; `?fileId=` → stream download. JWT service-account auth with 1-hour token cache. |
+| `GET /api/schematic` | `api/schematic/+server.js` | WSON component catalogue search from `comp_list.xlsx`. |
+| `GET /api/samples` | `api/samples/+server.js` | List files in `static/samples/`. |
+| `POST /api/samples` | `api/samples/+server.js` | Upload a file into `static/samples/`. |
+| `DELETE /api/samples?name=` | `api/samples/+server.js` | Delete a file from `static/samples/`. |
+| `GET /api/dev-tabs` | `api/dev-tabs/+server.js` | Read `activeTabs.json` from Drive to auto-open tabs (dev helper). |
+
+---
+
+## Adding a New Page
+
+1. Create `src/routes/<name>/+page.svelte`
+2. Add a `DropdownItem` in `NavMenu.svelte` pointing to `/<name>`
+3. For a file-browser page, compose `<Sidebar bind:open={...} />` + `<SimpleTabs />`

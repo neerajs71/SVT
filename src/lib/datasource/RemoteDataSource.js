@@ -36,4 +36,20 @@ export class RemoteDataSource {
     }
     return res.json();
   }
+
+  /**
+   * Trash a file or folder in Google Drive by its Drive ID.
+   *
+   * @param {string} fileId
+   * @returns {Promise<void>}
+   */
+  async trashFile(fileId) {
+    const res = await fetch(`/api/drive?fileId=${encodeURIComponent(fileId)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const msg = await res.text().catch(() => res.statusText);
+      throw new Error(`Drive delete failed (${res.status}): ${msg}`);
+    }
+  }
 }

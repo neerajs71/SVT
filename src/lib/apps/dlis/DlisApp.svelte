@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { parseDLISFile, processChannelsAndFrames, extractCurveData, extractAllCurvesForTracks } from './utils.js';
   import WellTrackView from '$lib/apps/shared/WellTrackView.svelte';
+  import { downloadBlob } from '$lib/apps/shared/fileActions.js';
 
   let { tab } = $props();
 
@@ -16,9 +17,14 @@
 
   let activeSection = $state('overview');
   let logView       = $state(null);  // extractAllCurvesForTracks() output
+  let rawBuffer     = $state(null);  // kept for download
 
   // Chart modal state — null means closed
   let chart = $state(null);
+
+  function download() {
+    if (rawBuffer) downloadBlob(tab.name, rawBuffer, 'application/octet-stream');
+  }
 
   onMount(async () => {
     try {
@@ -36,6 +42,7 @@
         throw new Error('No file source available.');
       }
 
+      rawBuffer = buffer;
       parseResult = await parseDLISFile(buffer);
       ({ channels, frames, totalEFLRs } = processChannelsAndFrames(parseResult));
       logView = extractAllCurvesForTracks(parseResult);
@@ -134,6 +141,7 @@
       <span class="text-xs text-gray-400">{formatBytes(fileSize)}</span>
       <span class="text-xs text-gray-400">v{parseResult?.storageUnitLabel?.version ?? '?'}.00</span>
       <span class="text-xs text-gray-400">{logicalFiles.length} logical file{logicalFiles.length !== 1 ? 's' : ''}</span>
+      <button onclick={download} class="text-xs px-2 py-0.5 rounded border border-gray-300 text-gray-500 hover:bg-gray-100 active:bg-gray-200" title="Download file">⬇ Download</button>
     </div>
 
     <!-- Section tabs -->

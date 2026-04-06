@@ -17,11 +17,15 @@
   const HOLD_MS     = 300;   // ms before touch-hold becomes a drag
   const BTN_SIZE    = 48;    // toggle button px
 
+  const DBLCLICK_MS  = 350;  // max ms between two taps for dblclick
+  const DBLCLICK_PX  = 20;   // max pixel distance between the two taps
+
   /* ── state ──────────────────────────────────────────────────── */
   let mouseMode = false;
   let holdTimer  = null;
   let isDragging = false;
   let lastX = 0, lastY = 0;
+  let lastTapTime = 0, lastTapX = 0, lastTapY = 0;
 
   /* ── cursor dot ─────────────────────────────────────────────── */
   const cursor = document.createElement('div');
@@ -175,6 +179,19 @@
       fireAt('mousedown', t.clientX, t.clientY);
       fireAt('mouseup',   t.clientX, t.clientY);
       fireAt('click',     t.clientX, t.clientY);
+
+      // Double-tap → dblclick
+      const now = Date.now();
+      const dx = t.clientX - lastTapX, dy = t.clientY - lastTapY;
+      if (now - lastTapTime < DBLCLICK_MS &&
+          Math.sqrt(dx*dx + dy*dy) < DBLCLICK_PX) {
+        fireAt('dblclick', t.clientX, t.clientY);
+        lastTapTime = 0;  // reset so triple-tap doesn't fire again
+      } else {
+        lastTapTime = now;
+        lastTapX = t.clientX;
+        lastTapY = t.clientY;
+      }
     }
   }, { passive: false });
 

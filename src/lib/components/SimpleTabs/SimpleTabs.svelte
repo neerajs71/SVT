@@ -22,6 +22,7 @@
           onclick={() => tabStore.setActive(tab.id)}
           title={tab.name}
         >
+          {#if tab.dirty}<span class="flex-shrink-0 text-orange-400 text-[10px] leading-none">●</span>{/if}
           <span class="truncate flex-1 min-w-0">{tab.name}</span>
           <span
             class="flex-shrink-0 w-4 h-4 flex items-center justify-center rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700 leading-none"
@@ -35,14 +36,15 @@
       {/each}
     </div>
 
-    <!-- Active tab content -->
-    <div class="flex-1 overflow-hidden">
-      {#if tabStore.activeTab}
-        {#key tabStore.activeId}
-          {@const AppComponent = getApp(tabStore.activeTab.ext)}
-          <AppComponent tab={tabStore.activeTab} />
-        {/key}
-      {/if}
+    <!-- Tab contents — all mounted, active one visible -->
+    <div class="flex-1 overflow-hidden relative">
+      {#each tabStore.tabs as tab (tab.id)}
+        {@const AppComponent = getApp(tab.ext)}
+        <div class="absolute inset-0 overflow-hidden"
+             style="display:{tab.id === tabStore.activeId ? 'block' : 'none'}">
+          <AppComponent tab={tab} />
+        </div>
+      {/each}
     </div>
 
   </div>

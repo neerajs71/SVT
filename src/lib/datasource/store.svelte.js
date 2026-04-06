@@ -1,8 +1,53 @@
+import { untrack } from 'svelte';
 import { LocalDataSource, flatten } from './LocalDataSource.js';
 import { RemoteDataSource } from './RemoteDataSource.js';
 
 const local = new LocalDataSource();
 const remote = new RemoteDataSource();
+
+// ── File templates for new-file creation ─────────────────────────────────────
+const TEMPLATES = {
+  '.wflow': JSON.stringify({ version: '1.0', nodes: [], wires: [] }, null, 2),
+  '.dgeo':  JSON.stringify({ version: '1.0', domain: { x: { min: 0, max: 10 }, y: { min: 0, max: 5000 } }, horizons: [] }, null, 2),
+  '.tpl':   JSON.stringify({ title: 'New Template', depth: { min: 0, max: 5000, unit: 'm' }, panels: [], curveDefinitions: [], fileSlots: {} }, null, 2),
+};
+
+// ── IndexedDB helpers — persist FileSystemDirectoryHandles across sessions ───
+const IDB_DB    = 'svtc-workspaces';
+const IDB_STORE = 'handles';
+const MAX_RECENT = 5;
+
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(IDB_DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE, { keyPath: 'name' });
+    req.onsuccess = () => res(req.result);
+    req.onerror   = () => rej(req.error);
+  });
+}
+
+async function idbSave(handle) {
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put({ name: handle.name, handle, savedAt: Date.now() });
+    tx.oncomplete = res;
+    tx.onerror    = () => rej(tx.error);
+  });
+}
+
+async function idbLoadAll() {
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx  = db.transaction(IDB_STORE, 'readonly');
+    const req = tx.objectStore(IDB_STORE).getAll();
+    req.onsuccess = () =>
+      res((req.result ?? []).sort((a, b) => b.savedAt - a.savedAt).slice(0, MAX_RECENT));
+    req.onerror = () => rej(req.error);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 function getNodeByPath(tree, path) {
   const parts = path.split('/');
@@ -15,11 +60,33 @@ function getNodeByPath(tree, path) {
 }
 
 class DatasourceState {
-  mode = $state('local');
-  tree = $state(null);
-  expanded = $state(new Set());
-  loading = $state(false);
-  error = $state(null);
+  mode          = $state('local');   // default to local
+  tree          = $state(null);
+  expanded      = $state(new Set());
+  loading       = $state(false);
+  error         = $state(null);
+  recentHandles = $state([]);        // [{ name, handle, savedAt }]
+  deepFetching  = $state(false);     // reactive UI flag — true while deepFetch() is in flight
+  _deepFetching = false;             // non-reactive guard — prevents re-entrancy without creating effect deps
+  _fetchedIds   = new Set();         // Drive folder IDs already fetched (plain, non-reactive)
+
+  /** Call from onMount in Sidebar to populate recent workspaces list. */
+  async initRecentWorkspaces() {
+    if (typeof indexedDB === 'undefined') return;
+    try { this.recentHandles = await idbLoadAll(); } catch { /* ignore */ }
+  }
+
+  /** Re-open a persisted handle — browser will prompt for permission. */
+  async reopenWorkspace(entry) {
+    if (!entry?.handle) return;
+    try {
+      const perm = await entry.handle.requestPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') return;
+      await this.loadLocalFolder(entry.handle);
+    } catch (e) {
+      this.error = e.message;
+    }
+  }
 
   toggleMode() {
     const newMode = this.mode === 'local' ? 'remote' : 'local';
@@ -27,6 +94,7 @@ class DatasourceState {
     this.tree = null;
     this.expanded = new Set();
     this.error = null;
+    this._fetchedIds = new Set();
 
     if (newMode === 'remote') {
       this.loading = true;
@@ -38,8 +106,29 @@ class DatasourceState {
     }
   }
 
+  async loadLocalFolder(dirHandle) {
+    this.loading = true;
+    this.error = null;
+    this._fetchedIds = new Set(); // clear stale remote IDs on workspace change
+    try {
+      const tree = await local.buildTreeFromHandle(dirHandle);
+      this.tree = { name: '', type: 'dir', children: { [dirHandle.name]: tree } };
+      this.expanded = new Set([dirHandle.name]);
+      // Persist handle for recent workspaces
+      if (typeof indexedDB !== 'undefined') {
+        await idbSave(dirHandle).catch(() => {});
+        this.recentHandles = await idbLoadAll().catch(() => this.recentHandles);
+      }
+    } catch (e) {
+      this.error = e.message;
+    } finally {
+      this.loading = false;
+    }
+  }
+
   loadLocalFiles(files) {
     if (!files || !files.length) return;
+    this._fetchedIds = new Set(); // clear stale remote IDs on workspace change
     this.tree = local.buildTree(files);
     this.expanded = new Set([files[0].webkitRelativePath.split('/')[0]]);
     this.error = null;
@@ -59,13 +148,165 @@ class DatasourceState {
         remote.fetchFolder(id)
           .then(data => {
             const n = getNodeByPath(this.tree, path);
-            if (n) n.children = data.children;
+            if (n) { n.children = data.children; this._fetchedIds.add(id); }
             this.tree = { ...this.tree };
           })
           .catch(err => console.error('[store] lazy-load failed:', err));
       }
     }
     this.expanded = next;
+  }
+
+  /**
+   * Recursively pre-fetch all un-loaded remote sub-folders so that
+   * file-picker UIs can see all files without the user first expanding
+   * each folder in the sidebar. No-op in local mode.
+   *
+   * Safe to call from inside Svelte $effect — uses untrack() internally so
+   * callers never accidentally subscribe to this.mode / this.tree /
+   * this.deepFetching. Re-entrant calls are dropped via a plain (non-reactive)
+   * _deepFetching guard. Folder IDs are deduplicated via _fetchedIds.
+   */
+  async deepFetch() {
+    // Read reactive state inside untrack so this method never creates reactive
+    // subscriptions in the caller's reactive context ($effect / $derived).
+    const { mode, tree, guard } = untrack(() => ({
+      mode: this.mode,
+      tree: this.tree,
+      guard: this._deepFetching,
+    }));
+    if (mode !== 'remote' || !tree || guard) return;
+
+    // Use plain boolean as the re-entrancy guard — not $state — so flipping it
+    // never triggers reactive invalidations that would re-run caller effects.
+    this._deepFetching = true;
+    this.deepFetching  = true;   // reactive flag for UI only
+    try {
+      await this._deepFetchNode(tree);
+    } finally {
+      this._deepFetching = false;
+      this.deepFetching  = false;
+    }
+  }
+
+  async _deepFetchNode(node) {
+    const promises = [];
+    for (const child of Object.values(node?.children ?? {})) {
+      if (child.type !== 'dir' || !child.id) continue;
+      if (this._fetchedIds.has(child.id)) {
+        // Already fetched — recurse into existing children if any
+        if (Object.keys(child.children).length > 0) {
+          promises.push(this._deepFetchNode(child));
+        }
+        continue;
+      }
+      this._fetchedIds.add(child.id); // mark before await to prevent duplicate parallel fetches
+      if (Object.keys(child.children).length === 0) {
+        promises.push(
+          remote.fetchFolder(child.id)
+            .then(data => {
+              child.children = data.children;   // mutates reactive proxy — Svelte 5 tracks this
+              this.tree = { ...this.tree };      // bump root ref to ensure all derived values re-evaluate
+              return this._deepFetchNode(child);
+            })
+            .catch(e => console.error('[deepFetch]', child.id, e))
+        );
+      } else {
+        promises.push(this._deepFetchNode(child));
+      }
+    }
+    await Promise.all(promises);
+  }
+
+  async deleteItem(path, id) {
+    const parts = path.split('/');
+    const name  = parts[parts.length - 1];
+
+    if (this.mode === 'remote') {
+      if (id) await remote.trashFile(id);
+    } else {
+      const parentParts = parts.slice(0, -1);
+      const parentNode  = parentParts.length
+        ? getNodeByPath(this.tree, parentParts.join('/'))
+        : this.tree;
+
+      if (parentNode?.handle) {
+        await parentNode.handle.removeEntry(name, { recursive: true });
+      }
+    }
+
+    const removeFromNode = (node, parts) => {
+      if (parts.length === 1) {
+        const children = { ...node.children };
+        delete children[parts[0]];
+        return { ...node, children };
+      }
+      const [head, ...tail] = parts;
+      if (!node.children?.[head]) return node;
+      return {
+        ...node,
+        children: { ...node.children, [head]: removeFromNode(node.children[head], tail) }
+      };
+    };
+
+    this.tree = removeFromNode(this.tree, parts);
+
+    if (this.expanded.has(path)) {
+      const next = new Set(this.expanded);
+      next.delete(path);
+      this.expanded = next;
+    }
+  }
+
+  /**
+   * Create a new file or folder inside a directory that was opened via
+   * the File System Access API (has a handle). Local mode only.
+   *
+   * @param {string} parentPath  — path of the parent dir in the tree
+   * @param {string} name        — new file/folder name
+   * @param {boolean} isDir      — true = directory, false = file
+   * @param {string} [ext]       — file extension (used to pick template content)
+   */
+  async createItem(parentPath, name, isDir, ext = '') {
+    const node = getNodeByPath(this.tree, parentPath);
+    if (!node?.handle) throw new Error('File creation requires Chrome or Edge on desktop — not supported on this browser');
+
+    let childHandle;
+    if (isDir) {
+      childHandle = await node.handle.getDirectoryHandle(name, { create: true });
+    } else {
+      childHandle = await node.handle.getFileHandle(name, { create: true });
+      const content = TEMPLATES[ext] ?? '';
+      if (content) {
+        const writable = await childHandle.createWritable();
+        await writable.write(content);
+        await writable.close();
+      }
+    }
+
+    // Insert new node into the tree (immutable update)
+    const newChild = isDir
+      ? { name, type: 'dir', handle: childHandle, children: {} }
+      : { name, type: 'file', handle: childHandle, file: null };
+
+    const insert = (treeNode, parts) => {
+      if (parts.length === 1) {
+        return { ...treeNode, children: { ...treeNode.children, [name]: newChild } };
+      }
+      const [head, ...tail] = parts;
+      return {
+        ...treeNode,
+        children: { ...treeNode.children, [head]: insert(treeNode.children[head], tail) }
+      };
+    };
+    this.tree = insert(this.tree, parentPath.split('/'));
+
+    // Auto-expand the parent
+    if (!this.expanded.has(parentPath)) {
+      const next = new Set(this.expanded);
+      next.add(parentPath);
+      this.expanded = next;
+    }
   }
 
   flatten(tree, expanded) {

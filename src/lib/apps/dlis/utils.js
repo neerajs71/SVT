@@ -227,6 +227,49 @@ export function extractAllCurvesForTracks(parseResult) {
   return { tracks: [], indexName: 'Index', dMin: 0, dMax: 1 };
 }
 
+/**
+ * Extract per-logical-file channel and frame summaries from a parse result.
+ * Returns one entry per logical file so the caller can let the user pick one.
+ *
+ * @param {object} parseResult
+ * @returns {Array<{ id:string, lfIndex:number, channels:Array, frames:Array }>}
+ */
+export function extractLogicalFiles(parseResult) {
+  return (parseResult.logicalFiles ?? []).map((lf, idx) => {
+    const channels = [];
+    const frames   = [];
+
+    for (const eflr of (lf.eflrList ?? [])) {
+      const setType = eflr.setType?.trim().toUpperCase() ?? '';
+
+      if (setType === 'CHANNEL') {
+        for (const obj of (eflr.objects ?? [])) {
+          const name = obj.name?.identifier ?? obj.ObName?.identifier ?? '';
+          if (!name) continue;
+          channels.push({
+            name,
+            units:    getAttr(obj, 'UNITS')     ?? '',
+            longName: getAttr(obj, 'LONG-NAME') ?? '',
+          });
+        }
+      }
+
+      if (setType === 'FRAME') {
+        for (const obj of (eflr.objects ?? [])) {
+          frames.push({
+            name:      obj.name?.identifier ?? obj.ObName?.identifier ?? '',
+            indexType: getAttr(obj, 'INDEX-TYPE') ?? '',
+            indexMin:  getAttr(obj, 'INDEX-MIN'),
+            indexMax:  getAttr(obj, 'INDEX-MAX'),
+          });
+        }
+      }
+    }
+
+    return { id: lf.id ?? `LF-${idx + 1}`, lfIndex: idx, channels, frames };
+  });
+}
+
 function getAttr(obj, label) {
   const list = obj.attrList ?? obj.attributes ?? [];
   const attr = list.find(a => a?.label === label);
