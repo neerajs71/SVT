@@ -18,7 +18,7 @@
   let resetKey      = $state(0);
   let showPopup     = $state(false);
   let showRuler     = $state(false);
-  let showNurbs     = $state(false);   // toggle NURBS overlay + slice curve
+  let showNurbs     = $state(true);    // toggle NURBS overlay + slice curve
 
   // ── Slice plane position (world-space Y, 0 .. strikeW) ───────────────────
   // strikeW = strikeKm / (domX.max - domX.min) * WX, where WX=10 and domX span defaults to 10

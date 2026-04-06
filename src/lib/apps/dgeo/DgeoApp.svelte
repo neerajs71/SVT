@@ -8,8 +8,8 @@
   const { tab } = $props();
 
   // ── View mode ──────────────────────────────────────────────────────────────
-  let viewMode      = $state('2d');    // '2d' | '3d'
-  let showSolids    = $state(false);   // manifold solid blocks in 3D view
+  let viewMode      = $state('3d');    // '2d' | '3d'
+  let showSolids    = $state(true);    // manifold solid blocks in 3D view
   let showHzPanel   = $state(false);   // horizons floating panel
 
   // ── Colour palette for formations ─────────────────────────────────────────
