@@ -12,8 +12,6 @@
 import type {
   HorizonData,
   HorizonOperator,
-  NurbsSurfaceParams,
-  NurbsEvalResult,
   Point2D,
   Rail,
 } from '../types.ts';
@@ -33,8 +31,7 @@ export class HorizonState {
   rails: Rail[] = $state([]);
 
   // ── Non-reactive NURBS cache (managed by NurbsEvaluatorChain) ────────────
-  nurbsParams:     NurbsSurfaceParams | null = null;
-  nurbsPositions:  Float32Array | null       = null;
+  nurbsPositions:  Float32Array | null = null;
   nurbsResolution: number                    = 40;
   /**
    * Set to true whenever rails change; cleared by NurbsEvaluatorChain after

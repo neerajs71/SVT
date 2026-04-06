@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { LayerAssembly } from './LayerAssembly.svelte.ts';
 import { HorizonState }  from './HorizonState.svelte.ts';
-import type { WorldDimensions, CoordMappers, NurbsEvalResult } from '../types.ts';
+import type { WorldDimensions } from '../types.ts';
 
 // ── Lazy manifold-3d WASM singleton ──────────────────────────────────────────
 let _mf: unknown = null;
@@ -82,13 +82,8 @@ export class GeologicalModel {
 
       // CSG per layer — deepest has no subtraction
       for (let i = 0; i < sorted.length; i++) {
-        const layer = this.layers[i];
-        if (!manifolds[i]) {
-          layer.gridError  = 'Manifold build failed';
-          layer.gridStatus = 'error';
-          continue;
-        }
-        await layer.buildGrid(manifolds[i], i > 0 ? (manifolds[i - 1] ?? null) : null);
+        if (!manifolds[i]) continue;
+        await this.layers[i].buildGrid(manifolds[i], i > 0 ? (manifolds[i - 1] ?? null) : null);
       }
     } finally {
       this.gridBuilding = false;
@@ -135,13 +130,8 @@ export class GeologicalModel {
       });
 
       for (let i = 0; i < sorted.length; i++) {
-        const layer = this.layers[i];
-        if (!manifolds[i]) {
-          layer.nurbsError  = 'Manifold build failed';
-          layer.nurbsStatus = 'error';
-          continue;
-        }
-        await layer.buildNurbs(manifolds[i], i > 0 ? (manifolds[i - 1] ?? null) : null);
+        if (!manifolds[i]) continue;
+        await this.layers[i].buildNurbs(manifolds[i], i > 0 ? (manifolds[i - 1] ?? null) : null);
       }
     } finally {
       this.nurbsBuilding = false;
@@ -163,10 +153,6 @@ export class GeologicalModel {
       if (existing) return existing;
       return new LayerAssembly(h.id, h.colour, h.name);
     });
-  }
-
-  getLayer(horizonId: string): LayerAssembly | undefined {
-    return this.layers.find(l => l.horizonId === horizonId);
   }
 
   dispose(): void {

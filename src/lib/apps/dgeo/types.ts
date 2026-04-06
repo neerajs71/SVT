@@ -43,28 +43,6 @@ export interface HorizonData {
   rails: Rail[];
 }
 
-// ── File format ───────────────────────────────────────────────────────────────
-
-/** Top-level .dgeo file schema */
-export interface DgeoFile {
-  version: string;
-  domX: DomainBounds;
-  domY: DomainBounds;
-  strikeKm: number;
-  defaultRailCount: number;
-  horizons: HorizonData[];
-}
-
-// ── Solid / CSG ───────────────────────────────────────────────────────────────
-
-export type SolidStatus = 'idle' | 'building' | 'ready' | 'error';
-
-/** Result returned after a solid build attempt */
-export interface SolidBuildResult {
-  status: 'ok' | 'error';
-  error?: string;
-}
-
 // ── NURBS surface ─────────────────────────────────────────────────────────────
 
 export interface NurbsSurfaceParams {
@@ -88,14 +66,6 @@ export interface NurbsEvalResult {
   resolution: number;
 }
 
-// ── Editing ───────────────────────────────────────────────────────────────────
-
-export interface DragState {
-  pointIdx: number;
-  startX: number;
-  startY: number;
-}
-
 // ── World coordinate helpers ──────────────────────────────────────────────────
 
 export interface WorldDimensions {
@@ -105,12 +75,4 @@ export interface WorldDimensions {
   WY: number;
   /** World-space along-strike extent (derived from strikeKm) */
   strikeW: number;
-}
-
-export interface CoordMappers {
-  nX: (x: number) => number;
-  nDepth: (y: number) => number;
-  nStrike: (z_km: number) => number;
-  fromNX: (wx: number) => number;
-  fromNDepth: (wz: number) => number;
 }

@@ -13,7 +13,6 @@
  */
 
 import * as THREE from 'three';
-import type { WorldDimensions, CoordMappers, Rail, Point2D } from '../types.ts';
 
 // ── Manifold mesh → Three.js BufferGeometry ───────────────────────────────────
 function manifoldMeshToGeo(mesh: { vertProperties: ArrayLike<number>; numProp: number; triVerts: ArrayLike<number> }): THREE.BufferGeometry {
@@ -24,20 +23,6 @@ function manifoldMeshToGeo(mesh: { vertProperties: ArrayLike<number>; numProp: n
   return geo;
 }
 
-// ── Build options passed down from GeologicalModel ────────────────────────────
-export interface GridBuildOptions extends WorldDimensions {
-  domX: { min: number; max: number };
-  sampleArcLength: (pts: Point2D[], n: number) => Point2D[];
-  nX: (x: number) => number;
-  nDepth: (y: number) => number;
-  nXsamp?: number;
-  refineN?: number;
-}
-
-export interface NurbsBuildOptions extends WorldDimensions {
-  // WX, WY, strikeW inherited from WorldDimensions
-}
-
 // ── LayerAssembly ─────────────────────────────────────────────────────────────
 export class LayerAssembly {
   /** ID of the upper (shallower) horizon of this layer */
@@ -46,16 +31,10 @@ export class LayerAssembly {
   readonly name:      string;
 
   // ── Grid solid (cube-warp / buildSolidManifold) ───────────────────────────
-  gridGeo:      THREE.BufferGeometry | null = $state(null);
-  gridBuilding: boolean                     = $state(false);
-  gridError:    string | null               = $state(null);
-  gridStatus:   'idle' | 'building' | 'ready' | 'error' = $state('idle');
+  gridGeo:  THREE.BufferGeometry | null = $state(null);
 
   // ── NURBS solid (ear-clip direct / buildNurbsSolidDirect) ─────────────────
-  nurbsGeo:      THREE.BufferGeometry | null = $state(null);
-  nurbsBuilding: boolean                     = $state(false);
-  nurbsError:    string | null               = $state(null);
-  nurbsStatus:   'idle' | 'building' | 'ready' | 'error' = $state('idle');
+  nurbsGeo: THREE.BufferGeometry | null = $state(null);
 
   constructor(horizonId: string, color: string, name: string) {
     this.horizonId = horizonId;
@@ -65,19 +44,7 @@ export class LayerAssembly {
 
   // ── Grid solid build ──────────────────────────────────────────────────────
 
-  /**
-   * Build the grid (cube-warp) solid for this layer.
-   * `mfShallow` and `mfDeep` are already-built Manifold objects for the
-   * shallower and deeper bounding horizons respectively.
-   * For the deepest layer (index 0), `mfDeep` is null — solid = mfShallow.
-   */
-  async buildGrid(
-    mfShallow: unknown,
-    mfDeep: unknown | null,
-  ): Promise<void> {
-    this.gridBuilding = true;
-    this.gridStatus   = 'building';
-    this.gridError    = null;
+  async buildGrid(mfShallow: unknown, mfDeep: unknown | null): Promise<void> {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const shallow = mfShallow as any;
@@ -95,33 +62,16 @@ export class LayerAssembly {
       if (!mesh || mesh.triVerts.length === 0) throw new Error('empty mesh');
 
       this.gridGeo?.dispose();
-      this.gridGeo    = manifoldMeshToGeo(mesh);
-      this.gridStatus = 'ready';
-
+      this.gridGeo = manifoldMeshToGeo(mesh);
       console.log(`[LayerAssembly] ${this.name} grid vol=${result.volume().toFixed(2)}`);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      this.gridError  = msg;
-      this.gridStatus = 'error';
-      console.warn(`[LayerAssembly] ${this.name} grid build failed: ${msg}`);
-    } finally {
-      this.gridBuilding = false;
+      console.warn(`[LayerAssembly] ${this.name} grid build failed:`, e instanceof Error ? e.message : e);
     }
   }
 
   // ── NURBS solid build ─────────────────────────────────────────────────────
 
-  /**
-   * Build the NURBS (ear-clip direct) solid for this layer.
-   * `mfShallow` and `mfDeep` are Manifold objects built from NURBS positions.
-   */
-  async buildNurbs(
-    mfShallow: unknown,
-    mfDeep: unknown | null,
-  ): Promise<void> {
-    this.nurbsBuilding = true;
-    this.nurbsStatus   = 'building';
-    this.nurbsError    = null;
+  async buildNurbs(mfShallow: unknown, mfDeep: unknown | null): Promise<void> {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const shallow = mfShallow as any;
@@ -139,17 +89,10 @@ export class LayerAssembly {
       if (!mesh || mesh.triVerts.length === 0) throw new Error('empty mesh');
 
       this.nurbsGeo?.dispose();
-      this.nurbsGeo    = manifoldMeshToGeo(mesh);
-      this.nurbsStatus = 'ready';
-
+      this.nurbsGeo = manifoldMeshToGeo(mesh);
       console.log(`[LayerAssembly] ${this.name} nurbs vol=${result.volume().toFixed(2)}`);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      this.nurbsError  = msg;
-      this.nurbsStatus = 'error';
-      console.warn(`[LayerAssembly] ${this.name} nurbs build failed: ${msg}`);
-    } finally {
-      this.nurbsBuilding = false;
+      console.warn(`[LayerAssembly] ${this.name} nurbs build failed:`, e instanceof Error ? e.message : e);
     }
   }
 
@@ -160,7 +103,5 @@ export class LayerAssembly {
     this.nurbsGeo?.dispose();
     this.gridGeo  = null;
     this.nurbsGeo = null;
-    this.gridStatus  = 'idle';
-    this.nurbsStatus = 'idle';
   }
 }
