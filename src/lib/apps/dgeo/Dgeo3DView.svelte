@@ -15,6 +15,26 @@
   let solidsBuilding  = $state(false);
   let solidErrors     = $state([]);
   let editHorizonId   = $state(null);
+
+  // ── In-app console panel ──────────────────────────────────────────────────
+  let consoleLogs  = $state(/** @type {Array<{level:string,msg:string,ts:string}>} */ ([]));
+  let showConsole  = $state(false);
+  const errorCount = $derived(consoleLogs.filter(e => e.level === 'error' || e.level === 'warn').length);
+
+  $effect(() => {
+    const orig = { log: console.log, warn: console.warn, error: console.error };
+    const cap = (level) => (...args) => {
+      orig[level](...args);
+      const msg = args.map(a => {
+        if (a instanceof Error) return a.message;
+        if (typeof a === 'object' && a !== null) { try { return JSON.stringify(a); } catch { return String(a); } }
+        return String(a);
+      }).join(' ');
+      consoleLogs = [...consoleLogs.slice(-299), { level, msg, ts: new Date().toLocaleTimeString() }];
+    };
+    console.log = cap('log'); console.warn = cap('warn'); console.error = cap('error');
+    return () => Object.assign(console, orig);
+  });
   let editRailIdx     = $state(null);
   let resetKey      = $state(0);
   let showPopup     = $state(false);
@@ -190,6 +210,15 @@
       ⟲ Reset
     </button>
 
+    <button onclick={() => showConsole = !showConsole}
+      class="relative px-2 py-0.5 border rounded text-[10px] font-medium transition-colors
+             {showConsole ? 'bg-slate-600 text-white border-slate-700 hover:bg-slate-700' : 'border-gray-200 text-gray-600 hover:bg-gray-100'}">
+      🖥 Console
+      {#if errorCount > 0}
+        <span style="position:absolute;top:-5px;right:-5px;background:#ef4444;color:#fff;font-size:9px;border-radius:9999px;width:16px;height:16px;display:flex;align-items:center;justify-content:center;line-height:1">{errorCount > 9 ? '9+' : errorCount}</span>
+      {/if}
+    </button>
+
     <span class="ml-auto text-gray-400 hidden sm:block text-[10px]">
       Click surface to select · Drag sphere · Scroll to zoom
     </span>
@@ -225,6 +254,29 @@
             ⚠ {err}
           </div>
         {/each}
+      </div>
+    {/if}
+
+    <!-- Console panel -->
+    {#if showConsole}
+      <div style="position:absolute;top:8px;right:8px;width:min(360px,calc(100% - 16px));max-height:55%;display:flex;flex-direction:column;background:#0f172a;border:1px solid #334155;border-radius:6px;z-index:20;font-family:monospace;font-size:10px;color:#e2e8f0;box-shadow:0 4px 20px rgba(0,0,0,0.5)">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 10px;border-bottom:1px solid #334155;flex-shrink:0">
+          <span style="color:#94a3b8;font-size:11px">Console ({consoleLogs.length})</span>
+          <div style="display:flex;gap:12px">
+            <button onclick={() => consoleLogs = []} style="color:#64748b;cursor:pointer;background:none;border:none;font-size:10px;font-family:monospace">Clear</button>
+            <button onclick={() => showConsole = false} style="color:#64748b;cursor:pointer;background:none;border:none;font-size:12px">✕</button>
+          </div>
+        </div>
+        <div style="overflow-y:auto;flex:1">
+          {#each consoleLogs as entry}
+            <div style="padding:2px 8px;border-bottom:1px solid #1e293b;color:{entry.level==='error'?'#f87171':entry.level==='warn'?'#fbbf24':'#64748b'};word-break:break-all;line-height:1.5;white-space:pre-wrap">
+              <span style="color:#334155">{entry.ts} </span>{entry.msg}
+            </div>
+          {/each}
+          {#if consoleLogs.length === 0}
+            <div style="padding:12px;color:#334155;text-align:center">No logs yet</div>
+          {/if}
+        </div>
       </div>
     {/if}
   </div>

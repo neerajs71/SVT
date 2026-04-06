@@ -192,7 +192,13 @@ function buildNurbsSolidDirect(mf, positions, resolution, WY) {
   const N = R * R;             // total surface vertices
 
   const verts = new Float32Array(N * 2 * 3);
-  for (let i = 0; i < N * 3; i++) verts[i] = positions[i];
+  // Top vertices: copy x,y from positions; clamp z to (0.01, WY*0.99) to avoid degenerate faces
+  for (let i = 0; i < N; i++) {
+    verts[i * 3]     = positions[i * 3];
+    verts[i * 3 + 1] = positions[i * 3 + 1];
+    verts[i * 3 + 2] = Math.max(0.01, Math.min(WY * 0.99, positions[i * 3 + 2]));
+  }
+  // Bottom vertices: same x,y; z = WY (box base)
   for (let i = 0; i < N; i++) {
     verts[(N + i) * 3]     = positions[i * 3];
     verts[(N + i) * 3 + 1] = positions[i * 3 + 1];
@@ -304,12 +310,14 @@ export async function buildNurbsLayerSolids(nurbsEntries, { WX, WY, strikeW }) {
       const m = buildNurbsSolidDirect(mf, entry.positions, entry.resolution, WY);
       const st = m.status();
       if (st !== 'NoError') {
-        errors.push(`Layer ${i} (${entry.id}): build status = ${st}`);
+        const msg = `[manifoldSolid] Layer ${i} (${entry.id}): build status = ${st}`;
+        errors.push(msg); console.warn(msg);
         return null;
       }
       return m;
     } catch (e) {
-      errors.push(`Layer ${i} (${entry.id}): build failed — ${e.message ?? e}`);
+      const msg = `[manifoldSolid] Layer ${i} (${entry.id}): build failed — ${e.message ?? e}`;
+      errors.push(msg); console.error(msg);
       return null;
     }
   });
@@ -323,18 +331,21 @@ export async function buildNurbsLayerSolids(nurbsEntries, { WX, WY, strikeW }) {
         result = manifolds[i].subtract(manifolds[i - 1]);
         const st = result.status();
         if (st !== 'NoError') {
-          errors.push(`Layer ${i}: subtract status = ${st}, using unsub solid`);
-          result = manifolds[i];   // fall back to uncut solid
+          const msg = `[manifoldSolid] Layer ${i}: subtract status = ${st}`;
+          errors.push(msg); console.warn(msg);
+          result = manifolds[i];
         }
       } catch (e) {
-        errors.push(`Layer ${i}: subtract threw — ${e.message ?? e}`);
+        const msg = `[manifoldSolid] Layer ${i}: subtract threw — ${e.message ?? e}`;
+        errors.push(msg); console.error(msg);
         result = manifolds[i];
       }
     }
     try {
       const mesh = result.getMesh();
       if (!mesh || mesh.triVerts.length === 0) {
-        errors.push(`Layer ${i}: empty mesh (vol=${result.volume().toFixed(1)})`);
+        const msg = `[manifoldSolid] Layer ${i}: empty mesh (vol=${result.volume().toFixed(1)})`;
+        errors.push(msg); console.warn(msg);
         continue;
       }
       blocks.push({ geo: manifoldMeshToGeo(mesh), color: sorted[i].color, id: sorted[i].id });
