@@ -1,35 +1,37 @@
-<script>
+<script lang="ts">
   import { T, useThrelte } from '@threlte/core';
   import { OrbitControls, interactivity, HTML } from '@threlte/extras';
   import { onDestroy } from 'svelte';
   import { railsToNURBS } from './nurbs/railsToNURBS.ts';
   import * as THREE from 'three';
-  import { buildLayerSolids, buildNurbsLayerSolids } from './manifoldSolid.js';
   import { NurbsEvaluatorChain } from './state/NurbsEvaluatorChain.svelte.ts';
+  import { GeologicalModel } from './state/GeologicalModel.svelte.ts';
+  import { EditingState }    from './state/EditingState.svelte.ts';
+  import type { HorizonState } from './state/HorizonState.svelte.ts';
+  import type { DomainBounds, Rail, Point2D } from './types.ts';
 
   let {
-    horizons          = [],
-    domX,
-    domY,
+    horizons          = [] as HorizonState[],
+    domX              = { min: 0, max: 10 } as DomainBounds,
+    domY              = { min: 0, max: 3000 } as DomainBounds,
     strikeKm          = 5,
     defaultRailCount  = 10,
     showSolids        = false,
     showRuler         = false,
     showNurbs         = false,
     sliceY            = 0,
-    editHorizonId     = $bindable(null),
-    editRailIdx       = $bindable(null),
-    solidErrors       = $bindable([]),
-    onUpdateRails     = null,
+    editHorizonId     = $bindable(null as string | null),
+    editRailIdx       = $bindable(null as number | null),
+    solidErrors       = $bindable([] as string[]),
+    onUpdateRails     = null as ((id: string, rails: Rail[]) => void) | null,
   } = $props();
 
-  // ── NURBS evaluator chain: WebGPU → WebGL GPGPU → CPU ────────────────────
-  // NurbsEvaluatorChain encapsulates the priority fallback and exposes a
-  // single `.ready` reactive flag (true once WebGPU resolves) so the
-  // nurbsCache effect re-runs automatically when the GPU is available.
+  // ── Evaluator chain, geological model, editing state ─────────────────────
   const { renderer } = useThrelte();
-  const chain = new NurbsEvaluatorChain(renderer);
-  onDestroy(() => chain.destroy());
+  const chain   = new NurbsEvaluatorChain(renderer);
+  const model   = new GeologicalModel();
+  const editing = new EditingState();
+  onDestroy(() => { chain.destroy(); model.dispose(); });
 
   // Enable Threlte raycasting
   interactivity();
@@ -127,13 +129,9 @@
     return geo;
   }
 
-  // ── Sorted horizons ────────────────────────────────────────────────────────
+  // ── Sorted horizons (shallowest first, deepest last) ─────────────────────
   const sorted = $derived(
-    [...horizons].sort((a, b) => {
-      const avg = h => h.points?.length
-        ? h.points.reduce((s, p) => s + p.y, 0) / h.points.length : 0;
-      return avg(a) - avg(b);
-    })
+    [...horizons].sort((a, b) => a.avgDepth - b.avgDepth)
   );
 
   // ── Derived: surface meshes for visible horizons ───────────────────────────
@@ -151,33 +149,16 @@
     return () => { for (const s of snap) s.geo?.dispose(); };
   });
 
-  // ── Manifold solid blocks ──────────────────────────────────────────────────
-  let solidBlocks   = $state([]);
-  let solidsBuilding = $state(false);
-
+  // ── Grid solid blocks — built by GeologicalModel ─────────────────────────
   $effect(() => {
-    const flag = showSolids;
-    const sw   = strikeW;  // reactive capture
-    if (!flag) { solidBlocks = []; return; }
-
-    solidsBuilding = true;
-    buildLayerSolids({
-      horizons,
-      getRails,
-      WX, WY,
-      strikeW: sw,
-      sampleArcLength,
-      nX, nDepth, nStrike,
-      domX,
-    }).then(blocks => {
-      for (const b of solidBlocks) b.geo?.dispose();
-      solidBlocks = blocks;
-      solidsBuilding = false;
-    }).catch(e => {
-      console.error('[Dgeo3DScene] buildLayerSolids error', e);
-      solidsBuilding = false;
-    });
+    const flag     = showSolids;
+    const strikeWv = strikeW;
+    if (!flag) return;
+    model.rebuildGrid(horizons, { WX, WY, strikeW: strikeWv, domX, sampleArcLength, nX, nDepth }, getRails);
   });
+
+  // Propagate model errors to the solidErrors $bindable prop
+  $effect(() => { solidErrors = model.errors; });
 
   // ── Frame (cube outline) ───────────────────────────────────────────────────
   // X=[0,WX]  Y=[0,strikeW]  Z=[0,WY]
@@ -208,9 +189,7 @@
   });
   $effect(() => { const g = gridGeo; return () => g?.dispose(); });
 
-  // ── Editing state ──────────────────────────────────────────────────────────
-  let isDragging   = $state(false);
-  let dragPointIdx = $state(null);
+  // ── Drag state (selection is via $bindable editHorizonId / editRailIdx) ───
 
   const editHorizon = $derived(horizons.find(h => h.id === editHorizonId) ?? null);
   const editRailsSorted = $derived(
@@ -248,38 +227,35 @@
   });
 
   // ── Drag handlers ──────────────────────────────────────────────────────────
-  // Drag plane: XZ plane (horizontal + depth) at fixed Y = nStrike(activeRail.z)
-  function startDrag(ptIdx, e) {
+  function startDrag(ptIdx: number, e: { stopPropagation(): void }): void {
     e.stopPropagation();
-    dragPointIdx = ptIdx;
-    isDragging   = true;
+    editing.startDrag(ptIdx);
   }
 
-  function onDragMove(e) {
-    if (!isDragging || dragPointIdx === null || !editHorizon || !activeRail) return;
+  function onDragMove(e: { point: { x: number; z: number } }): void {
+    if (!editing.isDragging || editing.dragPointIdx === null || !editHorizon || !activeRail) return;
     const newX = Math.max(domX.min, Math.min(domX.max, fromNX(e.point.x)));
     const newY = Math.max(domY.min, Math.min(domY.max, fromNDepth(e.point.z)));
 
-    // First and last array entries are the boundary endpoints — X locked to domain walls
     const leftIdx  = 0;
     const rightIdx = activeRail.points.length - 1;
-    const finalX   = dragPointIdx === leftIdx  ? domX.min
-                   : dragPointIdx === rightIdx ? domX.max
+    const finalX   = editing.dragPointIdx === leftIdx  ? domX.min
+                   : editing.dragPointIdx === rightIdx ? domX.max
                    : newX;
 
-    const newRails = editRailsSorted.map((rail, ri) => {
+    const newRails = editRailsSorted.map((rail: Rail, ri: number) => {
       if (ri !== editRailIdx) return rail;
       return {
         ...rail,
-        points: rail.points.map((p, pi) =>
-          pi === dragPointIdx ? { ...p, x: finalX, y: newY } : p
+        points: rail.points.map((p: Point2D, pi: number) =>
+          pi === editing.dragPointIdx ? { ...p, x: finalX, y: newY } : p
         ),
       };
     });
-    onUpdateRails?.(editHorizonId, newRails);
+    onUpdateRails?.(editHorizonId!, newRails);
   }
 
-  function endDrag() { isDragging = false; dragPointIdx = null; }
+  function endDrag(): void { editing.endDrag(); }
 
   // ── Slice plane at active rail's Y (strike position) ──────────────────────
   const slicePlaneGeo = $derived.by(() => {
@@ -371,99 +347,67 @@
   );
 
   // ── NURBS overlay — WebGPU > WebGL > CPU ─────────────────────────────────
-  // $effect with async body so we can await WebGPU evaluation.
-  // webgpuReady ($state) is the only reactive trigger for GPU upgrades;
-  // sorted and showNurbs are the main content triggers.
-  let nurbsCache = $state(/** @type {Array<{geo,positions,resolution,color}>} */ ([]));
+  interface NurbsCacheEntry { geo: THREE.BufferGeometry; positions: Float32Array; resolution: number; color: string; id: string; }
+  let nurbsCache = $state([] as NurbsCacheEntry[]);
 
   $effect(() => {
     if (!showNurbs) {
-      // Don't read nurbsCache here — the disposal $effect handles geometry cleanup.
-      // Reading it would create a dependency that causes an infinite loop.
       nurbsCache = [];
       return;
     }
-    // Capture reactive deps synchronously before entering async context
-    const snap     = sorted;
-    const _ready   = chain.ready;   // subscribe so we re-run when WebGPU is ready
-    let cancelled  = false;
+    const snap    = sorted;
+    const _ready  = chain.ready;
+    let cancelled = false;
 
     (async () => {
-      const next = await Promise.all(snap.map(async h => {
+      const next = await Promise.all(snap.map(async (h: HorizonState) => {
         if (h.visible === false) return null;
         const rails = getRails(h);
         if (rails.length < 2) return null;
-        // Use actual point count so folds are captured; clamp to [8, 36]
-        // (36 + degree 3 + 1 = 40 knots, matching MAX_KNOT in GLSL shader)
-        const maxPts = Math.max(...rails.map(r => r.points?.length ?? 0));
+        const maxPts = Math.max(...rails.map((r: Rail) => r.points?.length ?? 0));
         const nCtrlU = Math.min(36, Math.max(8, maxPts));
         const params = railsToNURBS(rails, { sampleArcLength, nX, nDepth, nStrike, domX, nCtrlU });
         if (!params) return null;
         try {
           const r = await chain.evaluate(params);
           if (cancelled) return null;
+          // Cache evaluated positions on HorizonState so GeologicalModel can build solids
+          h.nurbsPositions  = r.positions;
+          h.nurbsResolution = r.resolution;
+          h.nurbsDirty      = false;
           const geo = new THREE.BufferGeometry();
           geo.setAttribute('position', new THREE.BufferAttribute(r.positions.slice(), 3));
           geo.setIndex(new THREE.BufferAttribute(new Uint32Array(r.indices), 1));
           geo.computeVertexNormals();
-          return { geo, positions: r.positions, resolution: r.resolution, color: h.colour ?? '#c8e6c9', id: h.id };
+          return { geo, positions: r.positions, resolution: r.resolution, color: h.colour ?? '#c8e6c9', id: h.id } as NurbsCacheEntry;
         } catch (e) {
           console.warn('[Dgeo3DScene] NURBS eval failed for', h.name, e);
         }
         return null;
       }));
-      if (!cancelled) nurbsCache = next.filter(Boolean);
+      if (!cancelled) {
+        nurbsCache = next.filter((x): x is NurbsCacheEntry => x !== null);
+        // Trigger NURBS solid rebuild now that nurbsPositions are current
+        if (showSolids) model.rebuildNurbs(horizons, { WX, WY, strikeW });
+      }
     })();
 
-    // Signal async work to bail out if the effect re-runs before it completes
     return () => { cancelled = true; };
   });
 
-  // Dispose geometries when component unmounts
+  // Dispose NURBS display geometries when cache changes or component unmounts
   $effect(() => {
     const snap = nurbsCache;
     return () => { for (const d of snap) d?.geo?.dispose(); };
   });
 
-  // ── NURBS-based manifold solids with CSG ──────────────────────────────────
-  // Built from the GPU-evaluated NURBS positions whenever the nurbsCache or
-  // showSolids changes.  Sorting and CSG mirrors buildLayerSolids (deepest first,
-  // Layer[i] = solid[i].subtract(solid[i-1])).
-  let nurbsSolidBlocks    = $state(/** @type {Array<{geo,color,id}>} */ ([]));
-  let nurbsSolidsBuilding = $state(false);
-  let nurbsSolidErrors    = $state(/** @type {string[]} */ ([]));
-
+  // ── NURBS solid rebuild when showSolids toggles on ────────────────────────
   $effect(() => {
-    const entries  = nurbsCache;
-    const doSolids = showSolids;
-    if (!doSolids || entries.length === 0) {
-      nurbsSolidBlocks  = [];
-      nurbsSolidErrors  = [];
-      return;
-    }
-    let cancelled = false;
-    nurbsSolidsBuilding = true;
-    buildNurbsLayerSolids(entries, { WX, WY, strikeW }).then(({ blocks, errors }) => {
-      if (!cancelled) {
-        for (const b of nurbsSolidBlocks) b.geo?.dispose();
-        nurbsSolidBlocks    = blocks;
-        nurbsSolidErrors    = errors;
-        solidErrors         = errors;
-        nurbsSolidsBuilding = false;
-        if (errors.length) console.warn('[manifoldSolid]', errors.join(' | '));
-      }
-    }).catch(e => {
-      if (!cancelled) {
-        nurbsSolidErrors    = [`Fatal: ${e?.message ?? e}`];
-        nurbsSolidsBuilding = false;
-        console.error('[Dgeo3DScene] buildNurbsLayerSolids error', e);
-      }
-    });
-    return () => { cancelled = true; };
-  });
-  $effect(() => {
-    const snap = nurbsSolidBlocks;
-    return () => { for (const b of snap) b.geo?.dispose(); };
+    const doSolids  = showSolids;
+    const hasNurbs  = nurbsCache.length > 0;  // reactive: re-runs when cache fills
+    const strikeWv  = strikeW;
+    if (!doSolids || !hasNurbs) return;
+    model.rebuildNurbs(horizons, { WX, WY, strikeW: strikeWv });
   });
 
   // Slice intersection curves — CPU extract from cached vertex grid
@@ -514,7 +458,7 @@
     target={camTarget}
     enableDamping
     dampingFactor={0.07}
-    enabled={!isDragging}
+    enabled={!editing.isDragging}
     minPolarAngle={0.05}
     maxPolarAngle={Math.PI * 0.72}
     minDistance={1}
@@ -527,24 +471,26 @@
 <T.DirectionalLight position={[14, -8, -10]} intensity={0.55} />
 <T.DirectionalLight position={[-8, 8, 14]}  intensity={0.25} />
 
-<!-- ── Manifold solid blocks ──────────────────────────────────────────────── -->
+<!-- ── Grid solid blocks (GeologicalModel.layers[].gridGeo) ──────────────── -->
 {#if showSolids}
-  {#each solidBlocks as b (b.geo.uuid)}
-    {@const hz = horizons.find(h => h.id === b.id)}
-    {#if hz?.visible !== false}
-      <T.Mesh geometry={b.geo}>
-        <T.MeshPhongMaterial
-          color={b.color}
-          transparent opacity={0.82}
-          side={THREE.DoubleSide}
-          shininess={30}
-        />
-      </T.Mesh>
-      <T.Mesh geometry={b.geo}>
-        <T.MeshBasicMaterial
-          color="#1e293b" wireframe transparent opacity={0.08}
-        />
-      </T.Mesh>
+  {#each model.layers as layer (layer.horizonId)}
+    {#if layer.gridGeo}
+      {@const hz = horizons.find(h => h.id === layer.horizonId)}
+      {#if hz?.visible !== false}
+        <T.Mesh geometry={layer.gridGeo}>
+          <T.MeshPhongMaterial
+            color={layer.color}
+            transparent opacity={0.82}
+            side={THREE.DoubleSide}
+            shininess={30}
+          />
+        </T.Mesh>
+        <T.Mesh geometry={layer.gridGeo}>
+          <T.MeshBasicMaterial
+            color="#1e293b" wireframe transparent opacity={0.08}
+          />
+        </T.Mesh>
+      {/if}
     {/if}
   {/each}
 {/if}
@@ -579,12 +525,12 @@
     onpointerdown={(e) => startDrag(cp.idx, e)}
   >
     <T.SphereGeometry args={[0.18, 10, 10]} />
-    <T.MeshBasicMaterial color={dragPointIdx === cp.idx ? '#ef4444' : '#2563eb'} />
+    <T.MeshBasicMaterial color={editing.dragPointIdx === cp.idx ? '#ef4444' : '#2563eb'} />
   </T.Mesh>
 {/each}
 
 <!-- ── Drag capture plane (XZ at fixed Y=strike) ─────────────────────────── -->
-{#if isDragging && activeRail !== null}
+{#if editing.isDragging && activeRail !== null}
   {@const ys = nStrike(activeRail.z)}
   <T.Mesh
     position={[WX/2, ys, WY/2]}
@@ -670,18 +616,20 @@
   <!-- Offset the NURBS group so it sits beside the cube (not overlapping) -->
   <T.Group position={[WX + 1.5, 0, 0]}>
 
-    <!-- NURBS solid blocks (CSG layers) — shown when Solidify is on -->
-    {#if showSolids && nurbsSolidBlocks.length > 0}
-      {#each nurbsSolidBlocks as b (b.geo.uuid)}
-        <T.Mesh geometry={b.geo}>
-          <T.MeshPhongMaterial
-            color={b.color} transparent opacity={0.82}
-            side={THREE.DoubleSide} shininess={30}
-          />
-        </T.Mesh>
-        <T.Mesh geometry={b.geo}>
-          <T.MeshBasicMaterial color="#1e293b" wireframe transparent opacity={0.08} />
-        </T.Mesh>
+    <!-- NURBS solid blocks (GeologicalModel.layers[].nurbsGeo) -->
+    {#if showSolids && model.layers.some(l => l.nurbsGeo)}
+      {#each model.layers as layer (layer.horizonId)}
+        {#if layer.nurbsGeo}
+          <T.Mesh geometry={layer.nurbsGeo}>
+            <T.MeshPhongMaterial
+              color={layer.color} transparent opacity={0.82}
+              side={THREE.DoubleSide} shininess={30}
+            />
+          </T.Mesh>
+          <T.Mesh geometry={layer.nurbsGeo}>
+            <T.MeshBasicMaterial color="#1e293b" wireframe transparent opacity={0.08} />
+          </T.Mesh>
+        {/if}
       {/each}
     {:else}
       <!-- Fallback: show raw NURBS surfaces while solids are building or Solidify is off -->
