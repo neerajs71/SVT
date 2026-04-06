@@ -191,6 +191,21 @@ function buildNurbsSolidDirect(mf, positions, resolution, WY) {
   const R = resolution + 1;   // vertices per side
   const N = R * R;             // total surface vertices
 
+  // Validate positions
+  if (!positions || positions.length < N * 3) {
+    throw new Error(`positions too short: got ${positions?.length}, need ${N * 3}`);
+  }
+
+  // Detect degenerate/NaN positions (B-spline weight collapse)
+  let nanCount = 0, zeroCount = 0;
+  for (let i = 0; i < N; i++) {
+    const x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2];
+    if (!isFinite(x) || !isFinite(y) || !isFinite(z)) nanCount++;
+    else if (x === 0 && y === 0 && z === 0) zeroCount++;
+  }
+  if (nanCount > 0) console.warn(`[manifoldSolid] buildNurbsSolidDirect: ${nanCount}/${N} NaN/Inf vertices — degenerate NURBS surface`);
+  if (zeroCount > N * 0.5) console.warn(`[manifoldSolid] buildNurbsSolidDirect: ${zeroCount}/${N} vertices at origin — likely bad knot/control points`);
+
   const verts = new Float32Array(N * 2 * 3);
   // Top vertices: copy x,y from positions; clamp z to (0.01, WY*0.99) to avoid degenerate faces
   for (let i = 0; i < N; i++) {
@@ -299,6 +314,9 @@ export async function buildNurbsLayerSolids(nurbsEntries, { WX, WY, strikeW }) {
   const errors = [];
 
   if (!nurbsEntries || nurbsEntries.length === 0) return { blocks: [], errors };
+
+  console.log(`[manifoldSolid] buildNurbsLayerSolids: ${nurbsEntries.length} entries, WX=${WX} WY=${WY} strikeW=${strikeW}`);
+  nurbsEntries.forEach((e, i) => console.log(`  entry[${i}] id=${e.id} resolution=${e.resolution} positions.length=${e.positions?.length} avgZ=${avgNurbsZ(e.positions).toFixed(2)}`));
 
   // Sort deepest first (largest average surface Z = deepest horizon)
   const sorted = [...nurbsEntries].sort((a, b) =>
