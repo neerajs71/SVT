@@ -315,7 +315,7 @@
 
         // D: orange minus sphere — manifold validity test
         // Sphere at [5, 3, 6]: centre of domain in x/y, z=6 is below fold surface and above WY=8 base
-        const sphere = mf.Manifold.sphere(1.5, 32).translate([5, 3, 6]);
+        const sphere = mf.Manifold.sphere(3.0, 32).translate([5, 3, 6]);
         const solidCsphere = solidC.subtract(sphere);
         const sphereSt = solidCsphere.status();
         console.log('[C-sphere] status:', sphereSt, 'vol:', solidCsphere.volume().toFixed(2));
