@@ -323,7 +323,26 @@ export async function buildNurbsLayerSolids(nurbsEntries, { WX, WY, strikeW }) {
     avgNurbsZ(b.positions) - avgNurbsZ(a.positions)
   );
 
-  const manifolds = sorted.map((entry, i) => {
+  // ── Align all entries to a shared x,y grid ───────────────────────────────
+  // Each NURBS horizon uses its own arc-length parameterisation, so world-x,y
+  // positions at the same grid index differ between horizons.  CSG requires
+  // both meshes to have matching x,y so intersection cuts are grid-aligned,
+  // not diagonal.  Fix: borrow x,y from the shallowest horizon (last in the
+  // deepest-first sort) for ALL solids; only z varies per entry.
+  const refPos = sorted[sorted.length - 1].positions;
+  const alignedEntries = sorted.map(entry => {
+    if (entry.positions === refPos) return entry;
+    const N = (entry.resolution + 1) ** 2;
+    const aligned = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      aligned[i * 3]     = refPos[i * 3];             // x from reference
+      aligned[i * 3 + 1] = refPos[i * 3 + 1];        // y from reference
+      aligned[i * 3 + 2] = entry.positions[i * 3 + 2]; // z from this entry
+    }
+    return { ...entry, positions: aligned };
+  });
+
+  const manifolds = alignedEntries.map((entry, i) => {
     try {
       const m = buildNurbsSolidDirect(mf, entry.positions, entry.resolution, WY);
       const st = m.status();
@@ -375,7 +394,7 @@ export async function buildNurbsLayerSolids(nurbsEntries, { WX, WY, strikeW }) {
         errors.push(msg); console.warn(msg);
         continue;
       }
-      blocks.push({ geo: manifoldMeshToGeo(mesh), color: sorted[i].color, id: sorted[i].id });
+      blocks.push({ geo: manifoldMeshToGeo(mesh), color: sorted[i].color ?? alignedEntries[i].color, id: sorted[i].id });
     } catch (e) {
       errors.push(`Layer ${i}: getMesh failed — ${e.message ?? e}`);
     }
