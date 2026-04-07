@@ -466,8 +466,8 @@
 <T.DirectionalLight position={[-8, 8, 14]}  intensity={0.25} />
 
 
-<!-- ── Formation surfaces (when not in solid mode) ────────────────────────── -->
-{#if !showSolids}
+<!-- ── Formation surfaces (fallback when NURBS is off) ────────────────────── -->
+{#if !showSolids && !showNurbs}
   {#each surfaces as s (s.geo.uuid)}
     <T.Mesh
       geometry={s.geo}
@@ -594,7 +594,7 @@
         {#each layer.nurbsGeos as geo (geo.uuid)}
           <T.Mesh geometry={geo}>
             <T.MeshPhongMaterial
-              color={layer.color} transparent opacity={0.82}
+              color={hz?.colour ?? layer.color} transparent opacity={0.82}
               side={THREE.DoubleSide} shininess={30}
             />
           </T.Mesh>
@@ -609,14 +609,17 @@
     {:else}
       <!-- Fallback: show raw NURBS surfaces while solids are building or Solidify is off -->
       {#each nurbsCache as nd (nd.geo.uuid)}
-        <T.Mesh geometry={nd.geo}>
+        {@const ndHz = horizons.find(h => h.id === nd.id)}
+        {@const ndColor = ndHz?.colour ?? nd.color}
+        <T.Mesh geometry={nd.geo}
+          onclick={() => { editHorizonId = nd.id; editRailIdx = 0; }}>
           <T.MeshLambertMaterial
-            color={nd.color} transparent opacity={0.75}
+            color={ndColor} transparent opacity={0.75}
             side={THREE.DoubleSide}
           />
         </T.Mesh>
         <T.Mesh geometry={nd.geo}>
-          <T.MeshBasicMaterial color={nd.color} wireframe transparent opacity={0.25} />
+          <T.MeshBasicMaterial color={ndColor} wireframe transparent opacity={0.25} />
         </T.Mesh>
       {/each}
     {/if}
