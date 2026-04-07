@@ -149,20 +149,6 @@
     return () => { for (const s of snap) s.geo?.dispose(); };
   });
 
-  // ── Grid solid blocks — built by GeologicalModel ─────────────────────────
-  // Capture reactive deps first, then call model in untrack() so that
-  // model.gridBuilding / model.errors reads inside rebuildGrid don't become
-  // dependencies of this effect — otherwise the effect loops when the async
-  // function completes and writes gridBuilding = false.
-  $effect(() => {
-    const flag     = showSolids;
-    const strikeWv = strikeW;
-    const hs       = horizons;
-    const dx       = domX;
-    if (!flag) return;
-    untrack(() => model.rebuildGrid(hs, { WX, WY, strikeW: strikeWv, domX: dx, sampleArcLength, nX, nDepth }, getRails));
-  });
-
   // Propagate model errors to the solidErrors $bindable prop
   $effect(() => { solidErrors = model.errors; });
 
@@ -479,29 +465,6 @@
 <T.DirectionalLight position={[14, -8, -10]} intensity={0.55} />
 <T.DirectionalLight position={[-8, 8, 14]}  intensity={0.25} />
 
-<!-- ── Grid solid blocks (GeologicalModel.layers[].gridGeos[]) ───────────── -->
-{#if showSolids}
-  {#each model.layers as layer (layer.horizonId)}
-    {@const hz = horizons.find(h => h.id === layer.horizonId)}
-    {#if hz?.visible !== false}
-      {#each layer.gridGeos as geo (geo.uuid)}
-        <T.Mesh geometry={geo}>
-          <T.MeshPhongMaterial
-            color={layer.color}
-            transparent opacity={0.82}
-            side={THREE.DoubleSide}
-            shininess={30}
-          />
-        </T.Mesh>
-        <T.Mesh geometry={geo}>
-          <T.MeshBasicMaterial
-            color="#1e293b" wireframe transparent opacity={0.08}
-          />
-        </T.Mesh>
-      {/each}
-    {/if}
-  {/each}
-{/if}
 
 <!-- ── Formation surfaces (when not in solid mode) ────────────────────────── -->
 {#if !showSolids}
