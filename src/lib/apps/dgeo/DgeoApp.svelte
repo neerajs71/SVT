@@ -38,6 +38,17 @@
   let activeId  = $state<string | null>(null);
   let dragState = $state<{ horizonId: string; pointIdx: number } | null>(null);
 
+  // ── Operator definitions ──────────────────────────────────────────────────
+  const OPERATORS: { key: string; label: string; desc: string; color: string }[] = [
+    { key: 'none', label: 'Deposit',  desc: 'Conformable layer — drapes the shape of the horizon below with no erosion.',         color: '#10b981' },
+    { key: 'RA',   label: 'RA',       desc: 'Remove Above — this surface erodes and truncates all shallower horizons above it.',   color: '#f59e0b' },
+    { key: 'RAI',  label: 'RAI',      desc: 'Remove Above Intersection — clips only the immediately overlying horizon.',           color: '#f59e0b' },
+    { key: 'RB',   label: 'RB',       desc: 'Remove Below — channel or intrusion that cuts downward through underlying layers.',   color: '#ef4444' },
+    { key: 'RBI',  label: 'RBI',      desc: 'Remove Below Intersection — clips only the immediately underlying horizon.',          color: '#ef4444' },
+  ];
+
+  let opDropdownId = $state<string | null>(null);  // horizon id whose dropdown is open
+
   // ── Viewport ───────────────────────────────────────────────────────────────
   const W = 900, H = 600, PAD = 60;
   const CHART_W = $derived(W - PAD);
@@ -818,13 +829,15 @@
           <span style="width:16px"></span>
           <span class="flex-1">Name</span>
           <span style="width:58px" class="text-center">Depth (m)</span>
-          <span style="width:112px" class="text-center">Operator</span>
+          <span style="width:80px" class="text-center">Operator</span>
           <span style="width:16px"></span>
         </div>
 
         <!-- Horizon rows -->
         {#each horizons as h, idx (h.id)}
-          {@const refZ = Math.round(h.points.reduce((s,p)=>s+p.y,0) / Math.max(1,h.points.length))}
+          {@const refZ   = Math.round(h.points.reduce((s,p)=>s+p.y,0) / Math.max(1,h.points.length))}
+          {@const curOp  = OPERATORS.find(o => o.key === (h.operator ?? 'none')) ?? OPERATORS[0]}
+          {@const opOpen = opDropdownId === h.id}
           <div class="hz-tbl-row {activeId===h.id ? 'hz-tbl-active' : ''}"
                onclick={() => activeId = h.id} role="button" tabindex="0"
                onkeydown={e => e.key==='Enter' && (activeId=h.id)}>
@@ -874,25 +887,38 @@
               style="width:58px"
               class="text-xs border border-gray-200 rounded px-1 py-0.5 text-right"/>
 
-            <!-- Operator buttons -->
-            <div style="width:112px" class="flex gap-0.5" onclick={e=>e.stopPropagation()}>
-              {#each ['none','RA','RAI','RB','RBI'] as op}
-                {@const active = (h.operator??'none')===op}
-                <button
-                  onclick={()=>setOperator(h.id,op)}
-                  title={op==='none' ? 'Deposit — conformable layer, no erosion' :
-                         op==='RA'   ? 'Remove Above — truncates ALL shallower horizons' :
-                         op==='RAI'  ? 'Remove Above Intersection — clips immediate neighbour only' :
-                         op==='RB'   ? 'Remove Below — channel/diapir cutting downward' :
-                                       'Remove Below Intersection — clips immediate deeper neighbour only'}
-                  class="hz-t-op
-                    {active && op==='none'  ? 'hz-t-op-deposit' : ''}
-                    {active && (op==='RA'||op==='RAI') ? 'hz-t-op-ra' : ''}
-                    {active && (op==='RB'||op==='RBI') ? 'hz-t-op-rb' : ''}
-                    {!active ? 'hz-t-op-off' : ''}">
-                  {op==='none'?'·':op}
-                </button>
-              {/each}
+            <!-- Operator dropdown -->
+            <div style="position:relative;flex-shrink:0" onclick={e=>e.stopPropagation()}>
+              <button
+                onclick={() => opDropdownId = opOpen ? null : h.id}
+                style="min-width:68px;font-size:10px;padding:2px 6px;border:1px solid {curOp.color};
+                       border-radius:4px;background:{curOp.color}18;color:{curOp.color};
+                       font-weight:600;cursor:pointer;white-space:nowrap">
+                {curOp.label} ▾
+              </button>
+              {#if opOpen}
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div
+                  style="position:fixed;z-index:500;width:300px;background:white;
+                         border:1px solid #e2e8f0;border-radius:8px;
+                         box-shadow:0 6px 24px rgba(0,0,0,0.13);overflow:hidden"
+                  onmouseleave={() => opDropdownId = null}>
+                  {#each OPERATORS as op}
+                    {@const selected = (h.operator ?? 'none') === op.key}
+                    <button
+                      onclick={() => { setOperator(h.id, op.key); opDropdownId = null; }}
+                      style="width:100%;text-align:left;padding:8px 12px;border:none;cursor:pointer;
+                             background:{selected ? op.color + '18' : 'white'};
+                             border-left:3px solid {selected ? op.color : 'transparent'};
+                             display:flex;flex-direction:column;gap:2px"
+                      onmouseenter={e => (e.currentTarget as HTMLElement).style.background = op.color + '12'}
+                      onmouseleave={e => (e.currentTarget as HTMLElement).style.background = selected ? op.color + '18' : 'white'}>
+                      <span style="font-size:11px;font-weight:700;color:{op.color}">{op.label}</span>
+                      <span style="font-size:10px;color:#6b7280;line-height:1.35">{op.desc}</span>
+                    </button>
+                  {/each}
+                </div>
+              {/if}
             </div>
 
             <!-- Delete -->
