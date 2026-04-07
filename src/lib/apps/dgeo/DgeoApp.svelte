@@ -6,6 +6,8 @@
   import { FloatingPanel } from '$lib/components/FloatingPanel';
   import { HorizonState } from './state/HorizonState.svelte.ts';
   import type { HorizonOperator, Point2D, Rail } from './types.ts';
+  import { parseXYZ, xyzToRails } from './xyzImport.ts';
+  import type { ParsedXYZ } from './xyzImport.ts';
 
   const { tab } = $props();
 
@@ -211,6 +213,57 @@
       return raw.map(([tx, ty]) => ({ x: xL + tx * xRange, y: clampY(baseDepth + ty * amp * 1.8) }));
     }
     return [{ x: xL, y: baseDepth }, { x: xMid, y: baseDepth }, { x: xR, y: baseDepth }];
+  }
+
+  // ── XYZ import ───────────────────────────────────────────────────────────
+  interface XyzDialog { parsed: ParsedXYZ; name: string; xCol: number; strikeCol: number; depthCol: number; }
+  let xyzDialog  = $state<XyzDialog | null>(null);
+  let xyzFileEl  = $state<HTMLInputElement | null>(null);
+
+  function openXyzPicker() { xyzFileEl?.click(); }
+
+  async function onXyzFile(e: Event) {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    const text   = await file.text();
+    const parsed = parseXYZ(text);
+    if (!parsed || parsed.rows.length === 0) { alert('Could not parse file — check format.'); return; }
+    const n = parsed.headers.length;
+    xyzDialog = {
+      parsed,
+      name:      file.name.replace(/\.[^.]+$/, ''),
+      xCol:      0,
+      strikeCol: Math.min(1, n - 1),
+      depthCol:  Math.min(2, n - 1),
+    };
+    // reset so the same file can be re-picked
+    (e.target as HTMLInputElement).value = '';
+  }
+
+  function confirmXyzImport() {
+    if (!xyzDialog) return;
+    const { parsed, name, xCol, strikeCol, depthCol } = xyzDialog;
+    const rails = xyzToRails(
+      parsed.rows, xCol, strikeCol, depthCol,
+      domX, domY, strikeKm, Math.max(2, defaultRailCount),
+    );
+    if (rails.length === 0) { alert('No points could be gridded — check column assignments.'); return; }
+    const basePts = rails[Math.floor(rails.length / 2)].points;
+    const idx = horizons.length;
+    const h = new HorizonState({
+      id:       crypto.randomUUID(),
+      name:     name || `Horizon ${idx + 1}`,
+      colour:   FORMATION_COLOURS[idx % FORMATION_COLOURS.length],
+      operator: 'none',
+      visible:  true,
+      points:   basePts,
+      rails,
+    });
+    horizons = [...horizons, h];
+    activeId = h.id;
+    tool     = 'select';
+    dirty    = true;
+    xyzDialog = null;
   }
 
   // ── Horizon management ────────────────────────────────────────────────────
@@ -849,12 +902,20 @@
           </div>
         {/each}
 
-        <!-- Add button -->
-        <button onclick={addHorizon}
-          class="mt-2 w-full py-1 text-xs text-blue-600 border border-dashed border-blue-300
-                 rounded hover:border-blue-500 hover:bg-blue-50">
-          + Add horizon
-        </button>
+        <!-- Add / Import buttons -->
+        <div class="mt-2 flex gap-1">
+          <button onclick={addHorizon}
+            class="flex-1 py-1 text-xs text-blue-600 border border-dashed border-blue-300
+                   rounded hover:border-blue-500 hover:bg-blue-50">
+            + Add horizon
+          </button>
+          <button onclick={openXyzPicker}
+            class="flex-1 py-1 text-xs text-emerald-700 border border-dashed border-emerald-300
+                   rounded hover:border-emerald-500 hover:bg-emerald-50"
+            title="Import horizon from XYZ file (CSV / TXT)">
+            ↑ Import XYZ
+          </button>
+        </div>
 
       </div>
     {/snippet}
@@ -892,6 +953,78 @@
           style="margin-top:14px;width:100%;padding:6px;font-size:12px;color:#6b7280;border:1px solid #e2e8f0;border-radius:6px;background:white;cursor:pointer">
           Cancel
         </button>
+      </div>
+    </div>
+  {/if}
+
+  <!-- ── Hidden XYZ file input ──────────────────────────────────────────────── -->
+  <input
+    bind:this={xyzFileEl}
+    type="file"
+    accept=".csv,.txt,.xyz,.dat"
+    style="display:none"
+    onchange={onXyzFile}
+  />
+
+  <!-- ── XYZ import dialog ──────────────────────────────────────────────────── -->
+  {#if xyzDialog}
+    <div
+      style="position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:1000;display:flex;align-items:center;justify-content:center"
+      onclick={() => (xyzDialog = null)}
+      role="dialog" aria-modal="true">
+      <div
+        onclick={e => e.stopPropagation()}
+        style="background:white;border-radius:12px;padding:20px 24px;width:400px;max-width:95vw;box-shadow:0 8px 32px rgba(0,0,0,0.22)">
+
+        <p style="font-size:14px;font-weight:600;color:#1e293b;margin:0 0 4px">Import XYZ surface</p>
+        <p style="font-size:11px;color:#6b7280;margin:0 0 14px">
+          {xyzDialog.parsed.rows.length} points detected · auto-normalised to domain
+        </p>
+
+        <!-- Column mapping -->
+        <div style="display:grid;gap:8px;margin-bottom:16px">
+          {#each ([
+            { label: 'X — horizontal distance', key: 'xCol' },
+            { label: 'Y — along-strike position', key: 'strikeCol' },
+            { label: 'Z — depth', key: 'depthCol' },
+          ] as const) as row}
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="flex:1;font-size:11px;color:#374151">{row.label}</span>
+              <select
+                style="font-size:11px;border:1px solid #e2e8f0;border-radius:5px;padding:3px 6px;background:white"
+                value={xyzDialog[row.key]}
+                onchange={e => { if (xyzDialog) xyzDialog[row.key] = Number((e.target as HTMLSelectElement).value); }}>
+                {#each xyzDialog.parsed.stats as col, ci}
+                  <option value={ci}>{col.label} [{col.min.toFixed(2)} … {col.max.toFixed(2)}]</option>
+                {/each}
+              </select>
+            </div>
+          {/each}
+        </div>
+
+        <!-- Horizon name -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+          <span style="flex:1;font-size:11px;color:#374151">Horizon name</span>
+          <input
+            type="text"
+            style="font-size:11px;border:1px solid #e2e8f0;border-radius:5px;padding:3px 8px;width:160px"
+            bind:value={xyzDialog.name}
+          />
+        </div>
+
+        <div style="display:flex;gap:8px">
+          <button
+            onclick={confirmXyzImport}
+            style="flex:1;padding:7px;font-size:12px;font-weight:600;color:white;background:#10b981;border:none;border-radius:6px;cursor:pointer">
+            Import
+          </button>
+          <button
+            onclick={() => (xyzDialog = null)}
+            style="flex:1;padding:7px;font-size:12px;color:#6b7280;border:1px solid #e2e8f0;border-radius:6px;background:white;cursor:pointer">
+            Cancel
+          </button>
+        </div>
+
       </div>
     </div>
   {/if}
