@@ -137,13 +137,6 @@
               text-xs text-gray-600 flex-shrink-0">
     <span class="font-semibold text-gray-700">3D Block View</span>
 
-    <label class="flex items-center gap-1.5">
-      <span class="text-gray-500">Strike:</span>
-      <input type="range" min="1" max="20" step="0.5" bind:value={strikeKm}
-        class="w-20 accent-blue-600"/>
-      <span class="font-mono w-9 text-gray-600">{strikeKm} km</span>
-    </label>
-
     <!-- Horizon selector -->
     <label class="flex items-center gap-1.5">
       <span class="text-gray-500">Edit horizon:</span>
@@ -184,13 +177,6 @@
                : 'border-gray-200 text-gray-600 hover:bg-gray-100'}">
       📏 Ruler
     </button>
-
-    <!-- Default rail count -->
-    <label class="flex items-center gap-1">
-      <span class="text-gray-500">Rails:</span>
-      <input type="number" min="2" max="50" bind:value={defaultRailCount}
-        class="w-12 border border-gray-200 rounded px-1 text-xs text-gray-700 bg-white"/>
-    </label>
 
     <!-- NURBS wireframe toggle -->
     <button

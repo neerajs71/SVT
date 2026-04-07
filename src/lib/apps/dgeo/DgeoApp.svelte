@@ -15,6 +15,7 @@
   let viewMode      = $state<'2d' | '3d'>('3d');
   let showSolids    = $state(true);
   let showHzPanel   = $state(false);
+  let showCubeDims  = $state(false);
 
   // ── Colour palette ─────────────────────────────────────────────────────────
   const FORMATION_COLOURS = [
@@ -594,6 +595,19 @@
       <span class="tb-tip">Horizons table</span>
     </div>
 
+    <!-- Cube dimensions -->
+    <div class="tb-item group">
+      <button class="tb-btn" class:tb-active={showCubeDims}
+        onclick={() => (showCubeDims = !showCubeDims)} aria-label="Cube dimensions">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+          <path d="M8 1.5 L14 5 V11 L8 14.5 L2 11 V5 Z"/>
+          <path d="M8 1.5 V8 M2 5 L8 8 L14 5"/>
+          <line x1="8" y1="8" x2="8" y2="14.5" stroke-dasharray="2 1.2"/>
+        </svg>
+      </button>
+      <span class="tb-tip">Cube dimensions</span>
+    </div>
+
     <!-- Add horizon -->
     <div class="tb-item group">
       <button class="tb-btn" onclick={addHorizon} aria-label="Add horizon">
@@ -653,25 +667,6 @@
 
     {:else}
     <!-- ── 2D SVG canvas ───────────────────────────────────────────────────── -->
-
-      <!-- Compact domain bar -->
-      <div class="flex items-center gap-2 px-3 py-1 border-b border-gray-100 bg-white text-[10px] text-gray-500 flex-shrink-0 flex-wrap">
-        <span class="font-medium text-gray-600">Domain</span>
-        <span>X:</span>
-        <input type="number" class="w-12 border border-gray-200 rounded px-1 py-0 text-[10px]" value={domX.min}
-          onchange={e => { domX = { ...domX, min: +e.target.value }; }}/>
-        <span>–</span>
-        <input type="number" class="w-12 border border-gray-200 rounded px-1 py-0 text-[10px]" value={domX.max}
-          onchange={e => { domX = { ...domX, max: +e.target.value }; }}/>
-        <span class="text-gray-400">km</span>
-        <span class="ml-2">Depth:</span>
-        <input type="number" class="w-14 border border-gray-200 rounded px-1 py-0 text-[10px]" value={domY.min}
-          onchange={e => { domY = { ...domY, min: +e.target.value }; }}/>
-        <span>–</span>
-        <input type="number" class="w-14 border border-gray-200 rounded px-1 py-0 text-[10px]" value={domY.max}
-          onchange={e => { domY = { ...domY, max: +e.target.value }; }}/>
-        <span class="text-gray-400">m</span>
-      </div>
 
       <div class="flex-1 overflow-auto p-2">
         <svg
@@ -947,6 +942,79 @@
     {/snippet}
   </FloatingPanel>
 
+  <!-- ── Cube dimensions floating panel ─────────────────────────────────── -->
+  <FloatingPanel
+    title="Cube Dimensions"
+    visible={showCubeDims}
+    onClose={() => (showCubeDims = false)}
+    width={260}
+    x={40} y={120}>
+    {#snippet children()}
+      <div class="p-3 flex flex-col gap-3 text-xs text-gray-700">
+
+        <!-- Summary badge -->
+        <div class="flex items-center justify-center gap-1.5 bg-gray-50 rounded px-2 py-1.5 text-[10px] font-mono text-gray-500 border border-gray-100">
+          <span>{(domX.max - domX.min).toFixed(1)} km</span>
+          <span class="text-gray-300">×</span>
+          <span>{strikeKm.toFixed(1)} km</span>
+          <span class="text-gray-300">×</span>
+          <span>{(domY.max - domY.min).toFixed(0)} m</span>
+          <span class="text-gray-400 ml-1">(L × strike × depth)</span>
+        </div>
+
+        <!-- Length (X domain) -->
+        <div>
+          <div class="font-medium text-gray-600 mb-1">Length (X)</div>
+          <div class="flex items-center gap-1.5">
+            <input type="number" class="dim-input" value={domX.min}
+              onchange={e => { domX = { ...domX, min: +e.target.value }; dirty = true; }}/>
+            <span class="text-gray-400">–</span>
+            <input type="number" class="dim-input" value={domX.max}
+              onchange={e => { domX = { ...domX, max: +e.target.value }; dirty = true; }}/>
+            <span class="text-gray-400">km</span>
+          </div>
+        </div>
+
+        <!-- Depth (Y domain) -->
+        <div>
+          <div class="font-medium text-gray-600 mb-1">Depth (Y)</div>
+          <div class="flex items-center gap-1.5">
+            <input type="number" class="dim-input" value={domY.min}
+              onchange={e => { domY = { ...domY, min: +e.target.value }; dirty = true; }}/>
+            <span class="text-gray-400">–</span>
+            <input type="number" class="dim-input w-16" value={domY.max}
+              onchange={e => { domY = { ...domY, max: +e.target.value }; dirty = true; }}/>
+            <span class="text-gray-400">m</span>
+          </div>
+        </div>
+
+        <!-- Strike (3D only) -->
+        <div>
+          <div class="font-medium text-gray-600 mb-1">Strike (3D extent)</div>
+          <div class="flex items-center gap-2">
+            <input type="range" min="1" max="20" step="0.5" bind:value={strikeKm}
+              class="flex-1 accent-blue-600"/>
+            <input type="number" min="1" max="20" step="0.5" bind:value={strikeKm}
+              class="dim-input w-12"/>
+            <span class="text-gray-400">km</span>
+          </div>
+        </div>
+
+        <!-- Rail count -->
+        <div>
+          <div class="font-medium text-gray-600 mb-1">Default rails</div>
+          <div class="flex items-center gap-2">
+            <input type="range" min="2" max="50" step="1" bind:value={defaultRailCount}
+              class="flex-1 accent-blue-600"/>
+            <input type="number" min="2" max="50" bind:value={defaultRailCount}
+              class="dim-input w-12"/>
+          </div>
+        </div>
+
+      </div>
+    {/snippet}
+  </FloatingPanel>
+
   <!-- ── Preset shape picker dialog ──────────────────────────────────────── -->
   {#if presetDialog}
     <!-- backdrop -->
@@ -1130,6 +1198,19 @@
     background: #f97316;
     pointer-events: none;
   }
+
+  /* ── Cube dimensions panel inputs ──────────────────────────────────────── */
+  .dim-input {
+    width: 52px;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 1px 4px;
+    font-size: 11px;
+    color: #374151;
+    background: #fff;
+    text-align: right;
+  }
+  .dim-input:focus { outline: 1px solid #3b82f6; border-color: #3b82f6; }
 
   /* ── Horizons floating panel table ─────────────────────────────────────── */
   .hz-tbl-head {
