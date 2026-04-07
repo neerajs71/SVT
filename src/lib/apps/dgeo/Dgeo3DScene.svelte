@@ -510,7 +510,7 @@
 
     <!-- NURBS solid blocks (GeologicalModel.layers[].nurbsGeos[]) -->
     {#if showSolids && model.layers.some(l => l.nurbsGeos.length > 0)}
-      {#each model.layers as layer (layer.horizonId)}
+      {#each model.layers as layer, li (layer.horizonId)}
         {@const hz = horizons.find(h => h.id === layer.horizonId)}
         {#if hz?.visible !== false}
         {#each layer.nurbsGeos as geo (geo.uuid)}
@@ -518,11 +518,14 @@
             <T.MeshPhongMaterial
               color={hz?.colour ?? layer.color} transparent opacity={0.82}
               side={THREE.DoubleSide} shininess={30}
+              polygonOffset polygonOffsetFactor={-(li + 1)} polygonOffsetUnits={-(li + 1)}
             />
           </T.Mesh>
           {#if showNurbsWireframe}
             <T.Mesh geometry={geo}>
-              <T.MeshBasicMaterial color="#1e293b" wireframe transparent opacity={0.08} />
+              <T.MeshBasicMaterial color="#1e293b" wireframe transparent opacity={0.08}
+                polygonOffset polygonOffsetFactor={-(li + 1) - 1} polygonOffsetUnits={-(li + 1) - 1}
+              />
             </T.Mesh>
           {/if}
         {/each}
