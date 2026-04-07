@@ -1,40 +1,32 @@
 /**
  * LayerAssembly.svelte.ts
  *
- * Represents ONE geological layer — the band between two adjacent sorted
- * horizons.  Each assembly owns its own build state for both solid types:
+ * Represents ONE geological layer in the depositional stack.
+ * Each assembly stores the final display geometry — after all CSG has been
+ * done by GeologicalModel — as a list of BufferGeometry objects.
  *
- *   gridSolid  — cube-warp approach via buildSolidManifold()
- *   nurbsSolid — ear-clip direct approach via buildNurbsSolidDirect()
+ * There is normally one geometry per layer, but a subtraction may produce
+ * multiple disconnected bodies (e.g. a pinch-out), each stored separately.
+ * All bodies share the same material colour.
  *
- * Assembly is created by GeologicalModel, one per horizon in the sorted stack
- * (index 0 = deepest / basement).  The horizon referenced is the UPPER
- * (shallower) boundary of the layer.
+ * GeologicalModel calls setGridGeos() / setNurbsGeos() to push new geometry;
+ * this class only owns disposal and reactive state.
  */
 
 import * as THREE from 'three';
 
-// ── Manifold mesh → Three.js BufferGeometry ───────────────────────────────────
-function manifoldMeshToGeo(mesh: { vertProperties: ArrayLike<number>; numProp: number; triVerts: ArrayLike<number> }): THREE.BufferGeometry {
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(mesh.vertProperties), mesh.numProp));
-  geo.setIndex(new THREE.BufferAttribute(new Uint32Array(mesh.triVerts), 1));
-  geo.computeVertexNormals();
-  return geo;
-}
-
 // ── LayerAssembly ─────────────────────────────────────────────────────────────
 export class LayerAssembly {
-  /** ID of the upper (shallower) horizon of this layer */
+  /** ID of the horizon that defines the top of this layer */
   readonly horizonId: string;
   readonly color:     string;
   readonly name:      string;
 
   // ── Grid solid (cube-warp / buildSolidManifold) ───────────────────────────
-  gridGeo:  THREE.BufferGeometry | null = $state(null);
+  gridGeos:  THREE.BufferGeometry[] = $state([]);
 
   // ── NURBS solid (ear-clip direct / buildNurbsSolidDirect) ─────────────────
-  nurbsGeo: THREE.BufferGeometry | null = $state(null);
+  nurbsGeos: THREE.BufferGeometry[] = $state([]);
 
   constructor(horizonId: string, color: string, name: string) {
     this.horizonId = horizonId;
@@ -42,66 +34,24 @@ export class LayerAssembly {
     this.name      = name;
   }
 
-  // ── Grid solid build ──────────────────────────────────────────────────────
+  // ── Setters (called by GeologicalModel after CSG + decompose) ─────────────
 
-  async buildGrid(mfShallow: unknown, mfDeep: unknown | null): Promise<void> {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const shallow = mfShallow as any;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const deep    = mfDeep    as any;
-
-      let result = shallow;
-      if (deep) {
-        result = shallow.subtract(deep);
-        const st = result.status();
-        if (st !== 'NoError') throw new Error(`CSG status: ${st}`);
-      }
-
-      const mesh = result.getMesh();
-      if (!mesh || mesh.triVerts.length === 0) throw new Error('empty mesh');
-
-      this.gridGeo?.dispose();
-      this.gridGeo = manifoldMeshToGeo(mesh);
-      console.log(`[LayerAssembly] ${this.name} grid vol=${result.volume().toFixed(2)}`);
-    } catch (e: unknown) {
-      console.warn(`[LayerAssembly] ${this.name} grid build failed:`, e instanceof Error ? e.message : e);
-    }
+  setGridGeos(geos: THREE.BufferGeometry[]): void {
+    this.gridGeos.forEach(g => g.dispose());
+    this.gridGeos = geos;
   }
 
-  // ── NURBS solid build ─────────────────────────────────────────────────────
-
-  async buildNurbs(mfShallow: unknown, mfDeep: unknown | null): Promise<void> {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const shallow = mfShallow as any;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const deep    = mfDeep    as any;
-
-      let result = shallow;
-      if (deep) {
-        result = shallow.subtract(deep);
-        const st = result.status();
-        if (st !== 'NoError') throw new Error(`CSG status: ${st}`);
-      }
-
-      const mesh = result.getMesh();
-      if (!mesh || mesh.triVerts.length === 0) throw new Error('empty mesh');
-
-      this.nurbsGeo?.dispose();
-      this.nurbsGeo = manifoldMeshToGeo(mesh);
-      console.log(`[LayerAssembly] ${this.name} nurbs vol=${result.volume().toFixed(2)}`);
-    } catch (e: unknown) {
-      console.warn(`[LayerAssembly] ${this.name} nurbs build failed:`, e instanceof Error ? e.message : e);
-    }
+  setNurbsGeos(geos: THREE.BufferGeometry[]): void {
+    this.nurbsGeos.forEach(g => g.dispose());
+    this.nurbsGeos = geos;
   }
 
   // ── Disposal ──────────────────────────────────────────────────────────────
 
   dispose(): void {
-    this.gridGeo?.dispose();
-    this.nurbsGeo?.dispose();
-    this.gridGeo  = null;
-    this.nurbsGeo = null;
+    this.gridGeos.forEach(g => g.dispose());
+    this.nurbsGeos.forEach(g => g.dispose());
+    this.gridGeos  = [];
+    this.nurbsGeos = [];
   }
 }

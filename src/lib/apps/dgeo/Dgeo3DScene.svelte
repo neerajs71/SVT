@@ -479,13 +479,13 @@
 <T.DirectionalLight position={[14, -8, -10]} intensity={0.55} />
 <T.DirectionalLight position={[-8, 8, 14]}  intensity={0.25} />
 
-<!-- ── Grid solid blocks (GeologicalModel.layers[].gridGeo) ──────────────── -->
+<!-- ── Grid solid blocks (GeologicalModel.layers[].gridGeos[]) ───────────── -->
 {#if showSolids}
   {#each model.layers as layer (layer.horizonId)}
-    {#if layer.gridGeo}
-      {@const hz = horizons.find(h => h.id === layer.horizonId)}
-      {#if hz?.visible !== false}
-        <T.Mesh geometry={layer.gridGeo}>
+    {@const hz = horizons.find(h => h.id === layer.horizonId)}
+    {#if hz?.visible !== false}
+      {#each layer.gridGeos as geo (geo.uuid)}
+        <T.Mesh geometry={geo}>
           <T.MeshPhongMaterial
             color={layer.color}
             transparent opacity={0.82}
@@ -493,12 +493,12 @@
             shininess={30}
           />
         </T.Mesh>
-        <T.Mesh geometry={layer.gridGeo}>
+        <T.Mesh geometry={geo}>
           <T.MeshBasicMaterial
             color="#1e293b" wireframe transparent opacity={0.08}
           />
         </T.Mesh>
-      {/if}
+      {/each}
     {/if}
   {/each}
 {/if}
@@ -624,22 +624,22 @@
   <!-- Offset the NURBS group so it sits beside the cube (not overlapping) -->
   <T.Group position={[WX + 1.5, 0, 0]}>
 
-    <!-- NURBS solid blocks (GeologicalModel.layers[].nurbsGeo) -->
-    {#if showSolids && model.layers.some(l => l.nurbsGeo)}
+    <!-- NURBS solid blocks (GeologicalModel.layers[].nurbsGeos[]) -->
+    {#if showSolids && model.layers.some(l => l.nurbsGeos.length > 0)}
       {#each model.layers as layer (layer.horizonId)}
-        {#if layer.nurbsGeo}
-          <T.Mesh geometry={layer.nurbsGeo}>
+        {#each layer.nurbsGeos as geo (geo.uuid)}
+          <T.Mesh geometry={geo}>
             <T.MeshPhongMaterial
               color={layer.color} transparent opacity={0.82}
               side={THREE.DoubleSide} shininess={30}
             />
           </T.Mesh>
           {#if showNurbsWireframe}
-            <T.Mesh geometry={layer.nurbsGeo}>
+            <T.Mesh geometry={geo}>
               <T.MeshBasicMaterial color="#1e293b" wireframe transparent opacity={0.08} />
             </T.Mesh>
           {/if}
-        {/if}
+        {/each}
       {/each}
     {:else}
       <!-- Fallback: show raw NURBS surfaces while solids are building or Solidify is off -->

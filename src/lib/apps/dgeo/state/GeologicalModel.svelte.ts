@@ -3,16 +3,20 @@
  *
  * Owns the full ordered stack of LayerAssembly objects.
  *
- * Stratigraphic order comes from the horizons[] array passed in — the user
- * controls it via the move-up/down buttons in DgeoApp.  Array index 0 is the
- * shallowest horizon; the last element is the basement.
+ * Depositional algorithm — user-defined order, no sort, no reverse:
+ *   Array[0] = first deposited = oldest = deepest (basement)
+ *   Array[1] = deposited on top of [0], etc.
  *
- * For CSG we traverse deepest-first (reversed array):
- *   Layer[0] = basement solid (last in array, no subtraction)
- *   Layer[i] = solid[i].subtract(solid[i-1])  for i > 0
+ * For each horizon i in order:
+ *   1. Build its base block (solid from NURBS surface down to WY floor)
+ *   2. Subtract ALL previously accumulated display layers from the base block
+ *   3. The result is the display layer for horizon i
+ *   4. Append display layer to the accumulator for future subtractions
+ *   5. Decompose the result to handle multi-body outputs (pinch-outs etc.)
  *
- * A discrepancy warning is emitted if the geometric avgDepth contradicts the
- * user-defined list order (e.g. index 2 is geometrically shallower than index 1).
+ * A geometric discrepancy warning is emitted if the user places a horizon
+ * later in the list (younger) but it is geometrically deeper than an earlier
+ * one — but we do NOT reorder, that is the user's problem.
  */
 
 import * as THREE from 'three';
@@ -30,6 +34,15 @@ async function getMF(): Promise<unknown> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (_mf as any).setup();
   return _mf;
+}
+
+// ── Shared mesh → Three.js converter ─────────────────────────────────────────
+function manifoldMeshToGeo(mesh: { vertProperties: ArrayLike<number>; numProp: number; triVerts: ArrayLike<number> }): THREE.BufferGeometry {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(mesh.vertProperties), mesh.numProp));
+  geo.setIndex(new THREE.BufferAttribute(new Uint32Array(mesh.triVerts), 1));
+  geo.computeVertexNormals();
+  return geo;
 }
 
 // ── Build options ─────────────────────────────────────────────────────────────
@@ -63,34 +76,57 @@ export class GeologicalModel {
     try {
       const mf = await getMF() as any;
 
-      // Use user-defined array order (shallowest-first); reverse for deepest-first CSG.
-      const sorted = horizons
-        .filter(h => getRails(h).length >= 2)
-        .reverse();
+      // Use user-defined array order — NO sort, NO reverse
+      const ordered = horizons.filter(h => getRails(h).length >= 2);
+      if (ordered.length === 0) { this.gridBuilding = false; return; }
 
-      if (sorted.length === 0) { this.gridBuilding = false; return; }
+      this._warnOrderDiscrepancy(ordered);
+      this._syncLayers(ordered);
 
-      this._warnOrderDiscrepancy(sorted);
+      // Depositional accumulator: display manifolds built so far
+      const displayManifolds: unknown[] = [];
 
-      // Ensure layers array has a slot per sorted horizon
-      this._syncLayers(sorted);
+      for (let i = 0; i < ordered.length; i++) {
+        const h = ordered[i];
 
-      // Build individual manifolds for each horizon
-      const manifolds: (unknown | null)[] = sorted.map(h => {
+        // Build base block for this horizon
+        let mBase: any;
         try {
-          return buildSolidManifold(mf, getRails(h), opts);
+          mBase = buildSolidManifold(mf, getRails(h), opts);
+          if (!mBase) {
+            console.warn(`[GeologicalModel] grid base null for ${h.name}`);
+            continue;
+          }
+          if (mBase.status() !== 'NoError') {
+            const msg = `${h.name}: base block status=${mBase.status()}`;
+            this.errors = [...this.errors, msg];
+            continue;
+          }
         } catch (e: unknown) {
           const msg = `${h.name}: ${e instanceof Error ? e.message : String(e)}`;
           this.errors = [...this.errors, msg];
-          console.warn('[GeologicalModel] grid build failed for', h.name, e);
-          return null;
+          console.warn('[GeologicalModel] grid base failed for', h.name, e);
+          continue;
         }
-      });
 
-      // CSG per layer — deepest has no subtraction
-      for (let i = 0; i < sorted.length; i++) {
-        if (!manifolds[i]) continue;
-        await this.layers[i].buildGrid(manifolds[i], i > 0 ? (manifolds[i - 1] ?? null) : null);
+        // Subtract all previously displayed layers
+        let mDisplay: any = mBase;
+        let failed = false;
+        for (const prev of displayManifolds) {
+          mDisplay = mDisplay.subtract(prev as any);
+          if (mDisplay.status() !== 'NoError') {
+            const msg = `${h.name}: subtraction status=${mDisplay.status()}`;
+            console.warn('[GeologicalModel]', msg);
+            this.errors = [...this.errors, msg];
+            failed = true;
+            break;
+          }
+        }
+        if (failed) continue;
+
+        console.log(`[GeologicalModel] grid[${i}] ${h.name} vol=${mDisplay.volume().toFixed(2)}`);
+        displayManifolds.push(mDisplay);
+        this.layers[i].setGridGeos(this._decompose(mDisplay));
       }
     } finally {
       this.gridBuilding = false;
@@ -105,62 +141,102 @@ export class GeologicalModel {
   ): Promise<void> {
     if (this.nurbsBuilding) return;
     this.nurbsBuilding = true;
+    this.errors = [];
 
     try {
       const mf = await getMF() as any;
       const { WX, WY, strikeW } = dims;
 
-      // Use user-defined array order (shallowest-first); reverse for deepest-first CSG.
-      const sorted = horizons
-        .filter(h => h.nurbsPositions && h.nurbsResolution > 0)
-        .reverse();
+      // Use user-defined array order — NO sort, NO reverse
+      const ordered = horizons.filter(h => h.nurbsPositions && h.nurbsResolution > 0);
+      if (ordered.length === 0) { this.nurbsBuilding = false; return; }
 
-      this._warnOrderDiscrepancy(sorted);
+      this._warnOrderDiscrepancy(ordered);
+      this._syncLayers(ordered);
 
-      if (sorted.length === 0) { this.nurbsBuilding = false; return; }
+      // Depositional accumulator: display manifolds built so far
+      const displayManifolds: unknown[] = [];
 
-      this._syncLayers(sorted);
+      for (let i = 0; i < ordered.length; i++) {
+        const h = ordered[i];
+        if (!h.nurbsPositions) continue;
 
-      const manifolds: (unknown | null)[] = sorted.map((h, i) => {
-        if (!h.nurbsPositions) return null;
+        // Build base block for this horizon
+        let mBase: any;
         try {
-          const m = buildNurbsSolidDirect(mf, h.nurbsPositions, h.nurbsResolution, WY, WX, strikeW);
-          const st = (m as any).status();
-          if (st !== 'NoError') {
-            console.warn(`[GeologicalModel] nurbs[${i}] ${h.name} status=${st}`);
-            return null;
+          mBase = buildNurbsSolidDirect(mf, h.nurbsPositions, h.nurbsResolution, WY, WX, strikeW);
+          if (mBase.status() !== 'NoError') {
+            const msg = `${h.name}: base block status=${mBase.status()}`;
+            console.warn('[GeologicalModel]', msg);
+            this.errors = [...this.errors, msg];
+            continue;
           }
-          console.log(`[GeologicalModel] nurbs[${i}] ${h.name} vol=${(m as any).volume().toFixed(2)} status=${st}`);
-          return m;
+          console.log(`[GeologicalModel] nurbs[${i}] ${h.name} base vol=${mBase.volume().toFixed(2)}`);
         } catch (e: unknown) {
           const msg = `${h.name}: ${e instanceof Error ? e.message : String(e)}`;
           this.errors = [...this.errors, msg];
-          return null;
+          continue;
         }
-      });
 
-      for (let i = 0; i < sorted.length; i++) {
-        if (!manifolds[i]) continue;
-        await this.layers[i].buildNurbs(manifolds[i], i > 0 ? (manifolds[i - 1] ?? null) : null);
+        // Subtract all previously displayed layers
+        let mDisplay: any = mBase;
+        let failed = false;
+        for (const prev of displayManifolds) {
+          mDisplay = mDisplay.subtract(prev as any);
+          if (mDisplay.status() !== 'NoError') {
+            const msg = `${h.name}: subtraction status=${mDisplay.status()}`;
+            console.warn('[GeologicalModel]', msg);
+            this.errors = [...this.errors, msg];
+            failed = true;
+            break;
+          }
+        }
+        if (failed) continue;
+
+        console.log(`[GeologicalModel] nurbs[${i}] ${h.name} display vol=${mDisplay.volume().toFixed(2)}`);
+        displayManifolds.push(mDisplay);
+        this.layers[i].setNurbsGeos(this._decompose(mDisplay));
       }
     } finally {
       this.nurbsBuilding = false;
     }
   }
 
-  // ── Order validation ──────────────────────────────────────────────────────
+  // ── Decompose result into BufferGeometry[] ────────────────────────────────
+  // Handles the rare case where subtraction produces multiple disconnected bodies.
 
-  /**
-   * `sorted` is deepest-first (reversed from the user's list).
-   * Check that each pair is geometrically consistent: sorted[i].avgDepth should
-   * be >= sorted[i+1].avgDepth (deeper first).  Warn if not.
-   */
-  private _warnOrderDiscrepancy(sorted: HorizonState[]): void {
-    for (let i = 0; i < sorted.length - 1; i++) {
-      const deep    = sorted[i];
-      const shallow = sorted[i + 1];
-      if (deep.avgDepth < shallow.avgDepth) {
-        const msg = `⚠ Order discrepancy: "${deep.name}" is listed deeper than "${shallow.name}" but appears geometrically shallower. Check the horizon list order.`;
+  private _decompose(m: any): THREE.BufferGeometry[] {
+    try {
+      const parts: any[] = m.decompose();
+      const geos: THREE.BufferGeometry[] = [];
+      for (const p of parts) {
+        if (p.status() !== 'NoError') continue;
+        const mesh = p.getMesh();
+        if (!mesh || mesh.triVerts.length === 0) continue;
+        geos.push(manifoldMeshToGeo(mesh));
+      }
+      return geos;
+    } catch {
+      // decompose not available or failed — fall back to direct getMesh
+      try {
+        const mesh = m.getMesh();
+        if (mesh && mesh.triVerts.length > 0) return [manifoldMeshToGeo(mesh)];
+      } catch { /* ignore */ }
+      return [];
+    }
+  }
+
+  // ── Order validation ──────────────────────────────────────────────────────
+  // ordered[0] = first deposited = deepest; each subsequent should be shallower.
+  // Warn if ordered[i].avgDepth < ordered[i-1].avgDepth (i is geometrically
+  // deeper than i-1, but comes later in the list → likely wrong ordering).
+
+  private _warnOrderDiscrepancy(ordered: HorizonState[]): void {
+    for (let i = 1; i < ordered.length; i++) {
+      const prev = ordered[i - 1];
+      const curr = ordered[i];
+      if (curr.avgDepth < prev.avgDepth) {
+        const msg = `⚠ Order discrepancy: "${curr.name}" (index ${i}) is geometrically deeper than "${prev.name}" (index ${i-1}) but comes later in the depositional list. Check horizon order.`;
         console.warn('[GeologicalModel]', msg);
         this.errors = [...this.errors, msg];
       }
@@ -169,15 +245,15 @@ export class GeologicalModel {
 
   // ── Layer array management ────────────────────────────────────────────────
 
-  private _syncLayers(sorted: HorizonState[]): void {
+  private _syncLayers(ordered: HorizonState[]): void {
     // Dispose layers that no longer exist
-    const ids = new Set(sorted.map(h => h.id));
+    const ids = new Set(ordered.map(h => h.id));
     for (const layer of this.layers) {
       if (!ids.has(layer.horizonId)) layer.dispose();
     }
 
-    // Rebuild layers array matching sorted order
-    this.layers = sorted.map(h => {
+    // Rebuild layers array matching ordered list
+    this.layers = ordered.map(h => {
       const existing = this.layers.find(l => l.horizonId === h.id);
       if (existing) return existing;
       return new LayerAssembly(h.id, h.colour, h.name);
@@ -276,7 +352,6 @@ function buildNurbsSolidDirect(
   }
 
   // ── Boundary-snap fix ────────────────────────────────────────────────────
-  // Close any Float32 gaps from NURBS evaluation at u=0/1 and v=0/1
   for (let r = 0; r < R; r++) {
     // Left edge (c=0): x → 0
     verts[r * R * 3]         = 0;
