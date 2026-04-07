@@ -582,10 +582,9 @@
   {/each}
 {/if}
 
-<!-- ── NURBS surfaces — displayed to the right of the cube for clarity ──── -->
+<!-- ── NURBS surfaces ─────────────────────────────────────────────────────── -->
 {#if showNurbs}
-  <!-- Offset the NURBS group so it sits beside the cube (not overlapping) -->
-  <T.Group position={[WX + 1.5, 0, 0]}>
+  <T.Group>
 
     <!-- NURBS solid blocks (GeologicalModel.layers[].nurbsGeos[]) -->
     {#if showSolids && model.layers.some(l => l.nurbsGeos.length > 0)}
@@ -639,9 +638,5 @@
       />
     </T.Mesh>
 
-    <!-- Wireframe outline box for the NURBS panel -->
-    <T is={THREE.LineSegments} geometry={frameGeo}>
-      <T.LineBasicMaterial color={0x94a3b8} transparent opacity={0.35} />
-    </T>
   </T.Group>
 {/if}
