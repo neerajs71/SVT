@@ -13,7 +13,16 @@
     defaultRailCount  = $bindable(10),
   } = $props();
   let solidsBuilding  = $state(false);
-  let solidErrors     = $state([]);
+  let solidErrors     = $state(/** @type {string[]} */ ([]));
+  let solidErrorsVisible = $state(false);
+
+  // Auto-dismiss errors after 4 s
+  $effect(() => {
+    if (solidErrors.length === 0) { solidErrorsVisible = false; return; }
+    solidErrorsVisible = true;
+    const t = setTimeout(() => { solidErrorsVisible = false; }, 4000);
+    return () => clearTimeout(t);
+  });
   let editHorizonId   = $state(null);
 
   // ── In-app console panel ──────────────────────────────────────────────────
@@ -261,9 +270,9 @@
       </Canvas>
     {/key}
 
-    <!-- Manifold error overlay -->
+    <!-- Manifold error overlay — flashes for 4 s then fades -->
     {#if solidErrors.length > 0}
-      <div style="position:absolute;bottom:8px;left:8px;right:8px;pointer-events:none;z-index:10">
+      <div style="position:absolute;bottom:8px;left:8px;right:8px;pointer-events:none;z-index:10;transition:opacity 0.6s ease;opacity:{solidErrorsVisible ? 1 : 0}">
         {#each solidErrors as err}
           <div style="background:rgba(220,38,38,0.88);color:#fff;font-size:10px;font-family:monospace;padding:3px 7px;border-radius:3px;margin-top:2px;line-height:1.4;word-break:break-all">
             ⚠ {err}

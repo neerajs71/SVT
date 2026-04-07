@@ -235,7 +235,7 @@ export class GeologicalModel {
     for (let i = 1; i < ordered.length; i++) {
       const prev = ordered[i - 1];
       const curr = ordered[i];
-      if (curr.avgDepth < prev.avgDepth) {
+      if (curr.avgDepth > prev.avgDepth) {
         const msg = `⚠ Order discrepancy: "${curr.name}" (index ${i}) is geometrically deeper than "${prev.name}" (index ${i-1}) but comes later in the depositional list. Check horizon order.`;
         console.warn('[GeologicalModel]', msg);
         this.errors = [...this.errors, msg];
