@@ -4,222 +4,285 @@
 </script>
 
 {#if tabStore.tabs.length === 0}
-<div class="h-full overflow-y-auto flex flex-col items-center justify-start pt-7 pb-10 px-4 select-none"
-     style="background:linear-gradient(160deg,#f0f4f8 0%,#e8eef5 60%,#e2e9f0 100%)">
+<div class="h-full overflow-y-auto select-none" style="background:#f1f5f9">
 
-  <!-- Title -->
-  <div class="flex items-center gap-2.5 mb-1">
-    <!-- stacked-layers logo mark -->
-    <svg viewBox="0 0 28 22" width="28" height="22" fill="none">
-      <path d="M14 2 L26 7.5 L14 13 L2 7.5 Z"  fill="#7a9090" opacity="0.9"/>
-      <path d="M14 7 L26 12.5 L14 18 L2 12.5 Z" fill="#9b7aa0" opacity="0.85"/>
-      <path d="M14 12 L26 17.5 L14 23 L2 17.5 Z" fill="#b8a882" opacity="0.88" transform="translate(0,-2)"/>
-    </svg>
-    <span style="font-size:1.35rem;font-weight:700;letter-spacing:-0.02em;color:#1e293b">SVTC</span>
-  </div>
-  <p style="font-size:11px;color:#64748b;margin-bottom:1.6rem;letter-spacing:0.02em">
-    Subsurface Visualisation &amp; Interpretation
-  </p>
+  <!-- ══ Dark hero ══════════════════════════════════════════════════════════ -->
+  <div style="background:linear-gradient(155deg,#0c1628 0%,#162236 55%,#0a1f38 100%);
+              padding:24px 16px 28px;display:flex;flex-direction:column;align-items:center;
+              position:relative;overflow:hidden">
 
-  <!-- ── Hero: 3-D Geological Block ──────────────────────────────────────── -->
-  <div style="width:100%;max-width:320px;margin-bottom:1.4rem">
-    <svg viewBox="0 0 280 195" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block">
+    <!-- dot-grid texture -->
+    <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:0.18"
+         preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
       <defs>
-        <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#f0f4f8"/>
-          <stop offset="100%" stop-color="#e2e9f0"/>
-        </linearGradient>
-        <!-- right-face depth gradient -->
-        <linearGradient id="rfGrad" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stop-color="#c4bfa0"/>
-          <stop offset="100%" stop-color="#a8a48a"/>
-        </linearGradient>
-        <!-- top-face gradient -->
-        <linearGradient id="tfGrad" x1="0" y1="0" x2="0.5" y2="1">
-          <stop offset="0%" stop-color="#d8dde4"/>
-          <stop offset="100%" stop-color="#bfc7d0"/>
-        </linearGradient>
+        <pattern id="dotpat" x="0" y="0" width="22" height="22" patternUnits="userSpaceOnUse">
+          <circle cx="1.5" cy="1.5" r="1" fill="#60a5fa"/>
+        </pattern>
       </defs>
-
-      <!-- ── Formation layers (front cross-section face) ─────────────────── -->
-
-      <!-- Brown / earthy top band (flat) -->
-      <path d="M18,55 L204,55 L204,82 L18,82 Z"
-            fill="#7a5c2e" opacity="0.88"/>
-
-      <!-- Purple / mauve dome layer -->
-      <path d="M18,82 L204,82 L204,114 Q111,93 18,114 Z"
-            fill="#9b7aa0" opacity="0.86"/>
-
-      <!-- Khaki / tan layer (follows dome) -->
-      <path d="M18,114 Q111,93 204,114 L204,140 Q111,120 18,140 Z"
-            fill="#b8a882" opacity="0.88"/>
-
-      <!-- Gray-green basement (fills to bottom) -->
-      <path d="M18,140 Q111,120 204,140 L204,170 L18,170 Z"
-            fill="#7a9090" opacity="0.90"/>
-
-      <!-- ── Top face ─────────────────────────────────────────────────────── -->
-      <polygon points="18,55 54,28 240,28 204,55"
-               fill="url(#tfGrad)" opacity="0.95"/>
-
-      <!-- Dome cap visible on top face (mauve oval) -->
-      <ellipse cx="147" cy="38" rx="32" ry="8"
-               fill="#9b7aa0" opacity="0.42"/>
-      <!-- Brown ring around it -->
-      <ellipse cx="147" cy="38" rx="56" ry="12"
-               fill="#7a5c2e" opacity="0.18"/>
-
-      <!-- ── Right face ──────────────────────────────────────────────────── -->
-      <!-- Fill right face with layered bands matching front face -->
-      <!-- gray-green base -->
-      <polygon points="204,140 240,110 240,170 204,170"
-               fill="#7a9090" opacity="0.88"/>
-      <!-- khaki band -->
-      <polygon points="204,114 240,88 240,110 204,140"
-               fill="#b8a882" opacity="0.85"/>
-      <!-- purple band -->
-      <polygon points="204,82 240,58 240,88 204,114"
-               fill="#9b7aa0" opacity="0.80"/>
-      <!-- brown band -->
-      <polygon points="204,55 240,28 240,58 204,82"
-               fill="#7a5c2e" opacity="0.82"/>
-
-      <!-- ── Wireframe box ────────────────────────────────────────────────── -->
-      <!-- Front face outline -->
-      <rect x="18" y="55" width="186" height="115"
-            fill="none" stroke="#475569" stroke-width="1.2" opacity="0.7"/>
-      <!-- Top face outline -->
-      <polygon points="18,55 54,28 240,28 204,55"
-               fill="none" stroke="#475569" stroke-width="1.2" opacity="0.7"/>
-      <!-- Right face outline -->
-      <polygon points="204,55 240,28 240,170 204,170"
-               fill="none" stroke="#475569" stroke-width="1.2" opacity="0.7"/>
-
-      <!-- Depth tick marks on left edge of front face -->
-      {#each [82,114,140] as y}
-        <line x1="10" y1={y} x2="18" y2={y} stroke="#94a3b8" stroke-width="0.8"/>
-      {/each}
-
-      <!-- ── Dashed borehole through front face ─────────────────────────── -->
-      <line x1="111" y1="55" x2="111" y2="170"
-            stroke="#374151" stroke-width="1.1" stroke-dasharray="3,2.5" opacity="0.55"/>
-
-      <!-- Labels for formations (right side) -->
-      <text x="209" y="70"  font-size="7.5" fill="#fff" opacity="0.85" font-family="sans-serif">Brown Fm</text>
-      <text x="209" y="100" font-size="7.5" fill="#fff" opacity="0.85" font-family="sans-serif">Mauve Fm</text>
-      <text x="209" y="128" font-size="7.5" fill="#4a3a0a" opacity="0.7"  font-family="sans-serif">Khaki Fm</text>
-      <text x="209" y="155" font-size="7.5" fill="#fff" opacity="0.75" font-family="sans-serif">Basement</text>
+      <rect width="100%" height="100%" fill="url(#dotpat)"/>
     </svg>
+
+    <!-- logo + title -->
+    <div style="display:flex;align-items:center;gap:9px;margin-bottom:3px;position:relative;z-index:1">
+      <svg viewBox="0 0 30 24" width="28" height="22" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="15,1 28,7.5 15,14 2,7.5" fill="#7a9090"/>
+        <polygon points="15,7 28,13.5 15,20 2,13.5" fill="#9b7aa0" opacity="0.92"/>
+        <polygon points="15,13 28,19.5 15,26 2,19.5" fill="#b8a882" opacity="0.88" transform="translate(0,-1)"/>
+      </svg>
+      <span style="font-size:1.6rem;font-weight:800;color:#f8fafc;letter-spacing:-0.025em;line-height:1">SVTC</span>
+    </div>
+    <p style="font-size:10.5px;color:#64748b;letter-spacing:0.06em;text-transform:uppercase;
+              margin-bottom:18px;position:relative;z-index:1">
+      Subsurface Visualisation &amp; Interpretation
+    </p>
+
+    <!-- ── 3-D Geological block ────────────────────────────────────────── -->
+    <div style="width:100%;max-width:360px;position:relative;z-index:1;
+                filter:drop-shadow(0 12px 40px rgba(155,122,160,0.3)) drop-shadow(0 4px 12px rgba(0,0,0,0.6))">
+      <svg viewBox="0 0 290 200" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block">
+        <defs>
+          <!-- front-face horizontal gradients (brighter centre = dome lit) -->
+          <linearGradient id="brnF" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%"   stop-color="#7a4f1a"/>
+            <stop offset="45%"  stop-color="#b07830"/>
+            <stop offset="100%" stop-color="#7a4f1a"/>
+          </linearGradient>
+          <linearGradient id="mveF" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%"   stop-color="#6a4a88"/>
+            <stop offset="45%"  stop-color="#a870d0"/>
+            <stop offset="100%" stop-color="#6a4a88"/>
+          </linearGradient>
+          <linearGradient id="khkF" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%"   stop-color="#907040"/>
+            <stop offset="45%"  stop-color="#d0a858"/>
+            <stop offset="100%" stop-color="#907040"/>
+          </linearGradient>
+          <linearGradient id="sgeF" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%"   stop-color="#3a6868"/>
+            <stop offset="45%"  stop-color="#5a9898"/>
+            <stop offset="100%" stop-color="#3a6868"/>
+          </linearGradient>
+          <!-- right face (darker, one stop each) -->
+          <linearGradient id="brnR" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stop-color="#6a4010"/>
+            <stop offset="100%" stop-color="#4a2808"/>
+          </linearGradient>
+          <linearGradient id="mveR" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stop-color="#5a3878"/>
+            <stop offset="100%" stop-color="#3a1858"/>
+          </linearGradient>
+          <linearGradient id="khkR" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stop-color="#786030"/>
+            <stop offset="100%" stop-color="#584818"/>
+          </linearGradient>
+          <linearGradient id="sgeR" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stop-color="#305858"/>
+            <stop offset="100%" stop-color="#183838"/>
+          </linearGradient>
+          <!-- top face -->
+          <linearGradient id="topF" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%"   stop-color="#9a7228" stop-opacity="0.85"/>
+            <stop offset="100%" stop-color="#6a4810" stop-opacity="0.7"/>
+          </linearGradient>
+          <!-- dome glow -->
+          <filter id="dmGlow" x="-60%" y="-60%" width="220%" height="220%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="b"/>
+            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+
+        <!-- ─── Front face layers ─────────────────────────────────────── -->
+        <!-- Brown (flat top band) -->
+        <path d="M22,55 L210,55 L210,83 L22,83 Z" fill="url(#brnF)"/>
+        <!-- Purple / mauve dome -->
+        <path d="M22,83 L210,83 L210,115 Q116,94 22,115 Z" fill="url(#mveF)" opacity="0.95"/>
+        <!-- Khaki (follows dome) -->
+        <path d="M22,115 Q116,94 210,115 L210,142 Q116,122 22,142 Z" fill="url(#khkF)"/>
+        <!-- Sage / basement -->
+        <path d="M22,142 Q116,122 210,142 L210,172 L22,172 Z" fill="url(#sgeF)"/>
+
+        <!-- Interface lines (thin dark hairlines between formations) -->
+        <line x1="22" y1="83" x2="210" y2="83" stroke="rgba(0,0,0,0.25)" stroke-width="0.7"/>
+        <path d="M22,115 Q116,94 210,115" fill="none" stroke="rgba(0,0,0,0.2)" stroke-width="0.7"/>
+        <path d="M22,142 Q116,122 210,142" fill="none" stroke="rgba(0,0,0,0.2)" stroke-width="0.7"/>
+
+        <!-- ─── Top face ───────────────────────────────────────────────── -->
+        <polygon points="22,55 60,26 248,26 210,55" fill="url(#topF)"/>
+        <!-- Dome cap on top (mauve glow) -->
+        <ellipse cx="154" cy="37" rx="44" ry="11" fill="#8860c0" opacity="0.22" filter="url(#dmGlow)"/>
+        <ellipse cx="154" cy="37" rx="26" ry="7"  fill="#c090e0" opacity="0.5"/>
+        <ellipse cx="154" cy="37" rx="12" ry="3.5" fill="#e0b8f8" opacity="0.6"/>
+        <!-- Contour ring -->
+        <ellipse cx="154" cy="37" rx="40" ry="10" fill="none" stroke="#c090e0" stroke-width="0.6" stroke-dasharray="3,2" opacity="0.35"/>
+
+        <!-- ─── Right face layers ──────────────────────────────────────── -->
+        <polygon points="210,55 248,26 248,60 210,83"  fill="url(#brnR)"/>
+        <polygon points="210,83 248,60 248,92 210,115" fill="url(#mveR)"/>
+        <polygon points="210,115 248,92 248,118 210,142" fill="url(#khkR)"/>
+        <polygon points="210,142 248,118 248,172 210,172" fill="url(#sgeR)"/>
+
+        <!-- ─── Wireframe ──────────────────────────────────────────────── -->
+        <!-- Front face border -->
+        <rect x="22" y="55" width="188" height="117" fill="none" stroke="rgba(200,220,255,0.35)" stroke-width="1.3"/>
+        <!-- Top face border -->
+        <polygon points="22,55 60,26 248,26 210,55" fill="none" stroke="rgba(200,220,255,0.35)" stroke-width="1.3"/>
+        <!-- Right outer edges -->
+        <line x1="248" y1="26" x2="248" y2="172" stroke="rgba(200,220,255,0.35)" stroke-width="1.3"/>
+        <line x1="210" y1="172" x2="248" y2="172" stroke="rgba(200,220,255,0.35)" stroke-width="1.3"/>
+        <!-- Right face layer lines -->
+        <line x1="210" y1="83"  x2="248" y2="60"  stroke="rgba(200,220,255,0.18)" stroke-width="0.7"/>
+        <line x1="210" y1="115" x2="248" y2="92"  stroke="rgba(200,220,255,0.18)" stroke-width="0.7"/>
+        <line x1="210" y1="142" x2="248" y2="118" stroke="rgba(200,220,255,0.18)" stroke-width="0.7"/>
+
+        <!-- ─── Dashed borehole ────────────────────────────────────────── -->
+        <line x1="116" y1="26"  x2="116" y2="55"  stroke="rgba(255,255,255,0.2)"  stroke-width="1" stroke-dasharray="2,2"/>
+        <line x1="116" y1="55"  x2="116" y2="172" stroke="rgba(255,255,255,0.55)" stroke-width="1.2" stroke-dasharray="3,2.5"/>
+
+        <!-- ─── Formation labels (inside front face, never clip) ───────── -->
+        <text x="28" y="73"  font-size="8" font-family="system-ui,sans-serif" fill="rgba(255,235,185,0.9)">Brown Fm</text>
+        <text x="28" y="102" font-size="8" font-family="system-ui,sans-serif" fill="rgba(240,210,255,0.92)">Mauve Fm</text>
+        <text x="28" y="131" font-size="8" font-family="system-ui,sans-serif" fill="rgba(255,240,190,0.85)">Khaki Fm</text>
+        <text x="28" y="160" font-size="8" font-family="system-ui,sans-serif" fill="rgba(180,230,230,0.88)">Basement</text>
+
+        <!-- Depth tick marks on left -->
+        <line x1="16" y1="83"  x2="22" y2="83"  stroke="rgba(180,200,255,0.4)" stroke-width="0.8"/>
+        <line x1="16" y1="115" x2="22" y2="115" stroke="rgba(180,200,255,0.4)" stroke-width="0.8"/>
+        <line x1="16" y1="142" x2="22" y2="142" stroke="rgba(180,200,255,0.4)" stroke-width="0.8"/>
+      </svg>
+    </div>
   </div>
 
-  <!-- ── Feature tiles ───────────────────────────────────────────────────── -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;max-width:320px;margin-bottom:1.4rem">
+  <!-- ══ Feature cards ══════════════════════════════════════════════════════ -->
+  <div style="padding:14px 12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;max-width:420px;margin:0 auto;width:100%;box-sizing:border-box">
 
-    <!-- DGEO -->
-    <div style="background:white;border-radius:10px;border:1px solid #e2e8f0;padding:10px 10px 8px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">
-      <svg viewBox="0 0 72 52" style="width:100%;height:auto;display:block;margin-bottom:5px">
-        <rect x="2" y="2" width="68" height="48" rx="2" fill="#f0f4f8"/>
-        <!-- Brown flat top -->
-        <rect x="2" y="2" width="68" height="10" fill="#7a5c2e" opacity="0.88"/>
-        <!-- Purple dome -->
-        <path d="M2,12 L70,12 L70,27 Q37,19 2,27 Z" fill="#9b7aa0" opacity="0.86"/>
-        <!-- Khaki -->
-        <path d="M2,27 Q37,19 70,27 L70,38 Q37,31 2,38 Z" fill="#b8a882" opacity="0.88"/>
-        <!-- Basement -->
-        <path d="M2,38 Q37,31 70,38 L70,50 L2,50 Z" fill="#7a9090" opacity="0.9"/>
-        <!-- border -->
-        <rect x="2" y="2" width="68" height="48" rx="2" fill="none" stroke="#94a3b8" stroke-width="0.8"/>
-        <!-- well -->
-        <line x1="36" y1="2" x2="36" y2="50" stroke="#374151" stroke-width="0.8" stroke-dasharray="2,2" opacity="0.5"/>
-      </svg>
-      <div style="font-size:10px;font-weight:600;color:#334155">.dgeo</div>
-      <div style="font-size:9.5px;color:#64748b">Geological Cross-Section</div>
+    <!-- .dgeo -->
+    <div style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,0.08),0 0 0 1px rgba(0,0,0,0.06)">
+      <div style="height:4px;background:linear-gradient(90deg,#16a34a,#4ade80)"></div>
+      <div style="padding:10px">
+        <svg viewBox="0 0 80 56" style="width:100%;height:auto;display:block;margin-bottom:7px;border-radius:4px;overflow:hidden">
+          <rect width="80" height="56" fill="#0c1628"/>
+          <!-- formations -->
+          <rect x="0" y="0" width="80" height="12" fill="#9a6820"/>
+          <path d="M0,12 L80,12 L80,30 Q40,22 0,30 Z" fill="#8050a8"/>
+          <path d="M0,30 Q40,22 80,30 L80,44 Q40,37 0,44 Z" fill="#b88c40"/>
+          <path d="M0,44 Q40,37 80,44 L80,56 L0,56 Z" fill="#3a7878"/>
+          <!-- borehole -->
+          <line x1="40" y1="0" x2="40" y2="56" stroke="rgba(255,255,255,0.45)" stroke-width="0.9" stroke-dasharray="2.5,2"/>
+          <!-- subtle layer lines -->
+          <line x1="0" y1="12" x2="80" y2="12" stroke="rgba(0,0,0,0.2)" stroke-width="0.5"/>
+          <path d="M0,30 Q40,22 80,30" fill="none" stroke="rgba(0,0,0,0.15)" stroke-width="0.5"/>
+          <path d="M0,44 Q40,37 80,44" fill="none" stroke="rgba(0,0,0,0.15)" stroke-width="0.5"/>
+        </svg>
+        <span style="display:inline-block;font-size:9.5px;font-weight:700;color:#15803d;background:#f0fdf4;border-radius:4px;padding:1px 5px;margin-bottom:3px">.dgeo</span>
+        <div style="font-size:10px;color:#475569;line-height:1.3">Geological Cross-Section</div>
+      </div>
     </div>
 
-    <!-- LAS / DLIS -->
-    <div style="background:white;border-radius:10px;border:1px solid #e2e8f0;padding:10px 10px 8px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">
-      <svg viewBox="0 0 72 52" style="width:100%;height:auto;display:block;margin-bottom:5px">
-        <!-- depth track background -->
-        <rect x="2" y="2" width="10" height="48" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="0.5"/>
-        <!-- 3 log tracks -->
-        <rect x="13" y="2" width="18" height="48" fill="#f0fdf4" stroke="#e2e8f0" stroke-width="0.5"/>
-        <rect x="32" y="2" width="18" height="48" fill="#fff7ed" stroke="#e2e8f0" stroke-width="0.5"/>
-        <rect x="51" y="2" width="19" height="48" fill="#eff6ff" stroke="#e2e8f0" stroke-width="0.5"/>
-        <!-- depth ticks -->
-        {#each [10,22,34,46] as y}
-          <line x1="9" y1={y} x2="12" y2={y} stroke="#94a3b8" stroke-width="0.6"/>
-        {/each}
-        <!-- GR curve (green, jagged) -->
-        <polyline points="14,5 18,13 15,21 21,29 16,37 20,44 15,50"
-                  fill="none" stroke="#16a34a" stroke-width="1.3"/>
-        <!-- Resistivity (red, smoother) -->
-        <polyline points="33,6 42,16 35,26 44,34 36,42 43,49"
-                  fill="none" stroke="#dc2626" stroke-width="1.3"/>
-        <!-- Density (blue) -->
-        <polyline points="53,7 60,17 54,27 62,36 55,44 63,50"
-                  fill="none" stroke="#2563eb" stroke-width="1.1"/>
-      </svg>
-      <div style="font-size:10px;font-weight:600;color:#334155">.las / .dlis</div>
-      <div style="font-size:9.5px;color:#64748b">Well Log Curves</div>
+    <!-- .las / .dlis -->
+    <div style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,0.08),0 0 0 1px rgba(0,0,0,0.06)">
+      <div style="height:4px;background:linear-gradient(90deg,#d97706,#fbbf24)"></div>
+      <div style="padding:10px">
+        <svg viewBox="0 0 80 56" style="width:100%;height:auto;display:block;margin-bottom:7px;border-radius:4px;overflow:hidden">
+          <rect width="80" height="56" fill="#f8fafc"/>
+          <!-- depth track -->
+          <rect x="0" y="0" width="10" height="56" fill="#f1f5f9"/>
+          <!-- 3 tracks -->
+          <rect x="11" y="0" width="22" height="56" fill="#f0fdf4"/>
+          <rect x="34" y="0" width="22" height="56" fill="#fff7ed"/>
+          <rect x="57" y="0" width="23" height="56" fill="#eff6ff"/>
+          <!-- track borders -->
+          <line x1="10" y1="0" x2="10" y2="56" stroke="#e2e8f0" stroke-width="0.6"/>
+          <line x1="33" y1="0" x2="33" y2="56" stroke="#e2e8f0" stroke-width="0.6"/>
+          <line x1="56" y1="0" x2="56" y2="56" stroke="#e2e8f0" stroke-width="0.6"/>
+          <!-- depth ticks -->
+          <line x1="7" y1="14" x2="10" y2="14" stroke="#94a3b8" stroke-width="0.7"/>
+          <line x1="7" y1="28" x2="10" y2="28" stroke="#94a3b8" stroke-width="0.7"/>
+          <line x1="7" y1="42" x2="10" y2="42" stroke="#94a3b8" stroke-width="0.7"/>
+          <!-- GR curve (green) -->
+          <polyline points="12,4 17,12 13,21 20,30 14,39 19,48 13,54"
+                    fill="none" stroke="#16a34a" stroke-width="1.6" stroke-linejoin="round"/>
+          <!-- Res curve (amber) -->
+          <polyline points="35,5 44,16 37,26 46,35 38,43 45,52"
+                    fill="none" stroke="#d97706" stroke-width="1.6" stroke-linejoin="round"/>
+          <!-- Density (blue) -->
+          <polyline points="59,6 66,17 59,28 68,38 61,46 70,54"
+                    fill="none" stroke="#2563eb" stroke-width="1.4" stroke-linejoin="round"/>
+        </svg>
+        <span style="display:inline-block;font-size:9.5px;font-weight:700;color:#b45309;background:#fffbeb;border-radius:4px;padding:1px 5px;margin-bottom:3px">.las / .dlis</span>
+        <div style="font-size:10px;color:#475569;line-height:1.3">Well Log Curves</div>
+      </div>
     </div>
 
-    <!-- WSON -->
-    <div style="background:white;border-radius:10px;border:1px solid #e2e8f0;padding:10px 10px 8px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">
-      <svg viewBox="0 0 72 52" style="width:100%;height:auto;display:block;margin-bottom:5px">
-        <!-- surface casing -->
-        <rect x="22" y="2"  width="28" height="18" rx="1" fill="none" stroke="#374151" stroke-width="1.6"/>
-        <!-- int. casing -->
-        <rect x="28" y="2"  width="16" height="32" rx="0.5" fill="none" stroke="#64748b" stroke-width="1.3"/>
-        <!-- tubing -->
-        <rect x="32" y="5"  width="8"  height="30" rx="0.5" fill="none" stroke="#0369a1" stroke-width="1.1"/>
-        <!-- cement squeezes -->
-        <rect x="23" y="14" width="5"  height="6" rx="1" fill="#9ca3af"/>
-        <rect x="44" y="14" width="5"  height="6" rx="1" fill="#9ca3af"/>
-        <!-- reservoir band -->
-        <rect x="2"  y="38" width="68" height="12" rx="1" fill="#fef3c7" opacity="0.8"/>
-        <line x1="2" y1="38" x2="70" y2="38" stroke="#d97706" stroke-width="0.6" stroke-dasharray="3,2"/>
-        <!-- perforations -->
-        <line x1="28" y1="42" x2="23" y2="42" stroke="#dc2626" stroke-width="1.5"/>
-        <line x1="44" y1="45" x2="49" y2="45" stroke="#dc2626" stroke-width="1.5"/>
-        <text x="4" y="47" font-size="6" fill="#b45309" font-family="sans-serif" opacity="0.8">Reservoir</text>
-      </svg>
-      <div style="font-size:10px;font-weight:600;color:#334155">.wson</div>
-      <div style="font-size:9.5px;color:#64748b">Well Schematic</div>
+    <!-- .wson -->
+    <div style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,0.08),0 0 0 1px rgba(0,0,0,0.06)">
+      <div style="height:4px;background:linear-gradient(90deg,#2563eb,#60a5fa)"></div>
+      <div style="padding:10px">
+        <svg viewBox="0 0 80 56" style="width:100%;height:auto;display:block;margin-bottom:7px;border-radius:4px;overflow:hidden">
+          <rect width="80" height="56" fill="#f8fafc"/>
+          <!-- formation bands -->
+          <rect x="0" y="0"  width="80" height="18" fill="#e8f0f8"/>
+          <rect x="0" y="18" width="80" height="18" fill="#d8e4f0"/>
+          <rect x="0" y="36" width="80" height="20" fill="#fef9c3" opacity="0.8"/>
+          <line x1="0" y1="36" x2="80" y2="36" stroke="#ca8a04" stroke-width="0.6" stroke-dasharray="3,2"/>
+          <!-- conductor casing -->
+          <rect x="28" y="1"  width="24" height="14" rx="1" fill="none" stroke="#334155" stroke-width="2"/>
+          <!-- surface casing -->
+          <rect x="33" y="1"  width="14" height="28" rx="0.5" fill="none" stroke="#475569" stroke-width="1.6"/>
+          <!-- production casing -->
+          <rect x="36" y="4"  width="8"  height="38" rx="0.5" fill="none" stroke="#1d4ed8" stroke-width="1.3"/>
+          <!-- tubing -->
+          <rect x="38" y="8"  width="4"  height="32" rx="0.3" fill="none" stroke="#3b82f6" stroke-width="1"/>
+          <!-- cement -->
+          <rect x="29" y="10" width="4"  height="8" rx="1" fill="#94a3b8" opacity="0.8"/>
+          <rect x="47" y="10" width="4"  height="8" rx="1" fill="#94a3b8" opacity="0.8"/>
+          <!-- perforations -->
+          <line x1="36" y1="45" x2="32" y2="45" stroke="#dc2626" stroke-width="1.6"/>
+          <line x1="44" y1="48" x2="48" y2="48" stroke="#dc2626" stroke-width="1.6"/>
+          <line x1="36" y1="50" x2="32" y2="50" stroke="#dc2626" stroke-width="1.6"/>
+          <text x="4" y="52" font-size="6" fill="#92400e" font-family="system-ui" opacity="0.85">Reservoir</text>
+        </svg>
+        <span style="display:inline-block;font-size:9.5px;font-weight:700;color:#1d4ed8;background:#eff6ff;border-radius:4px;padding:1px 5px;margin-bottom:3px">.wson</span>
+        <div style="font-size:10px;color:#475569;line-height:1.3">Well Schematic</div>
+      </div>
     </div>
 
-    <!-- TPL / WFLOW -->
-    <div style="background:white;border-radius:10px;border:1px solid #e2e8f0;padding:10px 10px 8px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">
-      <svg viewBox="0 0 72 52" style="width:100%;height:auto;display:block;margin-bottom:5px">
-        <!-- Plot background -->
-        <rect x="2" y="2" width="68" height="48" rx="1.5" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.6"/>
-        <!-- Grid -->
-        <line x1="2"  y1="20" x2="70" y2="20" stroke="#e2e8f0" stroke-width="0.5"/>
-        <line x1="2"  y1="34" x2="70" y2="34" stroke="#e2e8f0" stroke-width="0.5"/>
-        <line x1="25" y1="2"  x2="25" y2="50" stroke="#e2e8f0" stroke-width="0.5"/>
-        <line x1="47" y1="2"  x2="47" y2="50" stroke="#e2e8f0" stroke-width="0.5"/>
-        <!-- S-shaped blue curve -->
-        <path d="M5,38 C16,34 22,12 36,18 C50,24 56,42 67,38"
-              fill="none" stroke="#2563eb" stroke-width="1.5"/>
-        <!-- Dashed orange trend -->
-        <path d="M5,28 C22,22 50,36 67,30"
-              fill="none" stroke="#f59e0b" stroke-width="1.2" stroke-dasharray="3,2"/>
-        <!-- Scatter dots -->
-        <circle cx="12" cy="36" r="2" fill="#7c3aed" opacity="0.7"/>
-        <circle cx="28" cy="18" r="2" fill="#7c3aed" opacity="0.7"/>
-        <circle cx="44" cy="24" r="2" fill="#7c3aed" opacity="0.7"/>
-        <circle cx="60" cy="38" r="2" fill="#7c3aed" opacity="0.7"/>
-      </svg>
-      <div style="font-size:10px;font-weight:600;color:#334155">.tpl / .wflow</div>
-      <div style="font-size:9.5px;color:#64748b">Plots &amp; Workflows</div>
+    <!-- .tpl / .wflow -->
+    <div style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,0.08),0 0 0 1px rgba(0,0,0,0.06)">
+      <div style="height:4px;background:linear-gradient(90deg,#7c3aed,#a78bfa)"></div>
+      <div style="padding:10px">
+        <svg viewBox="0 0 80 56" style="width:100%;height:auto;display:block;margin-bottom:7px;border-radius:4px;overflow:hidden">
+          <rect width="80" height="56" fill="#fafafa"/>
+          <!-- Grid -->
+          <line x1="0" y1="18" x2="80" y2="18" stroke="#e2e8f0" stroke-width="0.7"/>
+          <line x1="0" y1="36" x2="80" y2="36" stroke="#e2e8f0" stroke-width="0.7"/>
+          <line x1="27" y1="0" x2="27" y2="56" stroke="#e2e8f0" stroke-width="0.7"/>
+          <line x1="54" y1="0" x2="54" y2="56" stroke="#e2e8f0" stroke-width="0.7"/>
+          <!-- area fill under blue curve -->
+          <path d="M4,48 C16,44 24,12 40,15 C56,18 64,44 76,48 L76,56 L4,56 Z"
+                fill="#818cf8" opacity="0.12"/>
+          <!-- blue curve -->
+          <path d="M4,48 C16,44 24,12 40,15 C56,18 64,44 76,48"
+                fill="none" stroke="#4f46e5" stroke-width="1.8" stroke-linecap="round"/>
+          <!-- orange dashed trend -->
+          <path d="M4,32 C24,26 56,36 76,28"
+                fill="none" stroke="#f59e0b" stroke-width="1.4" stroke-dasharray="4,2.5" stroke-linecap="round"/>
+          <!-- scatter dots -->
+          <circle cx="16" cy="44" r="2.2" fill="#7c3aed"/>
+          <circle cx="40" cy="15" r="2.2" fill="#7c3aed"/>
+          <circle cx="58" cy="20" r="2.2" fill="#7c3aed"/>
+          <circle cx="72" cy="44" r="2.2" fill="#7c3aed"/>
+        </svg>
+        <span style="display:inline-block;font-size:9.5px;font-weight:700;color:#6d28d9;background:#faf5ff;border-radius:4px;padding:1px 5px;margin-bottom:3px">.tpl / .wflow</span>
+        <div style="font-size:10px;color:#475569;line-height:1.3">Plots &amp; Workflows</div>
+      </div>
     </div>
 
   </div>
 
-  <!-- Getting started hint -->
-  <p style="font-size:11px;color:#94a3b8;text-align:center;max-width:220px;line-height:1.5">
-    Open the <strong style="color:#64748b">file explorer</strong> on the left to browse
-    well data, or load a sample from the menu <span style="color:#64748b">⊞</span>
+  <!-- hint -->
+  <p style="font-size:11px;color:#94a3b8;text-align:center;padding:0 20px 20px;line-height:1.6">
+    Open the <strong style="color:#64748b;font-weight:600">file explorer</strong> ← to browse well data,
+    or load a sample from <strong style="color:#64748b;font-weight:600">⊞ menu</strong>
   </p>
 
 </div>
