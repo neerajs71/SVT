@@ -627,6 +627,8 @@
     <!-- NURBS solid blocks (GeologicalModel.layers[].nurbsGeos[]) -->
     {#if showSolids && model.layers.some(l => l.nurbsGeos.length > 0)}
       {#each model.layers as layer (layer.horizonId)}
+        {@const hz = horizons.find(h => h.id === layer.horizonId)}
+        {#if hz?.visible !== false}
         {#each layer.nurbsGeos as geo (geo.uuid)}
           <T.Mesh geometry={geo}>
             <T.MeshPhongMaterial
@@ -640,6 +642,7 @@
             </T.Mesh>
           {/if}
         {/each}
+        {/if}
       {/each}
     {:else}
       <!-- Fallback: show raw NURBS surfaces while solids are building or Solidify is off -->
