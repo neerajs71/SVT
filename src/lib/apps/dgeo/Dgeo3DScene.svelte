@@ -18,7 +18,6 @@
     defaultRailCount  = 10,
     showSolids        = false,
     showRuler         = false,
-    showNurbs         = false,
     showNurbsWireframe = true,
     sliceY            = 0,
     editHorizonId     = $bindable(null as string | null),
@@ -90,64 +89,8 @@
     return out;
   }
 
-  // ── Surface geometry (arc-length grid, new coords) ─────────────────────────
-  // Vertex layout: [nX(p.x), nStrike(rail.z), nDepth(p.y)]
-  function buildGridGeo(rails, nSamples = 50) {
-    const sr = [...rails].sort((a, b) => a.z - b.z);
-    if (sr.length < 2) return null;
-    const nR = sr.length;
-
-    const grid = sr.map(rail => {
-      // Preserve arc-length (insertion) order so folds are rendered correctly
-      const sampled = sampleArcLength(rail.points, nSamples);
-      // Snap first/last to exact domain walls (boundary endpoints are always at domain edge)
-      if (sampled.length > 0) sampled[0].x = domX.min;
-      if (sampled.length > 1) sampled[sampled.length - 1].x = domX.max;
-      return sampled.map(p => [nX(p.x), nStrike(rail.z), nDepth(p.y)]);
-    });
-
-    const verts = new Float32Array(nR * nSamples * 3);
-    for (let r = 0; r < nR; r++) {
-      for (let x = 0; x < nSamples; x++) {
-        const idx = (r * nSamples + x) * 3;
-        [verts[idx], verts[idx+1], verts[idx+2]] = grid[r][x];
-      }
-    }
-
-    const indices = [];
-    for (let r = 0; r < nR - 1; r++) {
-      for (let x = 0; x < nSamples - 1; x++) {
-        const a = r * nSamples + x, b = a + 1;
-        const c = (r+1) * nSamples + x, d = c + 1;
-        indices.push(a, b, d, a, d, c);
-      }
-    }
-
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
-    geo.setIndex(indices);
-    geo.computeVertexNormals();
-    return geo;
-  }
-
-  // ── Horizons in user-defined list order (shallowest first = index 0) ──────
-  // Array order is the authoritative stratigraphic order; no depth-sort here.
+  // ── Horizons in user-defined list order ──────────────────────────────────
   const sorted = $derived([...horizons]);
-
-  // ── Derived: surface meshes for visible horizons ───────────────────────────
-  const surfaces = $derived.by(() => {
-    return sorted
-      .filter(h => h.visible !== false)
-      .map((h, i) => {
-        const rails = getRails(h);
-        const geo = buildGridGeo(rails);
-        return geo ? { geo, color: h.colour ?? '#c8e6c9', id: h.id, name: h.name } : null;
-      }).filter(Boolean);
-  });
-  $effect(() => {
-    const snap = surfaces;
-    return () => { for (const s of snap) s.geo?.dispose(); };
-  });
 
   // Propagate model errors to the solidErrors $bindable prop
   $effect(() => { solidErrors = model.errors; });
@@ -343,10 +286,6 @@
   let nurbsCache = $state([] as NurbsCacheEntry[]);
 
   $effect(() => {
-    if (!showNurbs) {
-      nurbsCache = [];
-      return;
-    }
     const snap    = sorted;
     const _ready  = chain.ready;
     let cancelled = false;
@@ -406,7 +345,7 @@
 
   // Slice intersection curves — CPU extract from cached vertex grid
   const sliceCurves = $derived.by(() => {
-    if (!showNurbs || !nurbsCache.length) return [];
+    if (!nurbsCache.length) return [];
     return nurbsCache.map(nd => {
       const { positions, resolution, color } = nd;
       const W      = resolution + 1;
@@ -465,22 +404,6 @@
 <T.DirectionalLight position={[14, -8, -10]} intensity={0.55} />
 <T.DirectionalLight position={[-8, 8, 14]}  intensity={0.25} />
 
-
-<!-- ── Formation surfaces (fallback when NURBS is off) ────────────────────── -->
-{#if !showSolids && !showNurbs}
-  {#each surfaces as s (s.geo.uuid)}
-    <T.Mesh
-      geometry={s.geo}
-      onclick={() => { editHorizonId = s.id; editRailIdx = 0; }}
-    >
-      <T.MeshLambertMaterial
-        color={s.color}
-        transparent opacity={0.88}
-        side={THREE.DoubleSide}
-      />
-    </T.Mesh>
-  {/each}
-{/if}
 
 <!-- ── Rail lines for selected horizon ────────────────────────────────────── -->
 {#each railLineGeos as l (l.geo.uuid)}
@@ -583,8 +506,7 @@
 {/if}
 
 <!-- ── NURBS surfaces ─────────────────────────────────────────────────────── -->
-{#if showNurbs}
-  <T.Group>
+<T.Group>
 
     <!-- NURBS solid blocks (GeologicalModel.layers[].nurbsGeos[]) -->
     {#if showSolids && model.layers.some(l => l.nurbsGeos.length > 0)}
@@ -642,4 +564,3 @@
     </T.Mesh>
 
   </T.Group>
-{/if}
