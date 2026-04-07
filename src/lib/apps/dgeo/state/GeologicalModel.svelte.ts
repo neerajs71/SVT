@@ -3,11 +3,16 @@
  *
  * Owns the full ordered stack of LayerAssembly objects.
  *
- * Horizons are sorted DEEPEST FIRST (largest avgDepth).
- * Layer[0] = basement solid (deepest horizon, no subtraction)
- * Layer[i] = solid[i].subtract(solid[i-1])  for i > 0
+ * Stratigraphic order comes from the horizons[] array passed in — the user
+ * controls it via the move-up/down buttons in DgeoApp.  Array index 0 is the
+ * shallowest horizon; the last element is the basement.
  *
- * This mirrors the deposition operator in pyenthu/dlis geostore.ts.
+ * For CSG we traverse deepest-first (reversed array):
+ *   Layer[0] = basement solid (last in array, no subtraction)
+ *   Layer[i] = solid[i].subtract(solid[i-1])  for i > 0
+ *
+ * A discrepancy warning is emitted if the geometric avgDepth contradicts the
+ * user-defined list order (e.g. index 2 is geometrically shallower than index 1).
  */
 
 import * as THREE from 'three';
@@ -58,12 +63,14 @@ export class GeologicalModel {
     try {
       const mf = await getMF() as any;
 
-      // Sort deepest first
-      const sorted = [...horizons]
+      // Use user-defined array order (shallowest-first); reverse for deepest-first CSG.
+      const sorted = horizons
         .filter(h => getRails(h).length >= 2)
-        .sort((a, b) => b.avgDepth - a.avgDepth);
+        .reverse();
 
       if (sorted.length === 0) { this.gridBuilding = false; return; }
+
+      this._warnOrderDiscrepancy(sorted);
 
       // Ensure layers array has a slot per sorted horizon
       this._syncLayers(sorted);
@@ -103,9 +110,12 @@ export class GeologicalModel {
       const mf = await getMF() as any;
       const { WX, WY, strikeW } = dims;
 
-      // Horizons with evaluated NURBS positions
-      const ready = horizons.filter(h => h.nurbsPositions && h.nurbsResolution > 0);
-      const sorted = [...ready].sort((a, b) => b.avgDepth - a.avgDepth);
+      // Use user-defined array order (shallowest-first); reverse for deepest-first CSG.
+      const sorted = horizons
+        .filter(h => h.nurbsPositions && h.nurbsResolution > 0)
+        .reverse();
+
+      this._warnOrderDiscrepancy(sorted);
 
       if (sorted.length === 0) { this.nurbsBuilding = false; return; }
 
@@ -135,6 +145,25 @@ export class GeologicalModel {
       }
     } finally {
       this.nurbsBuilding = false;
+    }
+  }
+
+  // ── Order validation ──────────────────────────────────────────────────────
+
+  /**
+   * `sorted` is deepest-first (reversed from the user's list).
+   * Check that each pair is geometrically consistent: sorted[i].avgDepth should
+   * be >= sorted[i+1].avgDepth (deeper first).  Warn if not.
+   */
+  private _warnOrderDiscrepancy(sorted: HorizonState[]): void {
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const deep    = sorted[i];
+      const shallow = sorted[i + 1];
+      if (deep.avgDepth < shallow.avgDepth) {
+        const msg = `⚠ Order discrepancy: "${deep.name}" is listed deeper than "${shallow.name}" but appears geometrically shallower. Check the horizon list order.`;
+        console.warn('[GeologicalModel]', msg);
+        this.errors = [...this.errors, msg];
+      }
     }
   }
 

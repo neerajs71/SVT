@@ -130,10 +130,9 @@
     return geo;
   }
 
-  // ── Sorted horizons (shallowest first, deepest last) ─────────────────────
-  const sorted = $derived(
-    [...horizons].sort((a, b) => a.avgDepth - b.avgDepth)
-  );
+  // ── Horizons in user-defined list order (shallowest first = index 0) ──────
+  // Array order is the authoritative stratigraphic order; no depth-sort here.
+  const sorted = $derived([...horizons]);
 
   // ── Derived: surface meshes for visible horizons ───────────────────────────
   const surfaces = $derived.by(() => {
