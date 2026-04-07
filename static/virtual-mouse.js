@@ -15,7 +15,7 @@
   /* ── constants ──────────────────────────────────────────────── */
   const SKIP_TAGS   = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
   const HOLD_MS     = 300;   // ms before touch-hold becomes a drag
-  const BTN_SIZE    = 48;    // toggle button px
+  const BTN_SIZE    = 34;    // toggle button px
 
   const DBLCLICK_MS  = 350;  // max ms between two taps for dblclick
   const DBLCLICK_PX  = 20;   // max pixel distance between the two taps
@@ -58,8 +58,8 @@
     </svg>`;
   Object.assign(btn.style, {
     position:     'fixed',
-    bottom:       '20px',
-    right:        '20px',
+    bottom:       '14px',
+    right:        '58px',   /* sits left of the AI chat button (34px + 10px gap + 14px) */
     width:        BTN_SIZE + 'px',
     height:       BTN_SIZE + 'px',
     borderRadius: '50%',

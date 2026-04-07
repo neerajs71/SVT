@@ -627,10 +627,10 @@
   <div class="flex-shrink-0 p-2">
     <button
       onclick={() => (open = true)}
-      class="p-1.5 rounded-md bg-green-800 text-white hover:bg-green-700"
+      class="p-1 rounded-md bg-green-800 text-white hover:bg-green-700"
       aria-label="Open explorer"
     >
-      <FolderOpenSolid class="w-5 h-5" />
+      <FolderOpenSolid class="w-4 h-4" />
     </button>
   </div>
 {/if}

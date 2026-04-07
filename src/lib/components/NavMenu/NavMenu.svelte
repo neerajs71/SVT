@@ -13,10 +13,10 @@
 <div id="nav-menu-wrapper" class="fixed top-3 right-3 z-50">
   <button
     onclick={(e) => { e.stopPropagation(); open = !open; }}
-    class="p-1.5 rounded-md bg-green-800 text-white hover:bg-green-700"
+    class="p-1 rounded-md bg-green-800 text-white hover:bg-green-700"
     aria-label="Open app menu"
   >
-    <GridOutline class="w-5 h-5" />
+    <GridOutline class="w-4 h-4" />
   </button>
 
   {#if open}

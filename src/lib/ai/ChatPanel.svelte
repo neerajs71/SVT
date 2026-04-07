@@ -58,22 +58,22 @@
   }
 </script>
 
-<!-- Floating toggle button — bottom-left -->
+<!-- Floating toggle button — bottom-right -->
 <button
   onclick={() => chatStore.toggle()}
-  class="fixed bottom-4 left-4 z-50 w-11 h-11 rounded-full bg-green-800 text-white shadow-lg flex items-center justify-center hover:bg-green-700 transition-colors"
+  class="fixed bottom-3.5 right-3.5 z-50 w-9 h-9 rounded-full bg-green-800 text-white shadow-lg flex items-center justify-center hover:bg-green-700 transition-colors"
   title="AI Assistant"
   aria-label="Toggle AI assistant"
 >
-  <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
   </svg>
 </button>
 
 {#if chatStore.open}
-  <!-- Chat panel -->
-  <div class="fixed bottom-18 left-4 z-50 w-96 flex flex-col rounded-xl shadow-2xl border border-gray-200 bg-white overflow-hidden"
-       style="height: 480px;">
+  <!-- Chat panel — opens above the button, anchored to bottom-right -->
+  <div class="fixed bottom-[60px] right-3.5 z-50 flex flex-col rounded-xl shadow-2xl border border-gray-200 bg-white overflow-hidden"
+       style="height:480px;width:min(24rem,calc(100vw - 1.75rem))">
 
     <!-- Header -->
     <div class="flex items-center justify-between px-3 py-2 bg-green-800 flex-shrink-0">
