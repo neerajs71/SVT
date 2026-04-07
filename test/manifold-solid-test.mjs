@@ -373,6 +373,77 @@ async function main() {
     } catch(e) { console.log(`  [F CSG-C] ✗  exception: ${e.message}`); }
   }
 
+  // ── Test G: decompose() behaviour ────────────────────────────────────────────
+  console.log('\nTest G: Manifold.decompose() — single body vs two disconnected bodies');
+
+  // G1: single cube → decompose should return 1 part
+  {
+    const box = mf.Manifold.cube([2, 2, 2], true);
+    try {
+      const parts = box.decompose();
+      console.log(`  G1 single cube: decompose() → ${parts.length} part(s) (expected 1)`);
+    } catch(e) { console.log(`  G1 ✗ decompose not available: ${e.message}`); }
+  }
+
+  // G2: two separate cubes unioned → decompose should return 2 parts (if they don't touch)
+  {
+    // Place two cubes far apart so they don't share any face
+    const box1 = mf.Manifold.cube([1, 1, 1], false);
+    const box2 = mf.Manifold.cube([1, 1, 1], false).translate([3, 0, 0]);
+    try {
+      const combined = mf.Manifold.union([box1, box2]);
+      const st = combined.status();
+      const parts = combined.decompose();
+      console.log(`  G2 two far-apart cubes unioned: status=${st} decompose()→${parts.length} part(s) (expected 2)`);
+      parts.forEach((p, i) =>
+        console.log(`    part[${i}]: status=${p.status()} vol=${p.volume().toFixed(3)}`)
+      );
+    } catch(e) { console.log(`  G2 ✗ exception: ${e.message}`); }
+  }
+
+  // G3: subtract a central bridge from a bar → splits into two pieces
+  // Bar: 0..10 in X, 0..2 in Y, 0..2 in Z
+  // Cutter: X 3..7, Y -1..3 (full height+), Z -1..3 (full depth+)  → splits bar left/right
+  {
+    const bar    = mf.Manifold.cube([10, 2, 2], false);
+    const cutter = mf.Manifold.cube([4, 4, 4], false).translate([3, -1, -1]);
+    try {
+      const split = bar.subtract(cutter);
+      const st = split.status();
+      const parts = split.decompose();
+      console.log(`  G3 bar minus center cutter: status=${st} decompose()→${parts.length} part(s) (expected 2)`);
+      parts.forEach((p, i) =>
+        console.log(`    part[${i}]: status=${p.status()} vol=${p.volume().toFixed(3)}`)
+      );
+    } catch(e) { console.log(`  G3 ✗ exception: ${e.message}`); }
+  }
+
+  // G4: subtract of two ear-clip NURBS solids that overlap partially
+  // Use solidC (fold-back) as "baseBlock" and subtract a flat solid that only covers half the X range
+  if (solidC) {
+    console.log('\n  G4: subtract fold-back NURBS solid minus left-half flat → may split');
+    try {
+      // Left-half flat solid (covers X 0..WX/2)
+      const halfPos = new Float32Array(N * 3);
+      for (let row = 0; row < R; row++) for (let col = 0; col < R; col++) {
+        const i = row * R + col;
+        halfPos[i*3]   = (col / resolution) * (WX / 2);  // only left half
+        halfPos[i*3+1] = (row / resolution) * strikeW;
+        halfPos[i*3+2] = 4.0;
+      }
+      const halfFlat = buildNurbsSolidEarClip(mf, halfPos);
+      checkManifold(mf, halfFlat, 'G4 half-flat');
+      const g4 = solidC.subtract(halfFlat);
+      const st = g4.status();
+      if (st === 'NoError') {
+        const parts = g4.decompose();
+        console.log(`  G4 result: status=${st} vol=${g4.volume().toFixed(3)} decompose()→${parts.length} part(s)`);
+      } else {
+        console.log(`  G4 result: status=${st} (no decompose)`);
+      }
+    } catch(e) { console.log(`  G4 ✗ exception: ${e.message}`); }
+  }
+
   console.log('\nDone.');
 }
 
