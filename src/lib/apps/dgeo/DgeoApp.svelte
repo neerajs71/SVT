@@ -225,10 +225,37 @@
     presetDialog = null;
     const basePts = generatePresetPoints(preset, depth);
     const n  = Math.max(2, defaultRailCount);
-    const rails: Rail[] = Array.from({ length: n }, (_, i) => ({
-      z:      (i / (n - 1)) * strikeKm,
-      points: basePts.map(p => ({ ...p })),
-    }));
+
+    let rails: Rail[];
+
+    if (preset === 'dome') {
+      // Hemispherical dome — each rail's amplitude is scaled by its normalised
+      // strike distance from centre:  lift(x,z) = amp * sqrt(1 - dx² - dz²)
+      // where dx = (x-xMid)/(xRange/2) and dz = (z-sMid)/(strikeKm/2)
+      const xL = domX.min, xR = domX.max, xRange = xR - xL, xMid = (xL + xR) / 2;
+      const sMid = strikeKm / 2;
+      const amp  = (domY.max - domY.min) * 0.15;
+      const N    = 24;
+      const clampY = (y: number) => Math.max(domY.min, Math.min(domY.max, y));
+
+      rails = Array.from({ length: n }, (_, ri) => {
+        const z  = (ri / (n - 1)) * strikeKm;
+        const dz = (z - sMid) / sMid;             // -1 … +1 in strike
+        const points: Point2D[] = Array.from({ length: N }, (_, ci) => {
+          const x  = xL + xRange * ci / (N - 1);
+          const dx = (x - xMid) / (xRange / 2);   // -1 … +1 in X
+          const d2 = dx * dx + dz * dz;
+          const lift = d2 <= 1 ? amp * Math.sqrt(1 - d2) : 0;
+          return { x, y: clampY(depth - lift) };
+        });
+        return { z, points };
+      });
+    } else {
+      rails = Array.from({ length: n }, (_, i) => ({
+        z:      (i / (n - 1)) * strikeKm,
+        points: basePts.map(p => ({ ...p })),
+      }));
+    }
     const h = new HorizonState({
       id:       crypto.randomUUID(),
       name:     `Horizon ${idx + 1}`,
